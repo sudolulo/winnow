@@ -36,9 +36,7 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     # File handler (always debug level)
     file_handler = logging.FileHandler("immich_export.log")
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
     root.addHandler(file_handler)
 
     # Silence noisy libraries

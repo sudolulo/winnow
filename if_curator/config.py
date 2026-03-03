@@ -24,7 +24,21 @@ class Config:
     API_KEY: str | None = None
     OUTPUT_DIR: str = "./frigate_train"
     YEARS_FILTER: int = 10
-    MIN_FACE_WIDTH: int = 50
+
+    # Quality filtering
+    MIN_FACE_WIDTH: int = 100
+    BLUR_THRESHOLD: float = 100.0
+    MIN_CONFIDENCE: float = 0.7
+    MAX_AUTO_IMAGES: int = 80
+
+    # Output quality
+    FACE_MARGIN: float = 0.15
+    USE_FULL_RESOLUTION: bool = True
+    ENABLE_FACE_ALIGNMENT: bool = True
+
+    # Caching (opt-in to avoid unexpected files)
+    ENABLE_CACHE: bool = False
+    CACHE_DIR: str = ".if_cache"
 
     def __new__(cls) -> "Config":
         if cls._instance is None:

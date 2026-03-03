@@ -5,6 +5,7 @@ yolov9c.pt
 .insightface/
 .huggingface/
 .cache/huggingface
+.if_cache/
 
 .immich_config.json
 # Python-generated files

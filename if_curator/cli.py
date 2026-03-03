@@ -9,13 +9,15 @@ from PIL import Image
 from rich import print as rprint
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 from rich.prompt import Confirm, IntPrompt, Prompt
+from rich.table import Table
 
 from .config import Config, ConfigManager
 from .diversity import select_diverse_assets
 from .embeddings import is_embedding_available
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
-from .immich_api import fetch_all_assets, filter_recent_assets, get_people
+from .immich_api import fetch_all_assets, fetch_full_image, filter_recent_assets, get_people
 from .logging import console, setup_logging
+
 logger = logging.getLogger(__name__)
 
 # Strategy presets: (limit, mode_name)
@@ -62,23 +64,9 @@ def _get_strategy_choice(has_embedding: bool, entity_type: str) -> tuple[int | s
     return limits.get(choice, 0), "time" if choice != "4" else "skip"
 
 
-def interactive_configure(people: list[dict]) -> list[dict]:
-    """Interactive phase: select person, mode, and configure training strategy."""
-    valid_people = sorted([p for p in people if p.get("name")], key=lambda x: x["name"])
-
-    if not valid_people:
-        rprint("[red]No people found with names in Immich.[/red]")
-        return []
-
-    # Select person
-    console.print("\n[bold cyan]Select Person to Train:[/bold cyan]")
-    for idx, p in enumerate(valid_people, 1):
-        console.print(f"  [bold]{idx}.[/bold] {p['name']}")
-
-    p_choice = IntPrompt.ask("Enter Number", choices=[str(i) for i in range(1, len(valid_people) + 1)])
-    person = valid_people[p_choice - 1]
+def _configure_person(person: dict, people: list[dict]) -> dict | None:
+    """Configure training for a single person. Returns job dict or None."""
     name = person["name"]
-
     console.print(f"\nSelected: [bold green]{name}[/bold green]")
 
     # Select training mode
@@ -105,7 +93,7 @@ def interactive_configure(people: list[dict]) -> list[dict]:
 
     if not recent_assets:
         rprint("  [dim]Skipping (0 recent images).[/dim]")
-        return []
+        return None
 
     # Strategy selection
     has_embedding = is_embedding_available(entity_type)
@@ -113,18 +101,52 @@ def interactive_configure(people: list[dict]) -> list[dict]:
 
     limit, selection_mode = _get_strategy_choice(has_embedding, entity_type)
     if selection_mode == "skip":
-        return []
+        return None
 
     # Perform selection
     selected_assets = _perform_selection(recent_assets, limit, name, selection_mode, entity_type)
 
     rprint(f"  [green]Queued {len(selected_assets)} images for {name}.[/green]")
-    return [{"person": person, "assets": selected_assets, "limit": len(selected_assets), "config": config}]
+    return {"person": person, "assets": selected_assets, "limit": len(selected_assets), "config": config}
 
 
-def _perform_selection(
-    assets: list, limit: int | str, name: str, selection_mode: str, entity_type: str
-) -> list:
+def interactive_configure(people: list[dict]) -> list[dict]:
+    """Interactive phase: select person(s), mode, and configure training strategy.
+
+    Supports multi-person batch mode — after configuring one person,
+    prompts to add another.
+    """
+    valid_people = sorted([p for p in people if p.get("name")], key=lambda x: x["name"])
+
+    if not valid_people:
+        rprint("[red]No people found with names in Immich.[/red]")
+        return []
+
+    jobs = []
+
+    while True:
+        # Select person
+        console.print("\n[bold cyan]Select Person to Train:[/bold cyan]")
+        for idx, p in enumerate(valid_people, 1):
+            # Mark already-queued people
+            marker = " [dim](queued)[/dim]" if any(j["person"]["id"] == p["id"] for j in jobs) else ""
+            console.print(f"  [bold]{idx}.[/bold] {p['name']}{marker}")
+
+        p_choice = IntPrompt.ask("Enter Number", choices=[str(i) for i in range(1, len(valid_people) + 1)])
+        person = valid_people[p_choice - 1]
+
+        job = _configure_person(person, valid_people)
+        if job:
+            jobs.append(job)
+
+        # Multi-person: ask to add another
+        if not Confirm.ask("\nAdd another person?", default=False):
+            break
+
+    return jobs
+
+
+def _perform_selection(assets: list, limit: int | str, name: str, selection_mode: str, entity_type: str) -> list:
     """Run diversity selection with progress display."""
     if selection_mode == "smart":
         model_display = "InsightFace (face embeddings)" if entity_type == "face" else "SigLIP (visual embeddings)"
@@ -134,12 +156,17 @@ def _perform_selection(
         is_embedding_available(entity_type)
 
         with Progress(
-            SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
-            BarColumn(), TaskProgressColumn(), console=console,
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
         ) as progress:
             task = progress.add_task(f"[cyan]Computing embeddings for {len(assets)} images...", total=None)
             selected = select_diverse_assets(
-                assets, limit, name,
+                assets,
+                limit,
+                name,
                 selection_mode=selection_mode,
                 entity_type=entity_type,
                 progress_callback=lambda c, t: progress.update(task, completed=c, total=t),
@@ -156,6 +183,30 @@ def _perform_selection(
     return selected
 
 
+def _show_preview(jobs: list[dict]) -> None:
+    """Show a summary table of all queued jobs before execution."""
+    table = Table(title="📋 Training Job Preview", show_header=True, header_style="bold cyan")
+    table.add_column("Person", style="bold")
+    table.add_column("Mode", style="dim")
+    table.add_column("Images", justify="right")
+    table.add_column("Date Range", style="dim")
+
+    for job in jobs:
+        name = job["person"]["name"]
+        mode = job["config"].get("mode", "face")
+        count = str(job["limit"])
+
+        # Date range
+        dates = sorted(a.get("fileCreatedAt", "")[:10] for a in job["assets"] if a.get("fileCreatedAt"))
+        date_range = f"{dates[0]} → {dates[-1]}" if len(dates) >= 2 else (dates[0] if dates else "—")
+
+        table.add_row(name, mode, count, date_range)
+
+    console.print()
+    console.print(table)
+    console.print()
+
+
 def execute_jobs(jobs: list[dict]) -> None:
     """Download and process images for all jobs."""
     if not jobs:
@@ -163,9 +214,14 @@ def execute_jobs(jobs: list[dict]) -> None:
 
     console.rule("[bold blue]Execution Phase")
 
+    use_full_res = Config.USE_FULL_RESOLUTION
+
     with Progress(
-        SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
-        BarColumn(), TaskProgressColumn(), console=console,
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
     ) as progress:
         grand_total = sum(j["limit"] for j in jobs)
         overall_task = progress.add_task("[green]Overall Progress", total=grand_total)
@@ -181,17 +237,22 @@ def execute_jobs(jobs: list[dict]) -> None:
             count = 0
             for asset in assets:
                 try:
-                    resp = requests.get(
-                        f"{Config.IMMICH_URL}/api/assets/{asset['id']}/thumbnail?size=preview&format=JPEG",
-                        headers={"x-api-key": Config.API_KEY, "Accept": "application/json"},
-                        timeout=30,
-                    )
-                    if not resp.ok:
+                    # Use full-resolution for final output when configured
+                    if use_full_res:
+                        img = fetch_full_image(asset["id"])
+                    else:
+                        resp = requests.get(
+                            f"{Config.IMMICH_URL}/api/assets/{asset['id']}/thumbnail?size=preview&format=JPEG",
+                            headers={"x-api-key": Config.API_KEY, "Accept": "application/json"},
+                            timeout=30,
+                        )
+                        img = Image.open(BytesIO(resp.content)) if resp.ok else None
+
+                    if img is None:
                         progress.console.print(f"[red]Failed download {asset['id']}[/red]")
                     else:
-                        img = Image.open(BytesIO(resp.content))
                         saved = (
-                            process_face_mode(img, asset, person, person_dir, count, min_width=Config.MIN_FACE_WIDTH)
+                            process_face_mode(img, asset, person, person_dir, count)
                             if mode == "face"
                             else process_object_mode(img, config, person_dir, count)
                             if mode == "object"
@@ -236,10 +297,12 @@ def main() -> None:
 
         jobs = interactive_configure(people)
 
-        if jobs and Confirm.ask(f"\nReady to process {sum(j['limit'] for j in jobs)} images?"):
-            execute_jobs(jobs)
-            rprint("\n[bold green]Done! Happy Training.[/bold green]")
-        elif not jobs:
+        if jobs:
+            _show_preview(jobs)
+            if Confirm.ask(f"Ready to process {sum(j['limit'] for j in jobs)} images?"):
+                execute_jobs(jobs)
+                rprint("\n[bold green]Done! Happy Training.[/bold green]")
+        else:
             rprint("[yellow]No jobs configured.[/yellow]")
 
     except KeyboardInterrupt:

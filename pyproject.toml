@@ -3,23 +3,36 @@ name = "if-curator"
 version = "0.1.0"
 description = "Immich to Frigate training sets"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
+authors = [{ name = "ds-sebastian" }]
+keywords = ["immich", "frigate", "face-recognition", "training-data", "arcface", "insightface"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
 dependencies = [
     "insightface>=0.7.3",
     "numpy>=2.2.6",
     "onnxruntime>=1.23.2",
-    "opencv-python>=4.12.0.88",
     "opencv-python-headless>=4.12.0.88",
     "pillow>=12.1.0",
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
     "rich>=14.2.0",
-    "scipy>=1.17.0",
-    "sentencepiece>=0.2.1",
     "torch>=2.9.1",
     "transformers>=4.57.6",
     "ultralytics>=8.3.252",
 ]
+
+[project.scripts]
+if-curator = "if_curator.cli:main"
+
+[project.urls]
+Repository = "https://github.com/ds-sebastian/if_curator"
 
 [project.optional-dependencies]
 gpu = [
@@ -28,6 +41,7 @@ gpu = [
 
 [dependency-groups]
 dev = [
+    "pytest>=8.0",
     "ruff>=0.9.2",
 ]
 
@@ -38,3 +52,26 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 
+[tool.deptry]
+pep621_dev_dependency_groups = ["dev"]
+
+[tool.deptry.package_module_name_map]
+pillow = "PIL"
+opencv-python-headless = "cv2"
+python-dotenv = "dotenv"
+insightface = "insightface"
+numpy = "numpy"
+onnxruntime = "onnxruntime"
+requests = "requests"
+rich = "rich"
+torch = "torch"
+transformers = "transformers"
+ultralytics = "ultralytics"
+
+[tool.deptry.per_rule_ignores]
+# onnxruntime-gpu is an optional dep that replaces onnxruntime at runtime
+DEP002 = ["onnxruntime-gpu"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
