@@ -114,7 +114,7 @@ Bad training data hurts ArcFace models. Images are automatically rejected if the
 
 ## Docker
 
-See [sudolulo/if-curator-headless](https://github.com/sudolulo/if-curator-docker) for the Dockerfile, compose config, and setup instructions.
+[ghcr.io/sudolulo/if-curator-headless](ghcr.io/sudolulo/if-curator-headless)
 
 ---
 
