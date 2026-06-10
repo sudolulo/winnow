@@ -1,7 +1,6 @@
 services:
   if-curator:
-    build: .
-    image: if-curator-headless:latest
+    image: ghcr.io/sudolulo/if-curator-headless:latest
     container_name: if-curator
     environment:
       - IMMICH_URL=${IMMICH_URL}
