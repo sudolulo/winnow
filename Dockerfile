@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     g++ \
+    cron \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.12 /usr/bin/python \
     && ln -sf /usr/bin/python3.12 /usr/bin/python3
@@ -28,12 +29,17 @@ RUN git clone --depth 1 https://github.com/sudolulo/if_curator_headless.git . \
     && uv sync --extra gpu \
     && uv cache clean
 
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 RUN groupadd -g 568 apps \
     && useradd -u 568 -g apps -m -s /bin/bash appuser \
     && chown -R appuser:apps /app
 
 USER appuser
 
-ENV FORCE_CPU=false
+ENV FORCE_CPU=false \
+    HF_HOME=/models/huggingface \
+    INSIGHTFACE_HOME=/models/insightface
 
-ENTRYPOINT ["uv", "run", "if-curator"]
+ENTRYPOINT ["/app/entrypoint.sh"]
