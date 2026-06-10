@@ -17,13 +17,19 @@ services:
       # - ONLY_PEOPLE=John,Jane
       # - SKIP_PEOPLE=Unknown
       # - MIN_FACE_COUNT=5
+
+      # ── Scheduling ──
+      # Cron expression (unset = run once and exit)
+      - CRON_SCHEDULE=0 3 * * 0    # Every Sunday at 3 AM
+      # - CRON_SCHEDULE=0 3 1 * *  # 1st of every month at 3 AM
+      # - CRON_SCHEDULE=*/30 * * * *  # Every 30 minutes (testing)
     volumes:
       - /mnt/<pool>/if-curator/models:/models
       - /mnt/<pool>/if-curator/embeddings:/app/.if_cache
       - /mnt/<pool>/if-curator/output:/app/output
     stdin_open: true
     tty: true
-    restart: "no"
+    restart: unless-stopped
     deploy:
       resources:
         reservations:
