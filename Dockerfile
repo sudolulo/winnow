@@ -15,7 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     g++ \
-    cron \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.12 /usr/bin/python \
     && ln -sf /usr/bin/python3.12 /usr/bin/python3
@@ -27,9 +26,10 @@ WORKDIR /app
 
 RUN git clone --depth 1 https://github.com/sudolulo/if_curator_headless.git . \
     && uv sync --extra gpu \
+    && uv add croniter \
     && uv cache clean
 
-COPY entrypoint.sh /app/entrypoint.sh
+COPY entrypoint.sh scheduler.py /app/
 RUN chmod +x /app/entrypoint.sh
 
 RUN groupadd -g 568 apps \
@@ -43,3 +43,4 @@ ENV FORCE_CPU=false \
     INSIGHTFACE_HOME=/models/insightface
 
 ENTRYPOINT ["/app/entrypoint.sh"]
+
