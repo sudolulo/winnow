@@ -7,16 +7,16 @@ export PYTHONUNBUFFERED=1
 check_models() {
     echo "📦 Checking models..."
 
-    if [ -d "/models/insightface/models/buffalo_l" ]; then
-        echo "  ✅ InsightFace Buffalo_L: downloaded"
+    if [ -d "/models/.insightface/models/buffalo_l" ]; then
+        echo "  ✅ InsightFace Buffalo_L: present"
     else
-        echo "  ⬇️  InsightFace Buffalo_L: downloading (~300MB)..."
+        echo "  ⬇️  InsightFace Buffalo_L: not found — will download on first run (~300MB)"
     fi
 
     if [ -d "/models/huggingface/hub" ] && [ "$(find /models/huggingface/hub -maxdepth 1 -type d 2>/dev/null | wc -l)" -gt 1 ]; then
-        echo "  ✅ HuggingFace models: downloaded"
+        echo "  ✅ HuggingFace models: present"
     else
-        echo "  ⬇️  HuggingFace models: downloading (SigLIP ~1GB, YOLOv9c ~500MB)..."
+        echo "  ⬇️  HuggingFace models: not found — will download on first run (SigLIP ~1GB, YOLOv9c ~500MB)"
     fi
 
     echo "🚀 Starting if-curator..."

@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-Simple in-container scheduler using croniter + sleep.
-No cron daemon, no sudo, no root needed.
-"""
-
 import os
 import sys
 import subprocess
@@ -18,39 +13,25 @@ except ImportError:
 
 SCHEDULE = os.environ["CRON_SCHEDULE"]
 MODELS_DIR = os.environ.get("HF_HOME", "/models/huggingface")
-INSIGHTFACE_DIR = os.environ.get("INSIGHTFACE_HOME", "/models/insightface")
+# Changed to /models to match the updated INSIGHTFACE_HOME pointing to /models
+INSIGHTFACE_BASE = os.environ.get("INSIGHTFACE_HOME", "/models")
 
-# Ensure all subprocess output appears in docker logs
 RUN_ENV = {**os.environ, "PYTHONUNBUFFERED": "1"}
 
+def check_models():
+    print("📦 Checking models...", flush=True)
+    buffalo = Path(INSIGHTFACE_BASE) / ".insightface" / "models" / "buffalo_l"
+    if buffalo.exists():
+        print("  ✅ InsightFace Buffalo_L: present", flush=True)
+    else:
+        print("  ⬇️  InsightFace Buffalo_L: not found — will download", flush=True)
 
-check_models() {
-    echo "📦 Checking models..."
-
-    if [ -d "/models/insightface/models/buffalo_l" ]; then
-        echo "  ✅ InsightFace Buffalo_L: present"
-    else
-        echo "  ⬇️  InsightFace Buffalo_L: not found — will download on first run (~300MB)"
-    fi
-
-    if [ -d "/models/huggingface/hub" ] && [ "$(find /models/huggingface/hub -maxdepth 1 -type d 2>/dev/null | wc -l)" -gt 1 ]; then
-        echo "  ✅ HuggingFace models: present"
-    else
-        echo "  ⬇️  HuggingFace models: not found — will download on first run (SigLIP ~1GB, YOLOv9c ~500MB)"
-    fi
-
-    echo "🚀 Starting if-curator..."
-}
-
-
-def calc_time_display(seconds):
-    """Convert seconds to human-readable time."""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    if hours > 0:
-        return f"{hours}h {minutes}m"
-    return f"{minutes}m"
-
+    hf_hub = Path(MODELS_DIR) / "hub"
+    if hf_hub.exists() and any(hf_hub.iterdir()):
+        print("  ✅ HuggingFace models: present", flush=True)
+    else:
+        print("  ⬇️  HuggingFace models: not found — will download", flush=True)
+    print("🚀 Starting if-curator...", flush=True)
 
 NOW = time.time()
 cron = croniter(SCHEDULE, NOW)
@@ -61,22 +42,7 @@ while True:
     if now >= next_run:
         print(f"\n▶ [{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting if-curator...", flush=True)
         check_models()
-        result = subprocess.run(
-            ["uv", "run", "if-curator"],
-            env=RUN_ENV,
-        )
-        if result.returncode == 0:
-            print("✅ Run complete.", flush=True)
-        else:
-            print(f"⚠️  Run exited with code {result.returncode}", flush=True)
-
+        subprocess.run(["uv", "run", "if-curator"], env=RUN_ENV)
         next_run = cron.get_next(float)
-        wait = next_run - time.time()
-        if wait > 0:
-            print(f"▶ Next run: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_run))} (in {calc_time_display(wait)})", flush=True)
-        continue
-
-    wait = next_run - now
-    print(f"▶ Next run: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_run))} (in {calc_time_display(wait)})", flush=True)
-    time.sleep(min(wait, 3600))
+    time.sleep(60)
 

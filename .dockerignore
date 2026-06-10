@@ -1,0 +1,9 @@
+.git
+.env
+__pycache__
+*.pyc
+.venv
+.if_cache
+frigate_train
+*.md
+
