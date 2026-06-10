@@ -3,6 +3,7 @@
 import logging
 import os
 from io import BytesIO
+from urllib.parse import quote
 
 import requests
 from PIL import Image
@@ -250,6 +251,11 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
         for job in jobs:
             name = job["person"]["name"]
+            # URL-encode the name for the API (handles spaces, special chars)
+            encoded_name = quote(name, safe="")
+            if " " in name:
+                progress.console.print(f"  ℹ️  URL-encoded name for Frigate API: '{name}' → '{encoded_name}'")
+
             person_dir = os.path.join(Config.OUTPUT_DIR, name)
             if not os.path.isdir(person_dir):
                 progress.console.print(f"  [dim]⏭️  {name}: no output directory, skipping[/dim]")
@@ -273,7 +279,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 try:
                     with open(fpath, "rb") as f:
                         resp = requests.post(
-                            f"{frigate_url}/api/faces/train/{name}/classify",
+                            f"{frigate_url}/api/faces/train/{encoded_name}/classify",
                             files={"file": (fname, f, "image/jpeg")},
                             timeout=30,
                         )
