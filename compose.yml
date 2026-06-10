@@ -1,0 +1,34 @@
+services:
+  if-curator:
+    build: .
+    image: if-curator-headless:latest
+    container_name: if-curator
+    environment:
+      - IMMICH_URL=${IMMICH_URL}
+      - API_KEY=${API_KEY}
+      - AUTO_MODE=true
+      - FRIGATE_URL=${FRIGATE_URL}
+      - TRAINING_MODE=face
+      - STRATEGY=auto
+      - FORCE_CPU=false
+      - ENABLE_CACHE=true
+      - CACHE_DIR=/app/.if_cache
+      - HF_HOME=/models/huggingface
+      - INSIGHTFACE_HOME=/models/insightface
+      # - ONLY_PEOPLE=John,Jane
+      # - SKIP_PEOPLE=Unknown
+      # - MIN_FACE_COUNT=5
+    volumes:
+      - /mnt/<pool>/if-curator/models:/models
+      - /mnt/<pool>/if-curator/embeddings:/app/.if_cache
+      - /mnt/<pool>/if-curator/output:/app/output
+    stdin_open: true
+    tty: true
+    restart: "no"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
