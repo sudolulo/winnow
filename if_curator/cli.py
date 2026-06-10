@@ -145,6 +145,107 @@ def interactive_configure(people: list[dict]) -> list[dict]:
 
     return jobs
 
+def auto_configure(people: list[dict]) -> list[dict]:
+    """Non-interactive: configure jobs for all named people automatically."""
+    valid_people = sorted([p for p in people if p.get("name")], key=lambda x: x["name"])
+
+    if not valid_people:
+        rprint("[red]No people found with names in Immich.[/red]")
+        return []
+
+    mode = os.environ.get("TRAINING_MODE", "face")
+    strategy = os.environ.get("STRATEGY", "auto")
+    skip = os.environ.get("SKIP_PEOPLE", "").split(",") if os.environ.get("SKIP_PEOPLE") else []
+    only = os.environ.get("ONLY_PEOPLE", "").split(",") if os.environ.get("ONLY_PEOPLE") else []
+
+    if only:
+        valid_people = [p for p in valid_people if p["name"] in only]
+    if skip:
+        valid_people = [p for p in valid_people if p["name"] not in skip]
+
+    jobs = []
+    for person in valid_people:
+        name = person["name"]
+        entity_type = mode
+
+        config = {"name": name, "mode": entity_type}
+        if entity_type == "object":
+            config["object_class"] = os.environ.get("OBJECT_CLASS", "dog")
+
+        all_assets = fetch_all_assets(person)
+        recent_assets = filter_recent_assets(all_assets, years=Config.YEARS_FILTER)
+
+        rprint(f"  {name}: {len(all_assets)} total, {len(recent_assets)} recent")
+
+        if not recent_assets:
+            rprint(f"  [dim]Skipping {name} (0 recent images).[/dim]")
+            continue
+
+        has_embedding = is_embedding_available(entity_type)
+        limit, selection_mode = _resolve_strategy(strategy, has_embedding)
+
+        if selection_mode == "skip":
+            continue
+
+        selected_assets = _perform_selection(recent_assets, limit, name, selection_mode, entity_type)
+
+        if selected_assets:
+            rprint(f"  [green]Queued {len(selected_assets)} images for {name}.[/green]")
+            jobs.append({"person": person, "assets": selected_assets, "limit": len(selected_assets), "config": config})
+
+    return jobs
+
+
+def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, str]:
+    """Resolve env var strategy to (limit, selection_mode) without prompts."""
+    if not has_embedding:
+        return 30, "time"
+
+    strategy_map = {
+        "auto": ("auto", "smart"),
+        "standard": (30, "smart"),
+        "broad": (100, "smart"),
+    }
+    return strategy_map.get(strategy, ("auto", "smart"))
+
+
+def upload_to_frigate(jobs: list[dict]) -> None:
+    """Upload processed face crops to Frigate via API."""
+    frigate_url = os.environ.get("FRIGATE_URL", "")
+    if not frigate_url:
+        rprint("[yellow]FRIGATE_URL not set, skipping upload.[/yellow]")
+        return
+
+    uploaded, failed = 0, 0
+    for job in jobs:
+        name = job["person"]["name"]
+        person_dir = os.path.join(Config.OUTPUT_DIR, name)
+        if not os.path.isdir(person_dir):
+            continue
+
+        for fname in sorted(os.listdir(person_dir)):
+            fpath = os.path.join(person_dir, fname)
+            if not fname.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                continue
+            try:
+                with open(fpath, "rb") as f:
+                    resp = requests.post(
+                        f"{frigate_url}/api/faces/train/{name}/classify",
+                        files={"file": (fname, f, "image/jpeg")},
+                        timeout=30,
+                    )
+                if resp.status_code == 200:
+                    uploaded += 1
+                else:
+                    failed += 1
+                    logger.warning(f"Frigate upload failed for {name}/{fname}: {resp.status_code}")
+            except Exception as e:
+                failed += 1
+                logger.warning(f"Frigate upload error for {name}/{fname}: {e}")
+
+    rprint(f"  [green]Frigate upload: {uploaded} succeeded, {failed} failed[/green]")
+
+
 
 def _perform_selection(assets: list, limit: int | str, name: str, selection_mode: str, entity_type: str) -> list:
     """Run diversity selection with progress display."""
@@ -295,12 +396,20 @@ def main() -> None:
             rprint("[bold red]Could not fetch people from Immich. Check URL/Key.[/bold red]")
             return
 
-        jobs = interactive_configure(people)
+        # Check for non-interactive mode
+        auto_mode = os.environ.get("AUTO_MODE", "false").lower() == "true"
+
+        if auto_mode:
+            rprint("[bold cyan]Running in AUTO mode (non-interactive)[/bold cyan]")
+            jobs = auto_configure(people)
+        else:
+            jobs = interactive_configure(people)
 
         if jobs:
             _show_preview(jobs)
-            if Confirm.ask(f"Ready to process {sum(j['limit'] for j in jobs)} images?"):
+            if auto_mode or Confirm.ask(f"Ready to process {sum(j['limit'] for j in jobs)} images?"):
                 execute_jobs(jobs)
+                upload_to_frigate(jobs)
                 rprint("\n[bold green]Done! Happy Training.[/bold green]")
         else:
             rprint("[yellow]No jobs configured.[/yellow]")
