@@ -14,6 +14,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Recognition",
 ]
 dependencies = [
+    "croniter>=5.0.2",
     "insightface>=0.7.3",
     "numpy>=2.2.6",
     "onnxruntime>=1.23.2",
@@ -31,34 +32,46 @@ if-curator = "if_curator.cli:main"
 Repository = "https://github.com/sudolulo/if_curator_headless"
 
 [project.optional-dependencies]
+cpu = [
+    "torch>=2.6.0",
+]
 gpu = [
     "onnxruntime-gpu>=1.23.2",
+    "torch>=2.6.0",
 ]
 object = [
-    "torch>=2.6.0",
     "transformers>=4.57.6",
     "ultralytics>=8.3.252",
 ]
 
-# ── Per-platform PyTorch index configuration ──
-#   linux/amd64  → CUDA 12.6 wheels (latest PyTorch)
-#   linux/arm64  → CPU-only wheels
-#   other        → CPU-only wheels
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cu126", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
-    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
-    { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+# ── Declare mutually exclusive extras ──
+#   cpu and gpu cannot be enabled together (they pull torch from different indexes)
+#   object can be combined with either: --extra cpu --extra object OR --extra gpu --extra object
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cpu" },
+        { extra = "gpu" },
+    ],
 ]
 
-[[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
-explicit = true
+# ── Per-extra PyTorch index configuration ──
+#   --extra cpu     → CPU-only torch
+#   --extra gpu     → CUDA 12.6 torch
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu126", extra = "gpu" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [dependency-groups]
@@ -66,6 +79,9 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.9.2",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["if_curator"]
 
 [tool.ruff]
 line-length = 120

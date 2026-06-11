@@ -25,14 +25,13 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 
 WORKDIR /app
 
-# Install dependencies first (cached unless pyproject.toml/uv.lock change)
+# Copy everything first — uv sync needs the source to build the project
 COPY pyproject.toml uv.lock ./
-RUN uv sync --extra object --frozen \
-    && uv cache clean
-
-# Copy source code (invalidates cache only when code changes)
 COPY if_curator/ if_curator/
 COPY entrypoint.sh scheduler.py ./
+
+RUN uv sync --extra object --frozen \
+    && uv cache clean
 
 RUN chmod +x /app/entrypoint.sh
 
@@ -50,7 +49,7 @@ HEALTHCHECK CMD test -f /app/entrypoint.sh || exit 1
 ENTRYPOINT ["tini", "--", "/app/entrypoint.sh"]
 
 # ── Build stage: GPU (amd64 only) ────────────────────────────────────────
-FROM --platform=linux/amd64 nvidia/cuda:12.6.3-runtime-ubuntu22.04 AS build-gpu
+FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04 AS build-gpu
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -74,14 +73,13 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 
 WORKDIR /app
 
-# Install dependencies first (cached unless pyproject.toml/uv.lock change)
+# Copy everything first — uv sync needs the source to build the project
 COPY pyproject.toml uv.lock ./
-RUN uv sync --extra gpu --extra object --frozen \
-    && uv cache clean
-
-# Copy source code (invalidates cache only when code changes)
 COPY if_curator/ if_curator/
 COPY entrypoint.sh scheduler.py ./
+
+RUN uv sync --extra gpu --extra object --frozen \
+    && uv cache clean
 
 RUN chmod +x /app/entrypoint.sh
 
