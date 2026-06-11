@@ -1,3 +1,4 @@
+[![Publish Docker Image](https://github.com/sudolulo/if_curator_headless/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/sudolulo/if_curator_headless/actions/workflows/docker-publish.yml) [![Release](https://github.com/sudolulo/if_curator_headless/actions/workflows/release.yml/badge.svg)](https://github.com/sudolulo/if_curator_headless/actions/workflows/release.yml)
 ### if-curator-headless
 
 Headless fork of [if-curator](https://github.com/ds-sebastian/if_curator) with automatic Frigate face training upload and Docker support.
