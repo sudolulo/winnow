@@ -74,10 +74,11 @@ def process_face_mode(
 
     # Find face metadata for this person
     face_info = None
-    for p in asset.get("people", []):
+    people_list = asset.get("people") or []
+    for p in people_list:
         if p is None:
             continue
-        if p["id"] == person["id"] and (faces := p.get("faces")):
+        if p.get("id") == person["id"] and (faces := p.get("faces")):
             face_info = faces[0]
             break
 

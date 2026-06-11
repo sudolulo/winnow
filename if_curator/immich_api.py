@@ -117,7 +117,10 @@ def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | N
         # Match the target person if specified
         face = None
         if person_id:
-            face = next((f for f in faces if f.get("person", {}).get("id") == person_id), None)
+            face = next(
+                (f for f in faces if (f.get("person") or {}).get("id") == person_id),
+                None,
+            )
         if face is None:
             face = faces[0]  # Fall back to first/largest face
 
@@ -145,7 +148,7 @@ def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | N
     except requests.RequestException as e:
         logger.debug(f"Failed to fetch face data for {asset_id}: {e}")
         return None
-    except (KeyError, TypeError, ValueError) as e:
+    except (AttributeError, KeyError, TypeError, ValueError) as e:
         logger.debug(f"Failed to parse face data for {asset_id}: {e}")
         return None
 
