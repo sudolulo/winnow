@@ -92,7 +92,8 @@ def get_insightface_app():
 
         # Suppress C-level output during model loading
         with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
-            _insightface_app = FaceAnalysis(name="buffalo_l", root="~/.insightface", providers=providers)
+            insightface_home = os.environ.get("INSIGHTFACE_HOME", os.path.expanduser("~/.insightface"))
+            _insightface_app = FaceAnalysis(name="buffalo_l", root=insightface_home, providers=providers)
             _insightface_app.prepare(ctx_id=ctx_id, det_size=(640, 640))
 
         return _insightface_app
@@ -108,7 +109,7 @@ def get_insightface_app():
             try:
                 from insightface.app import FaceAnalysis
 
-                _insightface_app = FaceAnalysis(name="buffalo_l", root="~/.insightface")
+                _insightface_app = FaceAnalysis(name="buffalo_l", root=insightface_home)
                 _insightface_app.prepare(ctx_id=-1, det_size=(640, 640))
                 return _insightface_app
             except Exception as ex:
