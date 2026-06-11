@@ -291,7 +291,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     try:
                         with open(fpath, "rb") as f:
                             resp = requests.post(
-                                f"{frigate_url}/api/faces/train/{encoded_name}/classify",
+                                f"{frigate_url}/api/faces/{encoded_name}/register",
                                 files={"file": (fname, f, "image/jpeg")},
                                 timeout=30,
                             )
@@ -423,6 +423,14 @@ def _show_preview(jobs: list[dict]) -> None:
 
 
 def _enrich_asset_with_face_data(asset: dict, person: dict) -> dict:
+    """Enrich an asset dict with face bounding box data from the Immich faces API.
+
+    The search/metadata endpoint does not include face bounding box data,
+    so we fetch it from GET /api/faces?id={asset_id} and inject it into
+    the asset's "people" field so process_face_mode can find it.
+
+    Returns the enriched asset dict (modifies in place and returns it).
+    """
     person_id = person["id"]
     face_data = fetch_face_data(asset["id"], person_id=person_id)
 
@@ -430,6 +438,7 @@ def _enrich_asset_with_face_data(asset: dict, person: dict) -> dict:
         logger.debug(f"No face data returned for {person.get('name')} in asset {asset.get('id')}")
         return asset
 
+    # Skip zero-area bounding boxes (face detection failed or no face found)
     if face_data.bbox == (0, 0, 0, 0):
         logger.debug(f"Zero-area bounding box for {person.get('name')} in asset {asset.get('id')}")
         return asset
@@ -443,9 +452,9 @@ def _enrich_asset_with_face_data(asset: dict, person: dict) -> dict:
         "imageHeight": face_data.image_height,
     }
 
+    # Inject into asset so process_face_mode can find it via asset["people"]
     asset["people"] = [{"id": person_id, "faces": [face_info]}]
     return asset
-
 
 
 def execute_jobs(jobs: list[dict]) -> None:
@@ -476,10 +485,6 @@ def execute_jobs(jobs: list[dict]) -> None:
             os.makedirs(person_dir, exist_ok=True)
 
             count = 0
-            skipped_download = 0
-            skipped_no_face = 0
-            skipped_other = 0
-
             for asset in assets:
                 try:
                     # For face mode, enrich the asset with face bounding box data
@@ -499,9 +504,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                         img = Image.open(BytesIO(resp.content)) if resp.ok else None
 
                     if img is None:
-                        skipped_download += 1
-                        progress.console.print(f"[red]✗ Failed download {asset['id']}[/red]")
-                        logger.debug(f"Image download failed for asset {asset['id']}")
+                        progress.console.print(f"[red]Failed download {asset['id']}[/red]")
                     else:
                         saved = (
                             process_face_mode(img, asset, person, person_dir, count)
@@ -512,22 +515,10 @@ def execute_jobs(jobs: list[dict]) -> None:
                         )
                         if saved:
                             count += 1
-                            logger.debug(f"Saved image #{count} from asset {asset['id']}")
                         else:
-                            if mode == "face":
-                                skipped_no_face += 1
-                                progress.console.print(
-                                    f"[yellow]⏭ No usable face data for {asset['id']}[/yellow]"
-                                )
-                                logger.debug(
-                                    f"process_face_mode returned False for asset {asset['id']} — "
-                                    f"people={asset.get('people', 'MISSING')}"
-                                )
-                            else:
-                                skipped_other += 1
-                                progress.console.print(
-                                    f"[yellow]⏭ Skipped {asset['id']}[/yellow]"
-                                )
+                            progress.console.print(
+                                f"[yellow]Skipped {asset['id']} (no usable face data)[/yellow]"
+                            )
                 except Exception as e:
                     logger.error(f"Failed to process asset {asset['id']}: {e}")
 
@@ -536,15 +527,9 @@ def execute_jobs(jobs: list[dict]) -> None:
 
             progress.remove_task(job_task)
 
-            # Per-person execution summary
-            rprint(
-                f"\n  [bold]{name}:[/bold] saved {count}/{len(assets)} images "
-                f"(download_failed={skipped_download}, no_face_data={skipped_no_face}, other={skipped_other})"
-            )
-            logger.info(
-                f"{name}: saved {count}/{len(assets)} "
-                f"(download_failed={skipped_download}, no_face_data={skipped_no_face}, other={skipped_other})"
-            )
+            # Log how many images were actually saved vs selected
+            if count < len(assets):
+                logger.info(f"{name}: saved {count}/{len(assets)} selected images")
 
 
 def main() -> None:
@@ -597,4 +582,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
