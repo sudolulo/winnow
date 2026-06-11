@@ -18,6 +18,7 @@ from .embeddings import is_embedding_available, load_embedding_model
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
 from .immich_api import fetch_all_assets, fetch_face_data, fetch_full_image, filter_recent_assets, get_people
 from .logging import console, setup_logging
+from .upload_tracker import filter_already_uploaded, mark_uploaded
 
 logger = logging.getLogger(__name__)
 
@@ -92,8 +93,16 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
 
     rprint(f"  Found [bold]{len(all_assets)}[/bold] total, [bold]{len(recent_assets)}[/bold] in range ({years} years).")
 
+    # Filter out assets already uploaded to Frigate
+    before_dedup = len(recent_assets)
+    new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets]))
+    recent_assets = [a for a in recent_assets if a["id"] in new_asset_ids]
+    skipped = before_dedup - len(recent_assets)
+    if skipped:
+        rprint(f"  [dim]Skipped {skipped} assets already uploaded to Frigate.[/dim]")
+
     if not recent_assets:
-        rprint("  [dim]Skipping (0 recent images).[/dim]")
+        rprint("  [dim]Skipping (0 new images after dedup).[/dim]")
         return None
 
     # Strategy selection
@@ -186,8 +195,16 @@ def auto_configure(people: list[dict]) -> list[dict]:
 
         rprint(f"  {name}: {len(all_assets)} total, {len(recent_assets)} recent")
 
+        # Filter out assets already uploaded to Frigate
+        before_dedup = len(recent_assets)
+        new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets]))
+        recent_assets = [a for a in recent_assets if a["id"] in new_asset_ids]
+        skipped = before_dedup - len(recent_assets)
+        if skipped:
+            rprint(f"  [dim]Skipped {skipped} assets already uploaded to Frigate.[/dim]")
+
         if not recent_assets:
-            rprint(f"  [dim]Skipping {name} (0 recent images).[/dim]")
+            rprint(f"  [dim]Skipping {name} (0 new images after dedup).[/dim]")
             continue
 
         has_embedding = is_embedding_available(entity_type)
@@ -219,7 +236,11 @@ def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, st
 
 
 def upload_to_frigate(jobs: list[dict]) -> None:
-    """Upload processed face crops to Frigate via API with detailed logging."""
+    """Upload processed face crops to Frigate via API with detailed logging.
+
+    After each successful upload, records the Immich asset ID in the
+    upload tracker so it is skipped on future runs.
+    """
     frigate_url = os.environ.get("FRIGATE_URL", "")
     if not frigate_url:
         rprint("[yellow]⚠️  FRIGATE_URL not set, skipping upload.[/yellow]")
@@ -228,17 +249,24 @@ def upload_to_frigate(jobs: list[dict]) -> None:
     rprint("\n[bold cyan]📤 Uploading to Frigate[/bold cyan]")
     rprint(f"  Target: [dim]{frigate_url}[/dim]")
 
-    # Count total files to upload
+    # Build a mapping of output filenames → Immich asset IDs
+    # from the asset_map stored on each job during execute_jobs()
+    filename_to_asset_id: dict[str, dict[str, str]] = {}
     total_files = 0
     for job in jobs:
         name = job["person"]["name"]
         person_dir = os.path.join(Config.OUTPUT_DIR, name)
         if not os.path.isdir(person_dir):
             continue
-        total_files += sum(
-            1 for f in os.listdir(person_dir)
+        person_files = sorted(
+            f for f in os.listdir(person_dir)
             if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
         )
+        total_files += len(person_files)
+
+        # Recover asset IDs from the job's asset_map
+        asset_map = job.get("asset_map", {})
+        filename_to_asset_id[name] = asset_map
 
     if total_files == 0:
         rprint("  [yellow]No images found to upload.[/yellow]")
@@ -279,6 +307,9 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 progress.console.print(f"  [dim]⏭️  {name}: no images found[/dim]")
                 continue
 
+            # Get the asset map for this person
+            asset_map = filename_to_asset_id.get(name, {})
+
             progress.console.print(f"  📁 {name}: uploading {len(person_files)} image(s)...")
             person_uploaded = 0
             person_failed = 0
@@ -299,6 +330,12 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             uploaded += 1
                             person_uploaded += 1
                             success = True
+
+                            # Mark this asset as uploaded so it's skipped on future runs
+                            asset_id = asset_map.get(fname)
+                            if asset_id:
+                                mark_uploaded(asset_id)
+
                             break
                         else:
                             if attempt < max_retries:
@@ -458,7 +495,11 @@ def _enrich_asset_with_face_data(asset: dict, person: dict) -> dict:
 
 
 def execute_jobs(jobs: list[dict]) -> None:
-    """Download and process images for all jobs."""
+    """Download and process images for all jobs.
+
+    Builds an asset_map per job (filename → Immich asset ID) so that
+    upload_to_frigate() can mark assets as uploaded after success.
+    """
     if not jobs:
         return
 
@@ -483,6 +524,9 @@ def execute_jobs(jobs: list[dict]) -> None:
             job_task = progress.add_task(f"Processing {name}...", total=len(assets))
             person_dir = os.path.join(Config.OUTPUT_DIR, name)
             os.makedirs(person_dir, exist_ok=True)
+
+            # Track filename → asset_id mapping for upload dedup
+            asset_map: dict[str, str] = {}
 
             count = 0
             for asset in assets:
@@ -514,6 +558,15 @@ def execute_jobs(jobs: list[dict]) -> None:
                             else process_full_mode(img, person_dir, count)
                         )
                         if saved:
+                            # Record which asset produced which output file
+                            filename = f"{count}.jpg"
+                            asset_map[filename] = asset["id"]
+                            # Also record object-mode variant filenames
+                            if mode == "object":
+                                for f in sorted(os.listdir(person_dir)):
+                                    if f.startswith(f"{count}_") and f not in asset_map:
+                                        asset_map[f] = asset["id"]
+
                             count += 1
                         else:
                             progress.console.print(
@@ -524,6 +577,9 @@ def execute_jobs(jobs: list[dict]) -> None:
 
                 progress.advance(job_task)
                 progress.advance(overall_task)
+
+            # Store asset_map on the job so upload_to_frigate can use it
+            job["asset_map"] = asset_map
 
             progress.remove_task(job_task)
 
@@ -582,3 +638,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
