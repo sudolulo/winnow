@@ -16,7 +16,7 @@ from .config import Config, ConfigManager
 from .diversity import select_diverse_assets
 from .embeddings import is_embedding_available, load_embedding_model
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
-from .immich_api import fetch_all_assets, fetch_full_image, filter_recent_assets, get_people
+from .immich_api import fetch_all_assets, fetch_face_data, fetch_full_image, filter_recent_assets, get_people
 from .logging import console, setup_logging
 
 logger = logging.getLogger(__name__)
@@ -422,6 +422,51 @@ def _show_preview(jobs: list[dict]) -> None:
     console.print()
 
 
+def _enrich_asset_with_face_data(asset: dict, person: dict) -> dict:
+    """Enrich an asset dict with face data from the Immich faces API.
+
+    The search/metadata endpoint does not include face bounding box data,
+    so we fetch it from GET /api/faces?id={asset_id} and inject it into
+    the asset's "people" field so process_face_mode can find it.
+
+    Returns the enriched asset dict (modifies in place and returns it).
+    """
+    person_id = person["id"]
+    face_data = fetch_face_data(asset["id"], person_id=person_id)
+
+    if face_data is None:
+        logger.debug(
+            f"Face data API returned nothing for {person.get('name')} "
+            f"in asset {asset.get('id')} — Immich may not have detected a face"
+        )
+        return asset
+
+    # Skip zero-area bounding boxes (face detection failed or no face found)
+    if face_data.bbox == (0, 0, 0, 0):
+        logger.debug(
+            f"Zero-area bounding box for {person.get('name')} in asset {asset.get('id')}"
+        )
+        return asset
+
+    logger.debug(
+        f"Got face data for {person.get('name')} in asset {asset.get('id')}: "
+        f"bbox={face_data.bbox}, img_size={face_data.image_width}x{face_data.image_height}"
+    )
+
+    face_info = {
+        "boundingBoxX1": face_data.bbox[0],
+        "boundingBoxY1": face_data.bbox[1],
+        "boundingBoxX2": face_data.bbox[2],
+        "boundingBoxY2": face_data.bbox[3],
+        "imageWidth": face_data.image_width,
+        "imageHeight": face_data.image_height,
+    }
+
+    # Inject into asset so process_face_mode can find it via asset["people"]
+    asset["people"] = [{"id": person_id, "faces": [face_info]}]
+    return asset
+
+
 def execute_jobs(jobs: list[dict]) -> None:
     """Download and process images for all jobs."""
     if not jobs:
@@ -450,8 +495,17 @@ def execute_jobs(jobs: list[dict]) -> None:
             os.makedirs(person_dir, exist_ok=True)
 
             count = 0
+            skipped_download = 0
+            skipped_no_face = 0
+            skipped_other = 0
+
             for asset in assets:
                 try:
+                    # For face mode, enrich the asset with face bounding box data
+                    # from the Immich faces API (not included in search/metadata results)
+                    if mode == "face":
+                        asset = _enrich_asset_with_face_data(asset, person)
+
                     # Use full-resolution for final output when configured
                     if use_full_res:
                         img = fetch_full_image(asset["id"])
@@ -464,7 +518,9 @@ def execute_jobs(jobs: list[dict]) -> None:
                         img = Image.open(BytesIO(resp.content)) if resp.ok else None
 
                     if img is None:
-                        progress.console.print(f"[red]Failed download {asset['id']}[/red]")
+                        skipped_download += 1
+                        progress.console.print(f"[red]✗ Failed download {asset['id']}[/red]")
+                        logger.debug(f"Image download failed for asset {asset['id']}")
                     else:
                         saved = (
                             process_face_mode(img, asset, person, person_dir, count)
@@ -475,6 +531,22 @@ def execute_jobs(jobs: list[dict]) -> None:
                         )
                         if saved:
                             count += 1
+                            logger.debug(f"Saved image #{count} from asset {asset['id']}")
+                        else:
+                            if mode == "face":
+                                skipped_no_face += 1
+                                progress.console.print(
+                                    f"[yellow]⏭ No usable face data for {asset['id']}[/yellow]"
+                                )
+                                logger.debug(
+                                    f"process_face_mode returned False for asset {asset['id']} — "
+                                    f"people={asset.get('people', 'MISSING')}"
+                                )
+                            else:
+                                skipped_other += 1
+                                progress.console.print(
+                                    f"[yellow]⏭ Skipped {asset['id']}[/yellow]"
+                                )
                 except Exception as e:
                     logger.error(f"Failed to process asset {asset['id']}: {e}")
 
@@ -482,6 +554,16 @@ def execute_jobs(jobs: list[dict]) -> None:
                 progress.advance(overall_task)
 
             progress.remove_task(job_task)
+
+            # Per-person execution summary
+            rprint(
+                f"\n  [bold]{name}:[/bold] saved {count}/{len(assets)} images "
+                f"(download_failed={skipped_download}, no_face_data={skipped_no_face}, other={skipped_other})"
+            )
+            logger.info(
+                f"{name}: saved {count}/{len(assets)} "
+                f"(download_failed={skipped_download}, no_face_data={skipped_no_face}, other={skipped_other})"
+            )
 
 
 def main() -> None:

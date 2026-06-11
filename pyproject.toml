@@ -16,6 +16,7 @@ classifiers = [
 dependencies = [
     "croniter>=5.0.2",
     "insightface>=0.7.3",
+    "nvidia-cudnn-cu12>=9.0.0",
     "numpy>=2.2.6",
     "onnxruntime-gpu>=1.23.2",
     "opencv-python-headless>=4.12.0.88",
@@ -76,6 +77,7 @@ opencv-python-headless = "cv2"
 python-dotenv = "dotenv"
 insightface = "insightface"
 numpy = "numpy"
+nvidia-cudnn-cu12 = "nvidia.cudnn"
 onnxruntime-gpu = "onnxruntime"
 requests = "requests"
 rich = "rich"
@@ -84,7 +86,7 @@ transformers = "transformers"
 ultralytics = "ultralytics"
 
 [tool.deptry.per_rule_ignores]
-DEP002 = ["onnxruntime-gpu"]
+DEP002 = ["onnxruntime-gpu", "nvidia-cudnn-cu12"]
 
 [build-system]
 requires = ["hatchling"]
