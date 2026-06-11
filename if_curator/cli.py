@@ -18,7 +18,7 @@ from .embeddings import is_embedding_available, load_embedding_model
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
 from .immich_api import fetch_all_assets, fetch_face_data, fetch_full_image, filter_recent_assets, get_people
 from .logging import console, setup_logging
-from .upload_tracker import filter_already_uploaded, mark_uploaded
+from .upload_tracker import filter_already_uploaded, get_person_summary, mark_rejected, mark_uploaded, reset_person
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +94,9 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
     rprint(f"  Found [bold]{len(all_assets)}[/bold] total, [bold]{len(recent_assets)}[/bold] in range ({years} years).")
 
     # Filter out assets already uploaded to Frigate
+    retry_rejected = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
     before_dedup = len(recent_assets)
-    new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets]))
+    new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets], retry_rejected=retry_rejected))
     recent_assets = [a for a in recent_assets if a["id"] in new_asset_ids]
     skipped = before_dedup - len(recent_assets)
     if skipped:
@@ -196,8 +197,9 @@ def auto_configure(people: list[dict]) -> list[dict]:
         rprint(f"  {name}: {len(all_assets)} total, {len(recent_assets)} recent")
 
         # Filter out assets already uploaded to Frigate
+        retry_rejected = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
         before_dedup = len(recent_assets)
-        new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets]))
+        new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets], retry_rejected=retry_rejected))
         recent_assets = [a for a in recent_assets if a["id"] in new_asset_ids]
         skipped = before_dedup - len(recent_assets)
         if skipped:
@@ -334,7 +336,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             # Mark this asset as uploaded so it's skipped on future runs
                             asset_id = asset_map.get(fname)
                             if asset_id:
-                                mark_uploaded(asset_id)
+                                mark_uploaded(asset_id, person_name=name)
 
                             break
                         else:
@@ -350,7 +352,12 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                 error_detail = resp.json().get("message", resp.text[:100])
                                 progress.console.print(f"      [dim]{error_detail}[/dim]")
                             except Exception:
-                                progress.console.print(f"      [dim]{resp.text[:100]}[/dim]")
+                                error_detail = resp.text[:100]
+                                progress.console.print(f"      [dim]{error_detail}[/dim]")
+                            if resp.status_code == 400 and "face" in error_detail.lower():
+                                asset_id = asset_map.get(fname)
+                                if asset_id:
+                                    mark_rejected(asset_id, person_name=name)
                     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
                         if attempt < max_retries:
                             logger.warning(f"Upload attempt {attempt}/{max_retries} for {fname}: {type(exc).__name__}, retrying...")
@@ -615,6 +622,19 @@ def main() -> None:
         rprint(f"Server: [dim]{Config.IMMICH_URL}[/dim]")
         rprint(f"Output: [dim]{Config.OUTPUT_DIR}[/dim]")
 
+        # Handle RESET_PERSON before anything else
+        reset_person_name = os.environ.get("RESET_PERSON", "").strip()
+        if reset_person_name:
+            reset_person(reset_person_name)
+            rprint(f"[bold yellow]Reset tracking data for: {reset_person_name}[/bold yellow]")
+
+        # Show per-person tracker summary if data exists
+        summary = get_person_summary()
+        if summary:
+            rprint("\n[dim]Tracker summary:[/dim]")
+            for person_name, counts in summary.items():
+                rprint(f"  [dim]{person_name}: {counts['uploaded']} uploaded, {counts['rejected']} rejected[/dim]")
+
         people = get_people()
         if not people:
             rprint("[bold red]Could not fetch people from Immich. Check URL/Key.[/bold red]")
@@ -622,6 +642,10 @@ def main() -> None:
 
         # Check for non-interactive mode
         auto_mode = os.environ.get("AUTO_MODE", "false").lower() == "true"
+        dry_run = os.environ.get("DRY_RUN", "false").lower() in ("true", "1", "yes")
+
+        if dry_run:
+            rprint("[bold yellow]DRY RUN — no images will be downloaded or uploaded[/bold yellow]")
 
         if auto_mode:
             rprint("[bold cyan]Running in AUTO mode (non-interactive)[/bold cyan]")
@@ -631,7 +655,9 @@ def main() -> None:
 
         if jobs:
             _show_preview(jobs)
-            if auto_mode or Confirm.ask(f"Ready to process {sum(j['limit'] for j in jobs)} images?"):
+            if dry_run:
+                rprint("\n[bold yellow]Dry run complete — skipping execute and upload.[/bold yellow]")
+            elif auto_mode or Confirm.ask(f"Ready to process {sum(j['limit'] for j in jobs)} images?"):
                 execute_jobs(jobs)
                 upload_to_frigate(jobs)
                 rprint("\n[bold green]Done! Happy Training.[/bold green]")

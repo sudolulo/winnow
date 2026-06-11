@@ -1,10 +1,13 @@
-"""Persistent tracker for Immich asset IDs already uploaded to Frigate.
+"""Persistent tracker for Immich asset IDs already uploaded/rejected by Frigate.
 
-Prevents duplicate uploads across runs by recording each successfully
-uploaded asset ID in a JSON file within the configured CACHE_DIR.
+Two separate JSON files in CACHE_DIR:
+  frigate_uploaded_ids.json  — successfully uploaded assets
+  frigate_rejected_ids.json  — assets Frigate rejected (e.g. no face detected)
 
-To re-train from scratch, simply delete the tracker file
-(frigate_uploaded_ids.json) from your cache directory.
+Both are excluded from future candidate pools. To reset:
+  - All:           delete both files
+  - One person:    call reset_person("Name") or set RESET_PERSON=Name
+  - Rejects only:  delete frigate_rejected_ids.json, or set RETRY_REJECTED=true
 """
 
 import json
@@ -14,62 +17,117 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 UPLOAD_TRACKER_FILE = "frigate_uploaded_ids.json"
+REJECT_TRACKER_FILE = "frigate_rejected_ids.json"
 
 
-def _tracker_path() -> Path:
-    """Return path to the tracker file, using Config.CACHE_DIR if available."""
+def _tracker_path(filename: str) -> Path:
     try:
         from .config import Config
-
-        return Path(Config.CACHE_DIR) / UPLOAD_TRACKER_FILE
+        return Path(Config.CACHE_DIR) / filename
     except (ImportError, AttributeError):
-        return Path(UPLOAD_TRACKER_FILE)
+        return Path(filename)
 
 
-def load_uploaded_ids() -> set[str]:
-    """Load the set of Immich asset IDs already uploaded to Frigate."""
-    path = _tracker_path()
+def _load(filename: str) -> dict:
+    path = _tracker_path(filename)
     if not path.exists():
-        return set()
+        return {}
     try:
         with open(path) as f:
-            data = json.load(f)
-            return set(data.get("uploaded_asset_ids", []))
+            return json.load(f)
     except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"Could not load upload tracker: {e}")
-        return set()
+        logger.warning(f"Could not load tracker {filename}: {e}")
+        return {}
 
 
-def save_uploaded_ids(uploaded_ids: set[str]) -> None:
-    """Persist the set of uploaded Immich asset IDs to disk."""
-    path = _tracker_path()
+def _save(filename: str, data: dict) -> None:
+    path = _tracker_path(filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        json.dump({"uploaded_asset_ids": sorted(uploaded_ids)}, f, indent=2)
+        json.dump(data, f, indent=2)
 
 
-def mark_uploaded(asset_id: str) -> None:
-    """Mark a single Immich asset ID as uploaded to Frigate."""
-    ids = load_uploaded_ids()
-    ids.add(asset_id)
-    save_uploaded_ids(ids)
-    logger.debug(f"Marked asset {asset_id} as uploaded to Frigate")
+def _flat_key(filename: str) -> str:
+    return "uploaded_asset_ids" if "uploaded" in filename else "rejected_asset_ids"
 
 
-def is_uploaded(asset_id: str) -> bool:
-    """Check if an Immich asset ID has already been uploaded to Frigate."""
-    return asset_id in load_uploaded_ids()
+def _load_flat(filename: str) -> set[str]:
+    return set(_load(filename).get(_flat_key(filename), []))
 
 
-def filter_already_uploaded(asset_ids: list[str]) -> list[str]:
-    """Return only asset IDs that have NOT yet been uploaded to Frigate.
+def _mark(filename: str, asset_id: str, person_name: str | None) -> None:
+    data = _load(filename)
+    flat_key = _flat_key(filename)
+    flat = set(data.get(flat_key, []))
+    flat.add(asset_id)
+    data[flat_key] = sorted(flat)
+    if person_name:
+        by_person = data.setdefault("by_person", {})
+        person_ids = set(by_person.get(person_name, []))
+        person_ids.add(asset_id)
+        by_person[person_name] = sorted(person_ids)
+    _save(filename, data)
 
-    Logs how many were skipped so the user knows dedup is working.
-    """
-    uploaded = load_uploaded_ids()
-    new_ids = [aid for aid in asset_ids if aid not in uploaded]
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def load_uploaded_ids() -> set[str]:
+    return _load_flat(UPLOAD_TRACKER_FILE)
+
+
+def load_rejected_ids() -> set[str]:
+    return _load_flat(REJECT_TRACKER_FILE)
+
+
+def mark_uploaded(asset_id: str, person_name: str | None = None) -> None:
+    _mark(UPLOAD_TRACKER_FILE, asset_id, person_name)
+    logger.debug(f"Marked {asset_id} as uploaded ({person_name})")
+
+
+def mark_rejected(asset_id: str, person_name: str | None = None) -> None:
+    _mark(REJECT_TRACKER_FILE, asset_id, person_name)
+    logger.debug(f"Marked {asset_id} as rejected ({person_name})")
+
+
+def reset_person(person_name: str) -> None:
+    """Remove all uploaded and rejected records for a given person."""
+    for filename in (UPLOAD_TRACKER_FILE, REJECT_TRACKER_FILE):
+        data = _load(filename)
+        flat_key = _flat_key(filename)
+        by_person = data.get("by_person", {})
+        person_ids = set(by_person.pop(person_name, []))
+        if person_ids:
+            flat = set(data.get(flat_key, [])) - person_ids
+            data[flat_key] = sorted(flat)
+            data["by_person"] = by_person
+            _save(filename, data)
+    logger.info(f"Reset tracking data for {person_name}")
+
+
+def get_person_summary() -> dict[str, dict[str, int]]:
+    """Return {person_name: {uploaded: N, rejected: N}} for display."""
+    uploaded_by = _load(UPLOAD_TRACKER_FILE).get("by_person", {})
+    rejected_by = _load(REJECT_TRACKER_FILE).get("by_person", {})
+    names = set(uploaded_by) | set(rejected_by)
+    return {
+        name: {
+            "uploaded": len(uploaded_by.get(name, [])),
+            "rejected": len(rejected_by.get(name, [])),
+        }
+        for name in sorted(names)
+    }
+
+
+def filter_already_uploaded(
+    asset_ids: list[str],
+    retry_rejected: bool = False,
+) -> list[str]:
+    """Return asset IDs not yet uploaded (and not rejected, unless retry_rejected)."""
+    exclude = load_uploaded_ids()
+    if not retry_rejected:
+        exclude |= load_rejected_ids()
+    new_ids = [aid for aid in asset_ids if aid not in exclude]
     skipped = len(asset_ids) - len(new_ids)
     if skipped:
-        logger.info(f"Skipping {skipped} assets already uploaded to Frigate")
+        logger.info(f"Skipping {skipped} assets already uploaded or rejected by Frigate")
     return new_ids
-

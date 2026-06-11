@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 _yolo_model = None
 
 
+def _save_jpeg(img: Image.Image, path: str) -> None:
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    img.save(path, format="JPEG")
+
+
 def get_yolo_model():
     """Singleton for YOLO model."""
     global _yolo_model
@@ -110,7 +116,7 @@ def process_face_mode(
             scaled_landmarks = [[lm[0] * scale_x, lm[1] * scale_y] for lm in landmarks]
             aligned = align_face(img, scaled_landmarks)
             if aligned is not None:
-                aligned.save(os.path.join(output_dir, f"{count}.jpg"), format="JPEG")
+                _save_jpeg(aligned, os.path.join(output_dir, f"{count}.jpg"))
                 return True
 
     # Fall back to bounding box crop with configurable margin
@@ -124,7 +130,7 @@ def process_face_mode(
     )
 
     face_crop = img.crop(crop_box)
-    face_crop.save(os.path.join(output_dir, f"{count}.jpg"), format="JPEG")
+    _save_jpeg(face_crop, os.path.join(output_dir, f"{count}.jpg"))
     return True
 
 
@@ -149,9 +155,9 @@ def process_object_mode(
             conf = float(box.conf[0])
             if 0 <= cls_id < len(model.names) and model.names[cls_id] == target_class and conf > 0.5:
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
-                img.crop((x1, y1, x2, y2)).save(
+                _save_jpeg(
+                    img.crop((x1, y1, x2, y2)),
                     os.path.join(output_dir, f"{count}_{class_idx}.jpg"),
-                    format="JPEG",
                 )
                 class_idx += 1
                 found = True
@@ -164,6 +170,6 @@ def process_object_mode(
 
 def process_full_mode(img: Image.Image, output_dir: str, count: int) -> bool:
     """Save full image."""
-    img.save(os.path.join(output_dir, f"{count}.jpg"), format="JPEG")
+    _save_jpeg(img, os.path.join(output_dir, f"{count}.jpg"))
     return True
 
