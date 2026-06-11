@@ -7,6 +7,7 @@ Unified embedding interface for faces and objects.
 """
 
 import contextlib
+import importlib
 import logging
 import os
 import warnings
@@ -21,8 +22,10 @@ logger = logging.getLogger(__name__)
 
 # Lazy-loaded singletons
 _insightface_app = None
+_insightface_loaded = False
 _siglip_model = None
 _siglip_processor = None
+_siglip_loaded = False
 
 
 def _is_force_cpu() -> bool:
@@ -37,9 +40,10 @@ def _is_force_cpu() -> bool:
 
 def get_insightface_app():
     """Singleton for InsightFace app with automatic GPU/CPU fallback."""
-    global _insightface_app
-    if _insightface_app is not None:
+    global _insightface_app, _insightface_loaded
+    if _insightface_loaded:
         return _insightface_app
+    _insightface_loaded = True
 
     try:
         import onnxruntime as ort
@@ -120,9 +124,10 @@ def get_face_embedding(img_pil: Image.Image) -> np.ndarray | None:
 
 def get_siglip_model():
     """Singleton for SigLIP model and processor with GPU auto-detection."""
-    global _siglip_model, _siglip_processor
-    if _siglip_model is not None:
+    global _siglip_model, _siglip_processor, _siglip_loaded
+    if _siglip_loaded:
         return _siglip_model, _siglip_processor
+    _siglip_loaded = True
 
     try:
         import warnings
@@ -264,9 +269,45 @@ def get_embedding(
     return emb
 
 
-def is_embedding_available(entity_type: str = "face") -> bool:
-    """Check if embedding model is available for the given entity type."""
+def _is_module_available(module_name: str) -> bool:
+    """Check if a Python module is importable without importing it fully."""
+    try:
+        importlib.util.find_spec(module_name)
+        return True
+    except (ModuleNotFoundError, ValueError):
+        return False
+
+
+def is_embedding_available(entity_type: str = "face", *, load: bool = False) -> bool:
+    """Check if embedding model is available for the given entity type.
+
+    By default this performs a lightweight import-check only (no model loading).
+    Pass ``load=True`` to actually load the model (expensive, hundreds of MB).
+
+    Args:
+        entity_type: 'face' or 'object'
+        load: If True, fully load the model to verify. If False (default),
+              only check that the required packages are importable.
+    """
+    if load:
+        if entity_type == "face":
+            return get_insightface_app() is not None
+        model, _ = get_siglip_model()
+        return model is not None
+
+    # Lightweight check: just verify the packages are importable
+    if entity_type == "face":
+        return _is_module_available("insightface") and _is_module_available("onnxruntime")
+    return _is_module_available("transformers") and _is_module_available("torch")
+
+
+def load_embedding_model(entity_type: str = "face") -> bool:
+    """Explicitly load the embedding model for the given entity type.
+
+    Returns True if the model loaded successfully.
+    """
     if entity_type == "face":
         return get_insightface_app() is not None
     model, _ = get_siglip_model()
     return model is not None
+

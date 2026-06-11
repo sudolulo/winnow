@@ -13,7 +13,7 @@ services:
       - ENABLE_CACHE=true
       - CACHE_DIR=/app/.if_cache
       - HF_HOME=/models/huggingface
-      - INSIGHTFACE_HOME=/models/insightface
+      - INSIGHTFACE_HOME=/models
       # - ONLY_PEOPLE=John,Jane
       # - SKIP_PEOPLE=Unknown
       # - MIN_FACE_COUNT=5
@@ -37,3 +37,4 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+

@@ -14,10 +14,10 @@ load_dotenv()
 CONFIG_FILE = Path(".immich_config.json")
 
 
-class Config:
+class _Config:
     """Singleton configuration with uppercase attribute access for backward compatibility."""
 
-    _instance: ClassVar["Config | None"] = None
+    _instance: ClassVar["_Config | None"] = None
 
     # Configuration values
     IMMICH_URL: str | None = None
@@ -26,10 +26,13 @@ class Config:
     YEARS_FILTER: int = 10
 
     # Quality filtering
-    MIN_FACE_WIDTH: int = 100
+    MIN_FACE_WIDTH: int = 50
     BLUR_THRESHOLD: float = 100.0
     MIN_CONFIDENCE: float = 0.7
     MAX_AUTO_IMAGES: int = 80
+
+    # People filtering
+    MIN_FACE_COUNT: int = 0
 
     # Output quality
     FACE_MARGIN: float = 0.15
@@ -40,7 +43,7 @@ class Config:
     ENABLE_CACHE: bool = False
     CACHE_DIR: str = ".if_cache"
 
-    def __new__(cls) -> "Config":
+    def __new__(cls) -> "_Config":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._load()
@@ -54,6 +57,9 @@ class Config:
         self.OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./frigate_train")
         self.YEARS_FILTER = int(os.getenv("YEARS_FILTER", "10"))
         self.MIN_FACE_WIDTH = int(os.getenv("MIN_FACE_WIDTH", "50"))
+        self.MIN_FACE_COUNT = int(os.getenv("MIN_FACE_COUNT", "0"))
+        self.ENABLE_CACHE = os.getenv("ENABLE_CACHE", "false").lower() in ("true", "1", "yes")
+        self.CACHE_DIR = os.getenv("CACHE_DIR", ".if_cache")
 
         # Fall back to config file for missing values
         if CONFIG_FILE.exists():
@@ -65,6 +71,11 @@ class Config:
                     self.OUTPUT_DIR = data.get("OUTPUT_DIR", self.OUTPUT_DIR)
             except (json.JSONDecodeError, OSError) as e:
                 logging.warning(f"Failed to load config file: {e}")
+
+    @classmethod
+    def reset(cls) -> None:
+        """Reset the singleton — mainly useful for testing or delayed env setup."""
+        cls._instance = None
 
     def save(self) -> None:
         """Persist configuration to file."""
@@ -105,11 +116,47 @@ class Config:
             raise ValueError("Missing Immich URL or API Key.")
 
 
-# Singleton instance and backward-compatible aliases
-Config = Config()  # type: ignore[misc]
-ConfigManager = type("ConfigManager", (), {"get": staticmethod(lambda: Config)})
+# Singleton instance — use a lazy property pattern to avoid import-time side effects
+# when env vars aren't yet set. Call Config.instance() or just access attributes on
+# the module-level `Config` (which delegates to the singleton).
+class _ConfigAccessor:
+    """Lazy accessor that defers singleton creation until first attribute access.
+
+    This avoids reading .env and config files at import time, so environment
+    variables set after importing the module are properly picked up.
+    """
+
+    def __getattr__(self, name: str):
+        return getattr(_Config(), name)
+
+    def __setattr__(self, name: str, value):
+        if name.startswith("_"):
+            super().__setattr__(name, value)
+        else:
+            setattr(_Config(), name, value)
+
+    def reset(self) -> None:
+        """Reset the underlying singleton."""
+        _Config.reset()
+
+    def interactive_setup(self) -> None:
+        """Delegate to the singleton."""
+        _Config().interactive_setup()
+
+    def validate(self) -> None:
+        """Delegate to the singleton."""
+        _Config().validate()
+
+    def save(self) -> None:
+        """Delegate to the singleton."""
+        _Config().save()
+
+
+Config = _ConfigAccessor()
+ConfigManager = type("ConfigManager", (), {"get": staticmethod(lambda: _Config())})
 
 
 def get_headers() -> dict[str, str]:
     """Return HTTP headers for Immich API requests."""
     return {"x-api-key": Config.API_KEY or "", "Accept": "application/json"}
+

@@ -5,7 +5,7 @@ description = "Immich to Frigate training sets"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
-authors = [{ name = "ds-sebastian" }]
+authors = [{ name = "sudolulo" }]
 keywords = ["immich", "frigate", "face-recognition", "training-data", "arcface", "insightface"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -23,20 +23,22 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
     "rich>=14.2.0",
-    "torch>=2.9.1",
-    "transformers>=4.57.6",
-    "ultralytics>=8.3.252",
 ]
 
 [project.scripts]
 if-curator = "if_curator.cli:main"
 
 [project.urls]
-Repository = "https://github.com/ds-sebastian/if_curator"
+Repository = "https://github.com/sudolulo/if_curator_headless"
 
 [project.optional-dependencies]
 gpu = [
     "onnxruntime-gpu>=1.23.2",
+]
+object = [
+    "torch>=2.9.1",
+    "transformers>=4.57.6",
+    "ultralytics>=8.3.252",
 ]
 
 [dependency-groups]
@@ -75,3 +77,4 @@ DEP002 = ["onnxruntime-gpu"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+

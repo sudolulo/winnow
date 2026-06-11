@@ -140,15 +140,17 @@ def process_object_mode(
         results = model(img, verbose=False, device=device)
 
         found = False
-        for idx, (box, cls_id, conf) in enumerate(
-            (box, int(box.cls[0]), float(box.conf[0])) for r in results for box in r.boxes
-        ):
+        class_idx = 0  # Sequential counter per target class (Issue #10)
+        for box in (box for r in results for box in r.boxes):
+            cls_id = int(box.cls[0])
+            conf = float(box.conf[0])
             if 0 <= cls_id < len(model.names) and model.names[cls_id] == target_class and conf > 0.5:
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 img.crop((x1, y1, x2, y2)).save(
-                    os.path.join(output_dir, f"{count}_{idx}.jpg"),
+                    os.path.join(output_dir, f"{count}_{class_idx}.jpg"),
                     format="JPEG",
                 )
+                class_idx += 1
                 found = True
 
         return found
@@ -161,3 +163,4 @@ def process_full_mode(img: Image.Image, output_dir: str, count: int) -> bool:
     """Save full image."""
     img.save(os.path.join(output_dir, f"{count}.jpg"), format="JPEG")
     return True
+

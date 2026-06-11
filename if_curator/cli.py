@@ -14,7 +14,7 @@ from rich.table import Table
 
 from .config import Config, ConfigManager
 from .diversity import select_diverse_assets
-from .embeddings import is_embedding_available
+from .embeddings import is_embedding_available, load_embedding_model
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
 from .immich_api import fetch_all_assets, fetch_full_image, filter_recent_assets, get_people
 from .logging import console, setup_logging
@@ -146,6 +146,7 @@ def interactive_configure(people: list[dict]) -> list[dict]:
 
     return jobs
 
+
 def auto_configure(people: list[dict]) -> list[dict]:
     """Non-interactive: configure jobs for all named people automatically."""
     valid_people = sorted([p for p in people if p.get("name")], key=lambda x: x["name"])
@@ -163,6 +164,13 @@ def auto_configure(people: list[dict]) -> list[dict]:
         valid_people = [p for p in valid_people if p["name"] in only]
     if skip:
         valid_people = [p for p in valid_people if p["name"] not in skip]
+
+    # Filter by minimum face count (Issue #6: previously unimplemented)
+    min_face_count = Config.MIN_FACE_COUNT
+    if min_face_count > 0:
+        valid_people = [p for p in valid_people if p.get("assetCount", 0) >= min_face_count]
+        if valid_people:
+            rprint(f"  Filtered to {len(valid_people)} people with ≥{min_face_count} assets (MIN_FACE_COUNT={min_face_count})")
 
     jobs = []
     for person in valid_people:
@@ -239,6 +247,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
     rprint(f"  People: [bold]{len(jobs)}[/bold], Total images: [bold]{total_files}[/bold]")
 
     uploaded, failed = 0, 0
+    max_retries = 2
 
     with Progress(
         SpinnerColumn(),
@@ -276,45 +285,54 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
             for fname in person_files:
                 fpath = os.path.join(person_dir, fname)
-                try:
-                    with open(fpath, "rb") as f:
-                        resp = requests.post(
-                            f"{frigate_url}/api/faces/train/{encoded_name}/classify",
-                            files={"file": (fname, f, "image/jpeg")},
-                            timeout=30,
+                success = False
+
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        with open(fpath, "rb") as f:
+                            resp = requests.post(
+                                f"{frigate_url}/api/faces/train/{encoded_name}/classify",
+                                files={"file": (fname, f, "image/jpeg")},
+                                timeout=30,
+                            )
+                        if resp.status_code == 200:
+                            uploaded += 1
+                            person_uploaded += 1
+                            success = True
+                            break
+                        else:
+                            if attempt < max_retries:
+                                logger.warning(f"Upload attempt {attempt}/{max_retries} for {fname}: HTTP {resp.status_code}, retrying...")
+                                continue
+                            failed += 1
+                            person_failed += 1
+                            progress.console.print(
+                                f"    [red]✗ {fname}: HTTP {resp.status_code} (after {max_retries} attempts)[/red]"
+                            )
+                            try:
+                                error_detail = resp.json().get("message", resp.text[:100])
+                                progress.console.print(f"      [dim]{error_detail}[/dim]")
+                            except Exception:
+                                progress.console.print(f"      [dim]{resp.text[:100]}[/dim]")
+                    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+                        if attempt < max_retries:
+                            logger.warning(f"Upload attempt {attempt}/{max_retries} for {fname}: {type(exc).__name__}, retrying...")
+                            continue
+                        failed += 1
+                        person_failed += 1
+                        label = "Connection refused" if isinstance(exc, requests.exceptions.ConnectionError) else "Request timed out (30s)"
+                        progress.console.print(
+                            f"    [red]✗ {fname}: {label} (after {max_retries} attempts)[/red]"
                         )
-                    if resp.status_code == 200:
-                        uploaded += 1
-                        person_uploaded += 1
-                    else:
+                    except Exception as e:
+                        if attempt < max_retries:
+                            logger.warning(f"Upload attempt {attempt}/{max_retries} for {fname}: {type(e).__name__}, retrying...")
+                            continue
                         failed += 1
                         person_failed += 1
                         progress.console.print(
-                            f"    [red]✗ {fname}: HTTP {resp.status_code}[/red]"
+                            f"    [red]✗ {fname}: {type(e).__name__} - {e} (after {max_retries} attempts)[/red]"
                         )
-                        try:
-                            error_detail = resp.json().get("message", resp.text[:100])
-                            progress.console.print(f"      [dim]{error_detail}[/dim]")
-                        except Exception:
-                            progress.console.print(f"      [dim]{resp.text[:100]}[/dim]")
-                except requests.exceptions.ConnectionError:
-                    failed += 1
-                    person_failed += 1
-                    progress.console.print(
-                        f"    [red]✗ {fname}: Connection refused[/red]"
-                    )
-                except requests.exceptions.Timeout:
-                    failed += 1
-                    person_failed += 1
-                    progress.console.print(
-                        f"    [red]✗ {fname}: Request timed out (30s)[/red]"
-                    )
-                except Exception as e:
-                    failed += 1
-                    person_failed += 1
-                    progress.console.print(
-                        f"    [red]✗ {fname}: {type(e).__name__} - {e}[/red]"
-                    )
 
                 progress.advance(upload_task)
 
@@ -349,8 +367,8 @@ def _perform_selection(assets: list, limit: int | str, name: str, selection_mode
         model_display = "InsightFace (face embeddings)" if entity_type == "face" else "SigLIP (visual embeddings)"
         rprint(f"\n[cyan]Using {model_display} for diversity analysis...[/cyan]")
 
-        # Pre-load model to avoid interference with progress bar
-        is_embedding_available(entity_type)
+        # Pre-load model explicitly (separate from availability check)
+        load_embedding_model(entity_type)
 
         with Progress(
             SpinnerColumn(),

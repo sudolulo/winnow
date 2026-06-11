@@ -13,6 +13,8 @@ from .config import Config, get_headers
 
 logger = logging.getLogger(__name__)
 
+MAX_PAGES = 1000  # Safety limit for pagination
+
 
 @dataclass
 class FaceData:
@@ -50,7 +52,7 @@ def fetch_all_assets(person: dict) -> list[dict]:
     logger.info(f"Fetching assets for {name}...")
 
     assets = []
-    for page in range(1, 1000):  # Safety limit
+    for page in range(1, MAX_PAGES + 1):
         try:
             resp = requests.post(
                 url,
@@ -209,3 +211,4 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
 
     logger.info(f"Retained {len(recent)} assets (filtered {skipped} old assets).")
     return recent
+

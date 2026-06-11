@@ -70,7 +70,7 @@ def check_exposure(img_np: np.ndarray, lo: float = 30.0, hi: float = 225.0) -> t
     return True, ""
 
 
-def check_face_size(face_width: float, face_height: float, min_px: int = 100) -> tuple[bool, str]:
+def check_face_size(face_width: float, face_height: float, min_px: int = 50) -> tuple[bool, str]:
     """Validate face crop is large enough for meaningful features."""
     if face_width < min_px or face_height < min_px:
         return False, f"Face too small ({face_width:.0f}x{face_height:.0f}, min={min_px}px)"
@@ -94,7 +94,7 @@ def assess_quality(
     face_bbox: tuple[float, float, float, float] | None = None,
     confidence: float | None = None,
     blur_threshold: float = 100.0,
-    min_face_px: int = 100,
+    min_face_px: int = 50,
     min_confidence: float = 0.7,
 ) -> QualityResult:
     """Run all quality checks on an image.
@@ -130,3 +130,4 @@ def assess_quality(
             reasons.append(reason)
 
     return QualityResult(passed=len(reasons) == 0, reasons=reasons)
+

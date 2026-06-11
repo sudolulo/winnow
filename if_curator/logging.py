@@ -1,6 +1,7 @@
 """Logging configuration for if-curator."""
 
 import logging
+import os
 import warnings
 
 from rich.console import Console
@@ -33,8 +34,11 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     # Rich console handler - uses shared console to avoid breaking progress bars
     root.addHandler(RichHandler(rich_tracebacks=True, markup=True, console=console))
 
-    # File handler (always debug level)
-    file_handler = logging.FileHandler("immich_export.log")
+    # File handler (always debug level) — log file respects OUTPUT_DIR if set
+    log_dir = os.environ.get("OUTPUT_DIR", ".")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "immich_export.log")
+    file_handler = logging.FileHandler(log_path)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
     root.addHandler(file_handler)
@@ -48,3 +52,4 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 
     return root
+

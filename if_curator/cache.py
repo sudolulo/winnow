@@ -80,8 +80,15 @@ _cache: EmbeddingCache | None = None
 
 
 def get_cache(cache_dir: str = ".if_cache") -> EmbeddingCache:
-    """Get or create the singleton cache instance."""
+    """Get or create the singleton cache instance.
+
+    Note: The ``cache_dir`` parameter is only used when creating the
+    singleton for the first time. Subsequent calls return the existing
+    instance regardless of ``cache_dir``. If you need a cache with a
+    different directory, instantiate ``EmbeddingCache`` directly.
+    """
     global _cache
     if _cache is None:
         _cache = EmbeddingCache(cache_dir)
     return _cache
+
