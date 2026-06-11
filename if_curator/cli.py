@@ -423,35 +423,16 @@ def _show_preview(jobs: list[dict]) -> None:
 
 
 def _enrich_asset_with_face_data(asset: dict, person: dict) -> dict:
-    """Enrich an asset dict with face data from the Immich faces API.
-
-    The search/metadata endpoint does not include face bounding box data,
-    so we fetch it from GET /api/faces?id={asset_id} and inject it into
-    the asset's "people" field so process_face_mode can find it.
-
-    Returns the enriched asset dict (modifies in place and returns it).
-    """
     person_id = person["id"]
     face_data = fetch_face_data(asset["id"], person_id=person_id)
 
     if face_data is None:
-        logger.debug(
-            f"Face data API returned nothing for {person.get('name')} "
-            f"in asset {asset.get('id')} — Immich may not have detected a face"
-        )
+        logger.debug(f"No face data returned for {person.get('name')} in asset {asset.get('id')}")
         return asset
 
-    # Skip zero-area bounding boxes (face detection failed or no face found)
     if face_data.bbox == (0, 0, 0, 0):
-        logger.debug(
-            f"Zero-area bounding box for {person.get('name')} in asset {asset.get('id')}"
-        )
+        logger.debug(f"Zero-area bounding box for {person.get('name')} in asset {asset.get('id')}")
         return asset
-
-    logger.debug(
-        f"Got face data for {person.get('name')} in asset {asset.get('id')}: "
-        f"bbox={face_data.bbox}, img_size={face_data.image_width}x{face_data.image_height}"
-    )
 
     face_info = {
         "boundingBoxX1": face_data.bbox[0],
@@ -462,9 +443,9 @@ def _enrich_asset_with_face_data(asset: dict, person: dict) -> dict:
         "imageHeight": face_data.image_height,
     }
 
-    # Inject into asset so process_face_mode can find it via asset["people"]
     asset["people"] = [{"id": person_id, "faces": [face_info]}]
     return asset
+
 
 
 def execute_jobs(jobs: list[dict]) -> None:
