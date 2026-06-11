@@ -14,17 +14,18 @@ jobs:
     name: Create GitHub Release & Build Image
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed for creating releases
-      packages: write # Needed for pushing to GHCR
+      contents: write
+      packages: write
 
     steps:
       - name: Free up disk space
         run: |
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /opt/ghc
-        sudo rm -rf "/usr/local/share/boost"
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-        echo "Disk space freed."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          echo "Disk space freed."
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -59,9 +60,7 @@ jobs:
         id: changelog
         run: |
           VERSION="${{ steps.tag.outputs.VERSION }}"
-          # Extract the section for this version from CHANGELOG.md
           NOTES=$(awk "/^## \[$VERSION\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
-          # Use a delimiter to safely pass multiline output
           {
             echo "NOTES<<CHANGELOG_EOF"
             echo "$NOTES"
@@ -92,7 +91,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5

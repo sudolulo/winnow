@@ -7,21 +7,19 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    # --- ADD THIS BLOCK ---
     permissions:
       contents: read
       packages: write
-    # ----------------------
 
     steps:
       - name: Free up disk space
-    	run: |
+        run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           echo "Disk space freed."
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -30,13 +28,12 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          # Make sure this matches your exact repo name (lowercase)
           tags: ghcr.io/sudolulo/if-curator-headless:latest
 
