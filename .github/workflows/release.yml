@@ -31,6 +31,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Resolve tag name
         id: tag
         run: |
@@ -98,6 +101,8 @@ jobs:
         with:
           context: .
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ghcr.io/sudolulo/if-curator-headless:latest
             ghcr.io/sudolulo/if-curator-headless:${{ steps.tag.outputs.TAG }}
