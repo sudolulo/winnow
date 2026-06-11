@@ -334,7 +334,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
     if failed:
         rprint(f"    ❌ Failed:    [red]{failed}[/red]")
     else:
-        rprint(f"    ❌ Failed:    0")
+        rprint("    ❌ Failed:    0")
 
     if failed > 0:
         rprint("  [yellow]Check logs above for per-file error details.[/yellow]")
