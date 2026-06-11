@@ -473,11 +473,17 @@ def _enrich_asset_with_face_data(asset: dict, person: dict) -> dict:
 
     if face_data is None:
         logger.debug(f"No face data returned for {person.get('name')} in asset {asset.get('id')}")
+        # Clean any None entries from the people list (can come from Immich API)
+        if "people" in asset:
+            asset["people"] = [p for p in asset["people"] if p is not None]
         return asset
 
     # Skip zero-area bounding boxes (face detection failed or no face found)
     if face_data.bbox == (0, 0, 0, 0):
         logger.debug(f"Zero-area bounding box for {person.get('name')} in asset {asset.get('id')}")
+        # Clean any None entries from the people list (can come from Immich API)
+        if "people" in asset:
+            asset["people"] = [p for p in asset["people"] if p is not None]
         return asset
 
     face_info = {
