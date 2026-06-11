@@ -44,9 +44,9 @@ RUN chmod +x /app/entrypoint.sh
 # ── Runtime stage ─────────────────────────────────────────────────────────
 FROM build AS runtime
 
-# Expose cuDNN libraries installed by nvidia-cudnn-cu12 pip package
-# so onnxruntime-gpu can find libcudnn.so.9 at runtime
-ENV LD_LIBRARY_PATH="/app/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}"
+# Expose CUDA/cuDNN libraries from pip packages so onnxruntime-gpu
+# can find libcublasLt.so.12 and libcudnn.so.9 at runtime
+ENV LD_LIBRARY_PATH="/app/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:/app/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH}"
 
 RUN groupadd -g 568 apps && useradd -u 568 -g apps -m -s /bin/bash appuser \
     && mkdir -p /models/.insightface /models/huggingface \

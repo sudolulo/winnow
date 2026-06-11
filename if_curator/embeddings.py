@@ -33,6 +33,28 @@ def _is_force_cpu() -> bool:
     return os.getenv("FORCE_CPU", "").lower() in ("true", "1", "yes")
 
 
+def _preload_cuda_libs() -> None:
+    """Preload CUDA/cuDNN DLLs so onnxruntime-gpu registers CUDAExecutionProvider.
+
+    Starting with onnxruntime-gpu 1.19+, CUDA/cuDNN libraries are no longer
+    bundled inside the ORT package. They must be loaded from the nvidia-*
+    pip packages (nvidia-cuda-runtime-cu12, nvidia-cudnn-cu12) before any
+    InferenceSession is created.
+
+    Calling preload_dlls() with directory="" searches NVIDIA site-packages
+    directories automatically.
+    """
+    try:
+        import onnxruntime
+        if hasattr(onnxruntime, "preload_dlls"):
+            onnxruntime.preload_dlls(cuda=True, cudnn=True, directory="")
+            logger.info("Preloaded CUDA/cuDNN DLLs for onnxruntime-gpu")
+        else:
+            logger.debug("onnxruntime.preload_dlls() not available (ORT < 1.21)")
+    except Exception as e:
+        logger.warning(f"Failed to preload CUDA/cuDNN DLLs: {e}")
+
+
 # =============================================================================
 # InsightFace (Faces)
 # =============================================================================
@@ -44,6 +66,9 @@ def get_insightface_app():
     if _insightface_loaded:
         return _insightface_app
     _insightface_loaded = True
+
+    # Preload CUDA/cuDNN DLLs BEFORE any ORT InferenceSession is created
+    _preload_cuda_libs()
 
     try:
         import onnxruntime as ort
