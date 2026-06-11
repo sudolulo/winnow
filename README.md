@@ -1,4 +1,4 @@
-## if-curator-headless
+### if-curator-headless
 
 Headless fork of [if-curator](https://github.com/ds-sebastian/if_curator) with automatic Frigate face training upload and Docker support.
 
