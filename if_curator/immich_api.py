@@ -7,7 +7,7 @@ from io import BytesIO
 
 import numpy as np
 import requests
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .config import Config, get_headers
 
@@ -168,7 +168,7 @@ def fetch_full_image(asset_id: str, timeout: int = 60) -> Image.Image | None:
         )
         if resp.ok:
             try:
-                return Image.open(BytesIO(resp.content))
+                return ImageOps.exif_transpose(Image.open(BytesIO(resp.content)))
             except Exception:
                 logger.debug(f"PIL can't open original for {asset_id}, falling back to preview")
     except requests.RequestException:
@@ -182,7 +182,7 @@ def fetch_full_image(asset_id: str, timeout: int = 60) -> Image.Image | None:
             timeout=30,
         )
         if resp.ok:
-            return Image.open(BytesIO(resp.content))
+            return ImageOps.exif_transpose(Image.open(BytesIO(resp.content)))
     except Exception as e:
         logger.error(f"Failed to fetch image {asset_id}: {e}")
 
