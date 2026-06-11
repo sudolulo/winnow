@@ -36,7 +36,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 WORKDIR /app
 
 # Copy project files for deterministic, cached builds
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 COPY if_curator/ if_curator/
 COPY entrypoint.sh scheduler.py ./
 
