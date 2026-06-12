@@ -3,27 +3,49 @@ services:
     image: ghcr.io/sudolulo/if-curator-headless:latest
     container_name: if-curator
     environment:
+      # ── Required ──────────────────────────────────────────────────────────
       - IMMICH_URL=${IMMICH_URL}
       - API_KEY=${API_KEY}
-      - AUTO_MODE=true
       - FRIGATE_URL=${FRIGATE_URL}
+
+      # ── Mode & Strategy ───────────────────────────────────────────────────
+      - AUTO_MODE=true
+      # TRAINING_MODE: face = upload to Frigate face recognition API
+      #                object = save crops to output dir for manual Frigate placement
       - TRAINING_MODE=face
+      # STRATEGY: auto = objective diversity (recommended), standard = 30 imgs, broad = 100 imgs
       - STRATEGY=auto
+      # - LIMIT=50                    # Custom image count; overrides STRATEGY preset
+      # - OBJECT_CLASS=dog            # Object label for object mode (e.g. dog, cat, car)
+
+      # ── People Filtering ──────────────────────────────────────────────────
+      # - ONLY_PEOPLE=John,Jane       # Comma-separated; process only these people
+      # - SKIP_PEOPLE=Unknown         # Comma-separated; skip these people
+      # - MIN_FACE_COUNT=5            # Skip people with fewer than N assets in Immich
+      # - YEARS_FILTER=10             # Only include images from the last N years (default: 10)
+
+      # ── Image Quality ─────────────────────────────────────────────────────
+      # - MIN_FACE_WIDTH=50           # Minimum face width in pixels (default: 50)
+      # - FACE_MARGIN=0.15            # Padding around face crop as fraction (default: 0.15)
+      # - ENABLE_FACE_ALIGNMENT=true  # Align face before cropping (default: true)
+      # - USE_FULL_RESOLUTION=true    # Use full-res images vs thumbnails (default: true)
+      # - MIN_CONFIDENCE=0.7          # Minimum face detection confidence (default: 0.7)
+      # - BLUR_THRESHOLD=100.0        # Laplacian blur threshold; lower = accept more blur (default: 100.0)
+      # - MAX_AUTO_IMAGES=80          # Hard cap on auto-diversity selection (default: 80)
+
+      # ── Caching & Models ──────────────────────────────────────────────────
       - FORCE_CPU=false
       - ENABLE_CACHE=true
       - CACHE_DIR=/app/.if_cache
       - HF_HOME=/models/huggingface
       - INSIGHTFACE_HOME=/models
-      # - ONLY_PEOPLE=John,Jane
-      # - SKIP_PEOPLE=Unknown
-      # - MIN_FACE_COUNT=5
 
-      # ── Tracker overrides (one-shot, remove after use) ──
-      # - DRY_RUN=true           # Preview selection without downloading/uploading
-      # - RETRY_REJECTED=true    # Re-attempt previously rejected images
-      # - RESET_PERSON=John      # Clear uploaded+rejected history for one person
+      # ── Tracker overrides (one-shot, remove after use) ────────────────────
+      # - DRY_RUN=true                # Preview selection without downloading/uploading
+      # - RETRY_REJECTED=true         # Re-attempt previously rejected images
+      # - RESET_PERSON=John           # Clear uploaded+rejected history for one person
 
-      # ── Scheduling ──
+      # ── Scheduling ────────────────────────────────────────────────────────
       # Cron expression (unset = run once and exit)
       # Every Sunday at 3 AM:
       - CRON_SCHEDULE=0 3 * * 0
@@ -44,4 +66,3 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-

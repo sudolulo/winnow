@@ -58,6 +58,12 @@ class _Config:
         self.YEARS_FILTER = int(os.getenv("YEARS_FILTER", "10"))
         self.MIN_FACE_WIDTH = int(os.getenv("MIN_FACE_WIDTH", "50"))
         self.MIN_FACE_COUNT = int(os.getenv("MIN_FACE_COUNT", "0"))
+        self.BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "100.0"))
+        self.MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.7"))
+        self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "80"))
+        self.FACE_MARGIN = float(os.getenv("FACE_MARGIN", "0.15"))
+        self.USE_FULL_RESOLUTION = os.getenv("USE_FULL_RESOLUTION", "true").lower() in ("true", "1", "yes")
+        self.ENABLE_FACE_ALIGNMENT = os.getenv("ENABLE_FACE_ALIGNMENT", "true").lower() in ("true", "1", "yes")
         self.ENABLE_CACHE = os.getenv("ENABLE_CACHE", "false").lower() in ("true", "1", "yes")
         self.CACHE_DIR = os.getenv("CACHE_DIR", ".if_cache")
 

@@ -63,8 +63,14 @@ def _get_strategy_choice(has_embedding: bool, entity_type: str) -> tuple[int | s
 
 def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, str]:
     """Resolve env var strategy to (limit, selection_mode) without prompts."""
+    custom_limit = os.environ.get("LIMIT", "").strip()
+
     if not has_embedding:
-        return 30, "time"
+        limit = int(custom_limit) if custom_limit else 30
+        return limit, "time"
+
+    if custom_limit:
+        return int(custom_limit), "smart"
 
     strategy_map = {
         "auto": ("auto", "smart"),
