@@ -26,10 +26,12 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     """Configure logging with Rich console and file output."""
     level = logging.DEBUG if verbose else logging.INFO
 
-    # Configure root logger
+    # Configure root logger; close existing handlers before replacing them
     root = logging.getLogger()
     root.setLevel(level)
-    root.handlers.clear()
+    for h in root.handlers[:]:
+        h.close()
+        root.removeHandler(h)
 
     # Rich console handler - uses shared console to avoid breaking progress bars
     root.addHandler(RichHandler(rich_tracebacks=True, markup=True, console=console))

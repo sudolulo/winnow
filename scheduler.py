@@ -17,13 +17,13 @@ from winnow.cli import main
 
 SCHEDULE = os.environ["CRON_SCHEDULE"]
 MODELS_DIR = os.environ.get("HF_HOME", "/models/huggingface")
-INSIGHTFACE_BASE = os.environ.get("INSIGHTFACE_HOME", "/models")
+INSIGHTFACE_HOME = os.environ.get("INSIGHTFACE_HOME", "/models/.insightface")
 
 logger = logging.getLogger(__name__)
 
 
 def check_models() -> None:
-    buffalo = Path(INSIGHTFACE_BASE) / ".insightface" / "models" / "buffalo_l"
+    buffalo = Path(INSIGHTFACE_HOME) / "models" / "buffalo_l"
     hf_hub = Path(MODELS_DIR) / "hub"
     if not buffalo.exists():
         print("  InsightFace Buffalo_L not found — will download on first run", flush=True)
@@ -43,7 +43,9 @@ while True:
         try:
             main()
             print("winnow run complete", flush=True)
-        except Exception as e:
+        except KeyboardInterrupt:
+            raise
+        except BaseException as e:
             logger.error(f"winnow run failed: {e}", exc_info=True)
             print(f"winnow run failed: {e}", flush=True)
         next_run = cron.get_next(float)

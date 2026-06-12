@@ -287,30 +287,31 @@ def get_embedding(
 
     use_cache = Config.ENABLE_CACHE and asset_id is not None
     cache = get_cache(Config.CACHE_DIR) if use_cache else None
-    model_key = "immich" if entity_type == "face" else "siglip"
+    # Use a single consistent cache key per model so lookups and stores always match.
+    # "immich" was previously used as the face key on the lookup path but "insightface"
+    # on the store path — meaning the cache was never hit for locally-computed embeddings.
+    cache_key = "insightface" if entity_type == "face" else "siglip"
 
     # 1. Use Immich embedding if provided
     if immich_embedding is not None:
         if cache:
-            cache.put(asset_id, immich_embedding, model_key)
+            cache.put(asset_id, immich_embedding, cache_key)
         return immich_embedding
 
     # 2. Check disk cache
     if cache:
-        cached = cache.get(asset_id, model_key)
+        cached = cache.get(asset_id, cache_key)
         if cached is not None:
             return cached
 
     # 3. Compute locally
     if entity_type == "face":
         emb = get_face_embedding(img_pil)
-        model_key = "insightface"
     else:
         emb = get_object_embedding(img_pil)
 
-    # Cache the result
     if emb is not None and cache:
-        cache.put(asset_id, emb, model_key)
+        cache.put(asset_id, emb, cache_key)
 
     return emb
 
