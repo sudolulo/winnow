@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-06-12
+
+### Fixed
+
+- **GPU broken on x86_64 Linux**: `insightface` 1.0.1 (pulled in by the 0.2.10 lock update) added a hard dependency on the CPU `onnxruntime` package. Combined with an incorrect `override-dependencies` entry introduced in 0.2.10, both `onnxruntime` (CPU) and `onnxruntime-gpu` were being installed into the same venv. The CPU package landed last and overwrote the GPU one, causing `CUDAExecutionProvider` to disappear from the provider list even when a GPU was present. Fixed by declaring `onnxruntime` and `onnxruntime-gpu` as conflicting packages in uv's resolver, ensuring only the correct one is installed per platform.
+
 ## [0.2.10] - 2026-06-12
 
 ### Added

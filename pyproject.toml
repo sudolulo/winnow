@@ -1,6 +1,6 @@
 [project]
 name = "winnow"
-version = "0.2.10"
+version = "0.2.11"
 description = "Immich to Frigate training sets"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.13"
@@ -39,7 +39,12 @@ winnow = "winnow.cli:main"
 Repository = "https://github.com/sudolulo/winnow"
 
 [tool.uv]
-override-dependencies = ["onnxruntime>=1.23.2"]
+conflicts = [
+    [
+        { package = "onnxruntime" },
+        { package = "onnxruntime-gpu" },
+    ],
+]
 required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
     "sys_platform == 'linux' and platform_machine == 'aarch64'",
