@@ -35,10 +35,13 @@ def get_people() -> list[dict]:
             headers=get_headers(),
             timeout=10,
         )
+        if resp.status_code == 401:
+            logger.error("Immich API key is invalid or expired (401 Unauthorized). Update API_KEY.")
+            return []
         resp.raise_for_status()
         return resp.json().get("people", [])
     except (requests.RequestException, ValueError) as e:
-        logger.error(f"Failed to fetch people: {e}")
+        logger.error(f"Failed to fetch people from Immich: {e}")
         return []
 
 
