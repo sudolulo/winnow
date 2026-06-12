@@ -37,7 +37,7 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     # File handler (always debug level) — log file respects OUTPUT_DIR if set
     log_dir = os.environ.get("OUTPUT_DIR", ".")
     os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, "immich_export.log")
+    log_path = os.path.join(log_dir, "winnow.log")
     file_handler = logging.FileHandler(log_path)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))

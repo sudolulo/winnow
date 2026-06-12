@@ -13,7 +13,7 @@ from .diversity import select_diverse_assets
 from .embeddings import is_embedding_available, load_embedding_model
 from .frigate_api import get_frigate_face_counts
 from .immich_api import fetch_all_assets, filter_recent_assets
-from .logging import console
+from .log_config import console
 from .upload_tracker import filter_already_uploaded, get_person_summary, update_frigate_count
 
 logger = logging.getLogger(__name__)

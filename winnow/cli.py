@@ -10,7 +10,7 @@ from .config import Config, ConfigManager
 from .executor import execute_jobs, upload_to_frigate
 from .immich_api import get_people
 from .jobs import _show_preview, auto_configure, interactive_configure
-from .logging import console, setup_logging
+from .log_config import console, setup_logging
 from .upload_tracker import get_person_summary, reset_person
 
 logger = logging.getLogger(__name__)

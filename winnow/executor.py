@@ -14,7 +14,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 from .config import Config, get_headers
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
 from .immich_api import fetch_face_data, fetch_full_image
-from .logging import console
+from .log_config import console
 from .upload_tracker import mark_rejected, mark_uploaded
 
 logger = logging.getLogger(__name__)
