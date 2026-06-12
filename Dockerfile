@@ -72,10 +72,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=build /app /app
 COPY --from=build /usr/local/bin/uv /usr/local/bin/uv
 
-# Expose CUDA/cuDNN libraries from pip packages so onnxruntime-gpu can find
-# libcublasLt.so.12 and libcudnn.so.9 at runtime (amd64-gpu only).
-# On cpu builds these paths don't exist; non-existent entries are ignored.
-ENV LD_LIBRARY_PATH="/app/.venv/lib/python3.13/site-packages/nvidia/cudnn/lib:/app/.venv/lib/python3.13/site-packages/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH}"
+# Register every nvidia pip-package lib/ directory with ldconfig so that
+# onnxruntime-gpu and torch can find libcudnn, libcublas, libcufft, etc.
+# without a hand-maintained LD_LIBRARY_PATH. Skipped silently on cpu builds.
+RUN find /app/.venv/lib/python3.13/site-packages/nvidia -type d -name "lib" \
+        2>/dev/null > /etc/ld.so.conf.d/nvidia-pip.conf && ldconfig || true
 
 RUN groupadd -g 568 apps && useradd -u 568 -g apps -m -s /bin/bash appuser \
     && mkdir -p /models/.insightface /models/huggingface \

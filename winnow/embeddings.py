@@ -55,18 +55,14 @@ def _preload_cuda_libs() -> None:
     """Preload CUDA/cuDNN DLLs so onnxruntime-gpu registers CUDAExecutionProvider.
 
     Starting with onnxruntime-gpu 1.19+, CUDA/cuDNN libraries are no longer
-    bundled inside the ORT package. They must be loaded from the nvidia-*
-    pip packages (nvidia-cuda-runtime-cu12, nvidia-cudnn-cu12) before any
-    InferenceSession is created.
-
-    Calling preload_dlls() with directory="" searches NVIDIA site-packages
-    directories automatically.
+    bundled inside the ORT package — they come from the nvidia-* pip packages.
+    preload_dlls() locates them automatically via site-packages discovery.
     """
     try:
         import onnxruntime
         if hasattr(onnxruntime, "preload_dlls"):
-            onnxruntime.preload_dlls(cuda=True, cudnn=True, directory="")
-            logger.info("Preloaded CUDA/cuDNN DLLs for onnxruntime-gpu")
+            onnxruntime.preload_dlls(cuda=True, cudnn=True)
+            logger.debug("Preloaded CUDA/cuDNN DLLs for onnxruntime-gpu")
         else:
             logger.debug("onnxruntime.preload_dlls() not available (ORT < 1.21)")
     except Exception as e:
@@ -104,7 +100,15 @@ def get_insightface_app():
             "MPSExecutionProvider",
             "CoreMLExecutionProvider",
         }
-        ctx_id = -1 if _is_force_cpu() else (0 if gpu_providers & set(providers) else -1)
+        has_gpu_provider = bool(gpu_providers & set(providers))
+        ctx_id = -1 if _is_force_cpu() else (0 if has_gpu_provider else -1)
+
+        if not has_gpu_provider and not _is_force_cpu():
+            logger.warning(
+                "No GPU execution provider found — running InsightFace on CPU. "
+                "If you have an NVIDIA GPU, ensure the NVIDIA Container Toolkit is "
+                "installed and the container has GPU access (deploy.resources in compose)."
+            )
 
         device_str = "GPU" if ctx_id >= 0 else "CPU"
         logger.info(f"Loading InsightFace Buffalo_L on {device_str} (ctx_id={ctx_id})...")
