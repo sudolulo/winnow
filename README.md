@@ -142,7 +142,7 @@ services:
               capabilities: [gpu]
 ```
 
-> **CPU users (`:cpu` tag):** remove the `deploy.resources` block — no NVIDIA runtime needed.
+> **CPU users (`:cpu` tag):** remove the `deploy.resources` block — no NVIDIA runtime needed. Add `mem_limit: 2g` to the service to prevent an OOM restart loop on large libraries.
 
 See [compose.yml](compose.yml) for the full annotated example.
 
