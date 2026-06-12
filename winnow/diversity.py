@@ -203,64 +203,69 @@ def _select_by_embedding(
     else:
         candidates = assets
 
-    # --- Phase 1: Concurrent thumbnail download ---
+    # --- Phases 1-4: Batched download → quality filter → crop → embed ---
+    # Process in bounded batches so at most _BATCH decoded images live in RAM
+    # at once. With 472 candidates each thumbnail is ~3-8 MB decoded; loading
+    # all at once easily exhausts a 4 GB container limit on CPU.
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    thumbnail_map: dict[str, Image.Image] = {}
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_fetch_thumbnail, a["id"]): a for a in candidates}
-        for i, future in enumerate(as_completed(futures)):
-            if progress_callback:
-                progress_callback(i, len(candidates))
-            asset = futures[future]
-            try:
-                img = future.result()
-                if img is not None:
-                    thumbnail_map[asset["id"]] = img
-            except Exception:
-                continue
-
-    # --- Phase 2-4: Quality filter → Crop → Embed ---
+    _BATCH = 32
     embeddings, valid_candidates, confidence_scores = [], [], []
     quality_filtered = 0
+    processed = 0
 
-    for asset in candidates:
-        img = thumbnail_map.get(asset["id"])
-        if img is None:
-            continue
+    for batch_start in range(0, len(candidates), _BATCH):
+        batch = candidates[batch_start : batch_start + _BATCH]
 
-        confidence = _get_face_confidence(asset, person_id=person_id)
+        # Download this batch concurrently
+        batch_images: dict[str, Image.Image] = {}
+        with ThreadPoolExecutor(max_workers=min(8, len(batch))) as pool:
+            futures = {pool.submit(_fetch_thumbnail, a["id"]): a for a in batch}
+            for future in as_completed(futures):
+                asset = futures[future]
+                try:
+                    img = future.result()
+                    if img is not None:
+                        batch_images[asset["id"]] = img
+                except Exception:
+                    continue
 
-        # Quality gate: filter before expensive embedding computation
-        if entity_type == "face":
-            face_bbox = _get_face_bbox(asset, person_id=person_id)
-            quality = assess_quality(
-                img,
-                face_bbox=face_bbox,
-                confidence=confidence,
-                blur_threshold=Config.BLUR_THRESHOLD,
-                min_face_px=Config.MIN_FACE_WIDTH,
-                min_confidence=Config.MIN_CONFIDENCE,
-            )
-            if not quality.passed:
-                quality_filtered += 1
-                logger.debug(f"Quality filtered {asset['id']}: {quality.reason}")
+        # Process and immediately release each image to cap peak memory
+        for asset in batch:
+            img = batch_images.pop(asset["id"], None)
+            processed += 1
+            if progress_callback:
+                progress_callback(processed, len(candidates))
+            if img is None:
                 continue
 
-            # Crop the target person's face before embedding
-            face_crop = _crop_face_from_thumbnail(img, asset, person_id=person_id)
-            embed_img = face_crop if face_crop is not None else img
-        else:
-            embed_img = img
+            confidence = _get_face_confidence(asset, person_id=person_id)
 
-        emb = get_embedding(embed_img, entity_type, asset_id=asset["id"])
-        if emb is not None:
-            embeddings.append(emb)
-            valid_candidates.append(asset)
-            confidence_scores.append(confidence)
+            if entity_type == "face":
+                face_bbox = _get_face_bbox(asset, person_id=person_id)
+                quality = assess_quality(
+                    img,
+                    face_bbox=face_bbox,
+                    confidence=confidence,
+                    blur_threshold=Config.BLUR_THRESHOLD,
+                    min_face_px=Config.MIN_FACE_WIDTH,
+                    min_confidence=Config.MIN_CONFIDENCE,
+                )
+                if not quality.passed:
+                    quality_filtered += 1
+                    logger.debug(f"Quality filtered {asset['id']}: {quality.reason}")
+                    continue
 
-    if progress_callback:
-        progress_callback(len(candidates), len(candidates))
+                face_crop = _crop_face_from_thumbnail(img, asset, person_id=person_id)
+                embed_img = face_crop if face_crop is not None else img
+            else:
+                embed_img = img
+
+            emb = get_embedding(embed_img, entity_type, asset_id=asset["id"])
+            if emb is not None:
+                embeddings.append(emb)
+                valid_candidates.append(asset)
+                confidence_scores.append(confidence)
 
     if quality_filtered > 0:
         logger.info(f"Quality filtering removed {quality_filtered} images.")
