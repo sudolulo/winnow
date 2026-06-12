@@ -101,7 +101,7 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           RELEASE_TAG: ${{ steps.tag.outputs.TAG }}
           RELEASE_NOTES: ${{ steps.changelog.outputs.NOTES }}
