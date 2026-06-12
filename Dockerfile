@@ -68,6 +68,7 @@ RUN groupadd -g 568 apps && useradd -u 568 -g apps -m -s /bin/bash appuser \
     && mkdir -p /models/.insightface /models/huggingface \
     && chown -R appuser:apps /app /models
 
+WORKDIR /app
 USER appuser
 ENV HF_HOME=/models/huggingface INSIGHTFACE_HOME=/models
 
