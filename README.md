@@ -239,7 +239,7 @@ uv sync
 uv run winnow
 ```
 
-Requires Python 3.13+ and [uv](https://astral.sh/uv/). An NVIDIA GPU is strongly recommended — CPU mode works but embedding computation is significantly slower.
+Requires Python 3.13+ and [uv](https://astral.sh/uv/). An NVIDIA GPU is strongly recommended — CPU mode works but embedding computation is slower (typically tens of seconds per person vs under a second on GPU).
 
 ---
 
