@@ -150,8 +150,11 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
 
     rprint(f"  Found [bold]{len(all_assets)}[/bold] total, [bold]{len(recent_assets)}[/bold] in range ({years} years).")
 
-    # Filter out assets already uploaded to Frigate
-    retry_rejected = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
+    # Filter out assets already uploaded to Frigate.
+    # In interactive mode, ask — use the env var only as the default so it can
+    # still be pre-set (e.g. RETRY_REJECTED=true) without forcing the answer.
+    retry_env = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
+    retry_rejected = Confirm.ask("Include previously rejected images?", default=retry_env)
     before_dedup = len(recent_assets)
     new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets], retry_rejected=retry_rejected))
     recent_assets = [a for a in recent_assets if a["id"] in new_asset_ids]
