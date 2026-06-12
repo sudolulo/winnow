@@ -227,12 +227,14 @@ def _select_by_embedding(
                     img = future.result()
                     if img is not None:
                         batch_images[asset["id"]] = img
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to fetch thumbnail for {asset['id']}: {e}")
                     continue
 
-        # Process and immediately release each image to cap peak memory
+        # Process each image; batch_images goes out of scope after this loop,
+        # bounding peak thumbnail memory to _BATCH images per iteration.
         for asset in batch:
-            img = batch_images.pop(asset["id"], None)
+            img = batch_images.get(asset["id"])
             processed += 1
             if progress_callback:
                 progress_callback(processed, len(candidates))
