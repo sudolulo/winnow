@@ -1,5 +1,6 @@
-# Custom 
+# Custom
 frigate_train/
+*.log
 runs/
 yolov9c.pt
 .insightface/
