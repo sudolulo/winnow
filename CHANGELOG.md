@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **GPU broken on x86_64 Linux**: `insightface` 1.0.1 (pulled in by the 0.2.10 lock update) added a hard dependency on the CPU `onnxruntime` package. Combined with an incorrect `override-dependencies` entry introduced in 0.2.10, both `onnxruntime` (CPU) and `onnxruntime-gpu` were being installed into the same venv. The CPU package landed last and overwrote the GPU one, causing `CUDAExecutionProvider` to disappear from the provider list even when a GPU was present. Fixed by declaring `onnxruntime` and `onnxruntime-gpu` as conflicting packages in uv's resolver, ensuring only the correct one is installed per platform.
+- **OOM crash on large person libraries (CPU mode)**: All candidate thumbnails were downloaded into a single in-memory dict before any processing began. At ~5 MB per decoded preview image, a person with 472 candidates would accumulate ~2.4 GB of thumbnail data alone, exhausting a 4 GB container memory limit. Thumbnails are now downloaded and processed in batches of 32, with each image released immediately after embedding. Peak in-flight thumbnail memory is now bounded to ~256 MB regardless of candidate pool size. GPU users also benefit from lower host RAM pressure and faster time-to-first-result on large libraries.
 
 ## [0.2.10] - 2026-06-12
 
