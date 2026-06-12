@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-06-12
+
+### Fixed
+
+- **arm64: `onnxruntime-gpu` has no arm64 wheels**: `onnxruntime-gpu` only publishes `manylinux_2_27_x86_64` and `manylinux_2_28_x86_64` wheels — `uv sync` on arm64 failed with exit code 2. Gated `onnxruntime-gpu` behind `sys_platform == 'linux' and platform_machine == 'x86_64'`; arm64 and non-Linux installs now get the CPU `onnxruntime` package instead.
+- **uv lockfile now covers arm64**: Added `required-environments` to `[tool.uv]` so the lockfile is solved for both `linux/x86_64` and `linux/aarch64`, preventing silent resolution gaps for the non-build platform.
+
 ## [0.2.8] - 2026-06-12
 
 ### Fixed
