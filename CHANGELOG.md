@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-06-12
+
+### Fixed
+
+- **Dockerfile: use `add-apt-repository` with isolated GNUPGHOME**: the `curl | gpg --dearmor` approach was silently failing — gpg exits 0 on bad/empty input, leaving an invalid keyring and causing apt to skip the deadsnakes PPA entirely. Reverted to `add-apt-repository ppa:deadsnakes/ppa` with `GNUPGHOME=$(mktemp -d)` to prevent gpg from touching any pre-existing agent socket (the original QEMU crash cause).
+- **arm64 base: removed `--platform=$BUILDPLATFORM`**: the Ubuntu 24.04 base for arm64 is now pulled for the target platform, so the arm64 image contains real arm64 binaries rather than amd64 binaries in an arm64 manifest.
+
+### Changed
+
+- **License changed from MIT to AGPLv3+**: source and network use of winnow now require derivative works to be open-sourced under the same terms.
+
 ## [0.2.7] - 2026-06-12
 
 ### Fixed

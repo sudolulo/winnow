@@ -3,7 +3,7 @@
 #   arm64:  Ubuntu 24.04 (CPU-only; no CUDA on ARM)
 
 FROM --platform=$BUILDPLATFORM nvidia/cuda:13.3.0-cudnn-runtime-ubuntu22.04 AS base-amd64
-FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS base-arm64
+FROM ubuntu:24.04 AS base-arm64
 
 # ── Build stage ───────────────────────────────────────────────────────────
 ARG TARGETARCH
@@ -12,17 +12,12 @@ FROM base-${TARGETARCH} AS build
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Both bases use Ubuntu 22.04 or 24.04 — neither has python3.13 natively.
-# Add the deadsnakes PPA using curl+gpg (no gpg-agent, safe under QEMU).
+# Both bases (Ubuntu 22.04 CUDA / Ubuntu 24.04) need Python 3.13 from the
+# deadsnakes PPA. GNUPGHOME is isolated to a tmpdir so gpg never tries to
+# contact an agent socket, which fails silently under QEMU.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    gnupg \
-    && curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xBA6932366A755776" \
-        | gpg --dearmor > /usr/share/keyrings/deadsnakes-archive-keyring.gpg \
-    && . /etc/os-release \
-    && echo "deb [signed-by=/usr/share/keyrings/deadsnakes-archive-keyring.gpg] https://ppa.launchpad.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
-        > /etc/apt/sources.list.d/deadsnakes.list \
+    ca-certificates curl gnupg software-properties-common \
+    && GNUPGHOME=$(mktemp -d) add-apt-repository ppa:deadsnakes/ppa -y \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
     python3.13 python3.13-venv python3.13-dev \
@@ -45,27 +40,20 @@ RUN chmod +x /app/entrypoint.sh
 
 # ── Runtime stage ─────────────────────────────────────────────────────────
 #   Starts fresh from the base image — excludes build tools (g++,
-#   python3.13-dev, curl, gnupg) that are not needed at runtime.
+#   python3.13-dev, gnupg, software-properties-common) not needed at runtime.
 
 FROM base-${TARGETARCH} AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    gnupg \
-    tini \
-    && curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xBA6932366A755776" \
-        | gpg --dearmor > /usr/share/keyrings/deadsnakes-archive-keyring.gpg \
-    && . /etc/os-release \
-    && echo "deb [signed-by=/usr/share/keyrings/deadsnakes-archive-keyring.gpg] https://ppa.launchpad.net/deadsnakes/ppa/ubuntu ${VERSION_CODENAME} main" \
-        > /etc/apt/sources.list.d/deadsnakes.list \
+    ca-certificates curl gnupg software-properties-common tini \
+    && GNUPGHOME=$(mktemp -d) add-apt-repository ppa:deadsnakes/ppa -y \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
     python3.13 python3.13-venv \
     libgl1 libglib2.0-0 libxext6 \
-    && apt-get purge -y --auto-remove curl gnupg \
+    && apt-get purge -y --auto-remove curl gnupg software-properties-common \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.13 /usr/bin/python3
 

@@ -1,15 +1,15 @@
 [project]
 name = "winnow"
-version = "0.2.7"
+version = "0.2.8"
 description = "Immich to Frigate training sets"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 requires-python = ">=3.13"
 authors = [{ name = "Holden Salomon", email = "holden@arch.fyi" }]
 keywords = ["immich", "frigate", "face-recognition", "training-data", "arcface", "insightface"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Image Recognition",
 ]
