@@ -368,7 +368,7 @@ def _compute_adaptive_threshold(emb_normed: np.ndarray, entity_type: str) -> flo
     fraction = 0.20 if entity_type == "face" else 0.10
     threshold = max(0.05, median_dist * fraction)
 
-    logger.info(
+    logger.debug(
         f"Adaptive threshold: {threshold:.4f} "
         f"(median_dist={median_dist:.4f}, fraction={fraction}, type={entity_type})"
     )
@@ -410,7 +410,7 @@ def _cluster_aware_selection(
 
     # --- Stage 1: K-Medoids clustering ---
     k = min(max(5, target // 4), n // 3, n)  # e.g., 5-20 clusters
-    logger.info(f"Clustering {n} embeddings into {k} groups (K-Medoids)...")
+    logger.debug(f"Clustering {n} embeddings into {k} groups (K-Medoids)...")
 
     # Compute full cosine distance matrix
     dist_matrix = 1 - emb_normed @ emb_normed.T
@@ -419,7 +419,7 @@ def _cluster_aware_selection(
     selected = list(medoid_indices)
     selected_set = set(selected)
 
-    logger.info(f"Selected {len(selected)} cluster medoids as initial picks.")
+    logger.debug(f"Selected {len(selected)} cluster medoids as initial picks.")
 
     # --- Stage 2: FPS with hard example weighting ---
     min_dists = np.full(n, np.inf)
@@ -444,8 +444,8 @@ def _cluster_aware_selection(
             break  # All points selected
 
         if limit == "auto" and best_dist < auto_threshold:
-            logger.info(
-                f"Auto-stop: Next best image {best_dist:.3f} away " f"(adaptive threshold {auto_threshold:.4f})."
+            logger.debug(
+                f"Auto-stop: next best image {best_dist:.3f} away (adaptive threshold {auto_threshold:.4f})."
             )
             break
 

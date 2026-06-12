@@ -49,7 +49,7 @@ def fetch_all_assets(person: dict) -> list[dict]:
     url = f"{Config.IMMICH_URL}/api/search/metadata"
     page_size = 1000
 
-    logger.info(f"Fetching assets for {name}...")
+    logger.debug(f"Fetching assets for {name}...")
 
     assets = []
     for page in range(1, MAX_PAGES + 1):
@@ -212,6 +212,6 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
         except ValueError:
             continue
 
-    logger.info(f"Retained {len(recent)} assets (filtered {skipped} old assets).")
+    logger.debug(f"Retained {len(recent)} assets (filtered {skipped} old assets).")
     return recent
 

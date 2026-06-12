@@ -10,8 +10,8 @@ services:
 
       # ── Mode & Strategy ───────────────────────────────────────────────────
       # Auto mode is active by default when no TTY is present (Docker/cron).
-      # Run with `docker run -it` or set AUTO_MODE=true to force non-interactive
-      # in a terminal.
+      # Set AUTO_MODE=true to force auto mode in an interactive terminal.
+      # To run interactively: docker exec -it winnow winnow
       # TRAINING_MODE: face = upload to Frigate face recognition API
       #                object = save crops to output dir for manual Frigate placement
       - TRAINING_MODE=face

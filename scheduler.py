@@ -45,7 +45,7 @@ while True:
             print("winnow run complete", flush=True)
         except KeyboardInterrupt:
             raise
-        except BaseException as e:
+        except Exception as e:
             logger.error(f"winnow run failed: {e}", exc_info=True)
             print(f"winnow run failed: {e}", flush=True)
         next_run = cron.get_next(float)

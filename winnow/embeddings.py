@@ -9,8 +9,10 @@ Unified embedding interface for faces and objects.
 import importlib
 import logging
 import os
+import time
 import warnings
 from contextlib import contextmanager
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -90,9 +92,16 @@ def get_insightface_app():
         import onnxruntime as ort
         from insightface.app import FaceAnalysis
 
+        # Disk cache check — lets the user know whether a download is coming
+        buffalo_path = Path(insightface_home) / "models" / "buffalo_l"
+        if buffalo_path.exists() and any(buffalo_path.iterdir()):
+            logger.info("InsightFace Buffalo_L: found in model cache")
+        else:
+            logger.info("InsightFace Buffalo_L: not cached — downloading now (~300 MB)")
+
         # Get providers, excluding TensorRT to avoid noisy errors
         providers = [p for p in ort.get_available_providers() if p != "TensorrtExecutionProvider"]
-        logger.info(f"Available ONNX providers: {providers}")
+        logger.debug(f"ONNX providers available: {providers}")
 
         gpu_providers = {
             "CUDAExecutionProvider",
@@ -111,12 +120,14 @@ def get_insightface_app():
             )
 
         device_str = "GPU" if ctx_id >= 0 else "CPU"
-        logger.info(f"Loading InsightFace Buffalo_L on {device_str} (ctx_id={ctx_id})...")
+        logger.info(f"InsightFace Buffalo_L: loading into memory on {device_str}...")
 
+        t0 = time.time()
         with _suppress_output():
             _insightface_app = FaceAnalysis(name="buffalo_l", root=insightface_home, providers=providers)
             _insightface_app.prepare(ctx_id=ctx_id, det_size=(640, 640))
 
+        logger.info(f"InsightFace Buffalo_L: ready on {device_str} ({time.time() - t0:.1f}s)")
         return _insightface_app
 
     except ImportError:
@@ -125,15 +136,22 @@ def get_insightface_app():
     except Exception as e:
         logger.error(f"Failed to load InsightFace: {e}")
         if ctx_id == 0:
-            logger.warning("Retrying InsightFace on CPU...")
+            logger.warning("InsightFace GPU load failed — retrying on CPU...")
             try:
                 from insightface.app import FaceAnalysis
 
-                _insightface_app = FaceAnalysis(name="buffalo_l", root=insightface_home)
-                _insightface_app.prepare(ctx_id=-1, det_size=(640, 640))
+                t0 = time.time()
+                with _suppress_output():
+                    _insightface_app = FaceAnalysis(
+                        name="buffalo_l",
+                        root=insightface_home,
+                        providers=["CPUExecutionProvider"],
+                    )
+                    _insightface_app.prepare(ctx_id=-1, det_size=(640, 640))
+                logger.info(f"InsightFace Buffalo_L: ready on CPU (fallback, {time.time() - t0:.1f}s)")
                 return _insightface_app
             except Exception as ex:
-                logger.error(f"CPU fallback failed: {ex}")
+                logger.error(f"InsightFace CPU fallback failed: {ex}")
         return None
 
 
@@ -182,7 +200,18 @@ def get_siglip_model():
         from transformers import AutoImageProcessor, SiglipVisionModel
 
         model_name = "google/siglip-base-patch16-224"
-        logger.info(f"Loading SigLIP model ({model_name})...")
+
+        # Disk cache check — path derived from model_name using HuggingFace's slug convention
+        hf_home = os.environ.get("HF_HOME", os.path.join(os.path.expanduser("~"), ".cache", "huggingface"))
+        cache_slug = "models--" + model_name.replace("/", "--")
+        model_cache = Path(hf_home) / "hub" / cache_slug
+        if model_cache.exists() and any(model_cache.iterdir()):
+            logger.info(f"SigLIP {model_name}: found in model cache")
+        else:
+            logger.info(f"SigLIP {model_name}: not cached — downloading now (~380 MB)")
+
+        logger.info(f"SigLIP {model_name}: loading into memory...")
+        t0 = time.time()
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
@@ -196,15 +225,16 @@ def get_siglip_model():
         if not _is_force_cpu():
             if torch.cuda.is_available():
                 _siglip_model = _siglip_model.cuda()
-                logger.info("SigLIP running on CUDA GPU")
+                device_name = "CUDA GPU"
             elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 _siglip_model = _siglip_model.to("mps")
-                logger.info("SigLIP running on Apple MPS")
+                device_name = "Apple MPS"
             else:
-                logger.info("SigLIP running on CPU")
+                device_name = "CPU"
         else:
-            logger.info("FORCE_CPU set. SigLIP running on CPU")
+            device_name = "CPU (FORCE_CPU)"
 
+        logger.info(f"SigLIP {model_name}: ready on {device_name} ({time.time() - t0:.1f}s)")
         return _siglip_model, _siglip_processor
 
     except ImportError as e:
