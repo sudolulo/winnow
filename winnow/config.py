@@ -39,8 +39,7 @@ class _Config:
     USE_FULL_RESOLUTION: bool = True
     ENABLE_FACE_ALIGNMENT: bool = True
 
-    # Caching (opt-in to avoid unexpected files)
-    ENABLE_CACHE: bool = False
+    ENABLE_CACHE: bool = True
     CACHE_DIR: str = ".if_cache"
 
     def __new__(cls) -> "_Config":
@@ -64,7 +63,7 @@ class _Config:
         self.FACE_MARGIN = float(os.getenv("FACE_MARGIN", "0.15"))
         self.USE_FULL_RESOLUTION = os.getenv("USE_FULL_RESOLUTION", "true").lower() in ("true", "1", "yes")
         self.ENABLE_FACE_ALIGNMENT = os.getenv("ENABLE_FACE_ALIGNMENT", "true").lower() in ("true", "1", "yes")
-        self.ENABLE_CACHE = os.getenv("ENABLE_CACHE", "false").lower() in ("true", "1", "yes")
+        self.ENABLE_CACHE = os.getenv("ENABLE_CACHE", "true").lower() in ("true", "1", "yes")
         self.CACHE_DIR = os.getenv("CACHE_DIR", ".if_cache")
 
         # Fall back to config file for non-sensitive values (API_KEY not stored here)

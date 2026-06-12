@@ -192,7 +192,7 @@ The first run after a fresh install downloads the embedding models (~1-2 GB). Su
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `FORCE_CPU` | `false` | Disable GPU — fall back to CPU for embedding computation |
-| `ENABLE_CACHE` | `false` | Cache computed embeddings to disk (speeds up re-runs on the same library) |
+| `ENABLE_CACHE` | `true` | Cache computed embeddings to disk (speeds up re-runs on the same library) |
 | `CACHE_DIR` | `.if_cache` | Path for embedding cache and upload tracker files |
 | `HF_HOME` | *(system)* | HuggingFace model cache location (SigLIP) |
 | `INSIGHTFACE_HOME` | *(system)* | InsightFace model cache location (Buffalo_L) |

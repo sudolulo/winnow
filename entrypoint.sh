@@ -4,7 +4,7 @@ export PYTHONUNBUFFERED=1
 
 # 1. Run the job immediately on startup
 echo "▶ Running on startup..."
-/app/.venv/bin/python -m winnow.cli
+/app/.venv/bin/winnow
 
 # 2. If a schedule exists, start the scheduler
 if [ -n "${CRON_SCHEDULE:-}" ]; then

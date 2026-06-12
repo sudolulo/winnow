@@ -71,7 +71,7 @@ RUN groupadd -g 568 apps && useradd -u 568 -g apps -m -s /bin/bash appuser \
 
 WORKDIR /app
 USER appuser
-ENV HF_HOME=/models/huggingface INSIGHTFACE_HOME=/models
+ENV HF_HOME=/models/huggingface INSIGHTFACE_HOME=/models/.insightface
 
 HEALTHCHECK CMD test -f /app/entrypoint.sh || exit 1
 ENTRYPOINT ["tini", "--", "/app/entrypoint.sh"]

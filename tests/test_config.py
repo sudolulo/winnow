@@ -25,7 +25,7 @@ def test_config_loads_defaults(monkeypatch):
     assert cfg.FACE_MARGIN == 0.15
     assert cfg.USE_FULL_RESOLUTION is True
     assert cfg.ENABLE_FACE_ALIGNMENT is True
-    assert cfg.ENABLE_CACHE is False
+    assert cfg.ENABLE_CACHE is True
 
     _Config.reset()
 

@@ -35,7 +35,7 @@ services:
 
       # ── Caching & Models ──────────────────────────────────────────────────
       - FORCE_CPU=false
-      - ENABLE_CACHE=true
+      # - ENABLE_CACHE=false          # Disable embedding cache (default: true)
       - CACHE_DIR=/app/.if_cache
       - HF_HOME=/models/huggingface
       - INSIGHTFACE_HOME=/models/.insightface
@@ -47,10 +47,9 @@ services:
 
       # ── Scheduling ────────────────────────────────────────────────────────
       # Cron expression (unset = run once and exit)
-      # Every Sunday at 3 AM:
-      - CRON_SCHEDULE=0 3 * * 0
-      # - CRON_SCHEDULE=0 3 1 * *
-      # - CRON_SCHEDULE=*/30 * * * *
+      # - CRON_SCHEDULE=0 3 * * 0    # Every Sunday at 3 AM
+      # - CRON_SCHEDULE=0 3 1 * *    # First of every month
+      # - CRON_SCHEDULE=*/30 * * * * # Every 30 minutes
     volumes:
       # Replace with absolute paths on your host, e.g. /opt/winnow/models
       - /path/to/winnow/models:/models
