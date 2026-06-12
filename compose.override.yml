@@ -1,8 +1,8 @@
 services:
-  if-curator:
+  winnow:
     build: .
     network_mode: host
     volumes:
-      - /code/if-curator/models:/models
-      - /code/if-curator/embeddings:/app/.if_cache
-      - /code/if-curator/output:/app/output
+      - /code/winnow/models:/models
+      - /code/winnow/embeddings:/app/.if_cache
+      - /code/winnow/output:/app/frigate_train

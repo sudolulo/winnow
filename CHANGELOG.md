@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-03-03
 
 ### Added
-- Initial release of `if-curator` — Immich to Frigate training set curator
+- Initial release of `winnow` — Immich to Frigate training set curator
 - **Face recognition prep**: InsightFace (ArcFace/Buffalo_L) embeddings on face crops for Frigate face recognition training
 - **Object/state classification prep**: SigLIP (Vision Transformer) embeddings with YOLOv9c object detection
 - **Smart diversity selection**: K-Medoids clustering + Farthest Point Sampling (FPS) with hard-example weighting

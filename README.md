@@ -1,5 +1,7 @@
 [![Publish Docker Image](https://github.com/sudolulo/winnow/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/docker-publish.yml) [![Release](https://github.com/sudolulo/winnow/actions/workflows/release.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/release.yml) [![Lint](https://github.com/sudolulo/winnow/actions/workflows/lint.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/lint.yml) [![Test](https://github.com/sudolulo/winnow/actions/workflows/test.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/test.yml)
 
+**Docs:** [Setup Guide](docs/setup.md) · [Troubleshooting](docs/troubleshooting.md) · [FAQ](docs/faq.md)
+
 # winnow
 
 `winnow` pulls photos of people and objects from your [Immich](https://immich.app) library, selects the most diverse and highest-quality subset using AI embeddings, and delivers them as training data for [Frigate](https://frigate.video)'s face recognition and object classification models.
