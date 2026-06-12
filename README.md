@@ -227,4 +227,4 @@ Requires Python 3.12+ and [uv](https://astral.sh/uv/). An NVIDIA GPU is strongly
 
 ## Attribution
 
-Based on [winnow](https://github.com/ds-sebastian/if_curator) by Sebastian, licensed MIT.
+Based on [if_curator](https://github.com/ds-sebastian/if_curator) by Sebastian, licensed MIT.
