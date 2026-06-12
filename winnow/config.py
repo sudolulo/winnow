@@ -67,12 +67,11 @@ class _Config:
         self.ENABLE_CACHE = os.getenv("ENABLE_CACHE", "false").lower() in ("true", "1", "yes")
         self.CACHE_DIR = os.getenv("CACHE_DIR", ".if_cache")
 
-        # Fall back to config file for missing values
+        # Fall back to config file for non-sensitive values (API_KEY not stored here)
         if CONFIG_FILE.exists():
             try:
                 data = json.loads(CONFIG_FILE.read_text())
                 self.IMMICH_URL = self.IMMICH_URL or data.get("IMMICH_URL")
-                self.API_KEY = self.API_KEY or data.get("API_KEY")
                 if not os.getenv("OUTPUT_DIR"):
                     self.OUTPUT_DIR = data.get("OUTPUT_DIR", self.OUTPUT_DIR)
             except (json.JSONDecodeError, OSError) as e:
@@ -84,13 +83,16 @@ class _Config:
         cls._instance = None
 
     def save(self) -> None:
-        """Persist configuration to file."""
+        """Persist non-sensitive configuration to file.
+
+        API_KEY is intentionally excluded — store it in .env or as an
+        environment variable instead of a plain-text config file.
+        """
         try:
             CONFIG_FILE.write_text(
                 json.dumps(
                     {
                         "IMMICH_URL": self.IMMICH_URL,
-                        "API_KEY": self.API_KEY,
                         "OUTPUT_DIR": self.OUTPUT_DIR,
                     },
                     indent=2,
@@ -113,8 +115,8 @@ class _Config:
 
         if not self.API_KEY:
             console.print("[yellow]Immich API Key not found.[/yellow]")
+            console.print("[dim]Tip: set API_KEY in your .env file to avoid re-entering it.[/dim]")
             self.API_KEY = Prompt.ask("Enter Immich API Key", password=True)
-            self.save()
 
     def validate(self) -> None:
         """Raise ValueError if required config is missing."""
