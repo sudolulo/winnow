@@ -10,6 +10,10 @@ on:
       - ".github/workflows/lint.yml"
       - ".github/dependabot.yml"
 
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: sudolulo/winnow
