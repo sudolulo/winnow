@@ -148,7 +148,15 @@ See [compose.yml](compose.yml) for the full annotated example.
 
 ### Scheduling Behaviour
 
-On startup the container always runs once immediately. If `CRON_SCHEDULE` is set, it then starts a scheduler that fires on the defined interval, keeping the process (and loaded models) alive between runs. Without `CRON_SCHEDULE` the container exits after the first run.
+`CRON_SCHEDULE` controls container lifetime:
+
+| `CRON_SCHEDULE` value | Behaviour |
+| :-- | :-- |
+| *(unset)* | Run once on startup, then exit |
+| *(empty string)* | Stay alive, run nothing — trigger manually with `docker exec -it winnow winnow` |
+| Cron expression | Run on startup, then repeat on schedule |
+
+In scheduled mode the process (and loaded models) stays resident between runs. In manual mode the container idles indefinitely with `sleep infinity` — useful when you want to trigger runs interactively on demand without pulling a new container each time.
 
 The first run after a fresh install downloads the embedding models (~1-2 GB). Subsequent runs use the cached models from the mounted volume and start immediately.
 
@@ -217,7 +225,7 @@ The first run after a fresh install downloads the embedding models (~1-2 GB). Su
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `CRON_SCHEDULE` | *(unset)* | Cron expression for recurring runs — unset exits after first run |
+| `CRON_SCHEDULE` | *(unset)* | Unset = run once and exit; empty = stay alive for manual `docker exec`; cron expression = scheduled |
 
 ---
 
