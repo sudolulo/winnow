@@ -169,6 +169,7 @@ The first run after a fresh install downloads the embedding models (~1-2 GB). Su
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `AUTO_MODE` | *(auto)* | Force non-interactive mode even in a terminal; auto-detected otherwise (no TTY = auto) |
+| `VERBOSE` | `false` | Set to `true` to enable DEBUG-level console output |
 | `TRAINING_MODE` | `face` | `face` — upload crops to Frigate API; `object` — save crops to disk |
 | `STRATEGY` | `auto` | `auto` (adaptive), `standard` (30 images), `broad` (100 images) |
 | `LIMIT` | *(unset)* | Exact image count — overrides `STRATEGY` |

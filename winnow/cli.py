@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     """Entry point for winnow CLI."""
     try:
-        setup_logging(verbose=False)
+        verbose = os.environ.get("VERBOSE", "").lower() in ("true", "1", "yes")
+        setup_logging(verbose=verbose)
 
         console.print(r"""
     [bold blue]winnow[/bold blue]
