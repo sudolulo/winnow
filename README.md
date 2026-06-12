@@ -17,7 +17,7 @@ Frigate's face recognition model (ArcFace) and object classifier are only as goo
 
 If you upload 100 photos from the same week, the model learns the lighting in your living room and the jacket you wore that month. It struggles the moment anything changes. What you actually want is a spread: different years, different lighting conditions, different angles, different contexts.
 
-This is especially true for people who aren't around often — family members who visit a few times a year, friends, occasional guests. Frigate's live detections alone will never accumulate enough variety to train a reliable model for these people. Your photo library already has the data; winnow finds and delivers the right subset of it.
+This is especially true for people who have never been to your property, or who visit rarely — family members, friends, anyone Frigate has never seen in person. Live detections alone will never build a reliable model for these people. Your photo library already has the data; winnow finds and delivers the right subset of it.
 
 Finding that spread manually across a library of thousands of photos is not practical. `winnow` does it automatically.
 
