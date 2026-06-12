@@ -33,7 +33,7 @@ services:
       # Replace <pool> with your TrueNAS pool name, e.g. /mnt/tank/if-curator/...
       - /mnt/<pool>/if-curator/models:/models
       - /mnt/<pool>/if-curator/embeddings:/app/.if_cache
-      - /mnt/<pool>/if-curator/output:/app/output
+      - /mnt/<pool>/if-curator/output:/app/frigate_train
     stdin_open: true
     tty: true
     restart: unless-stopped
