@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Immich to Frigate training sets"
 license = "MIT"
 requires-python = ">=3.12"
-authors = [{ name = "sudolulo" }]
+authors = [{ name = "Holden Salomon", email = "holden@arch.fyi" }]
 keywords = ["immich", "frigate", "face-recognition", "training-data", "arcface", "insightface"]
 classifiers = [
     "Development Status :: 3 - Alpha",
