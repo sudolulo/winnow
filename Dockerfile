@@ -33,12 +33,11 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-COPY if_curator/ if_curator/
-COPY entrypoint.sh scheduler.py ./
-
 RUN uv sync --frozen \
     && uv cache clean
 
+COPY if_curator/ if_curator/
+COPY entrypoint.sh scheduler.py ./
 RUN chmod +x /app/entrypoint.sh
 
 # ── Runtime stage ─────────────────────────────────────────────────────────
