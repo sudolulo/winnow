@@ -40,7 +40,16 @@ API_KEY=your-immich-api-key
 FRIGATE_URL=http://192.168.1.10:5000
 ```
 
-Edit the volume paths in `compose.yml` to match your storage layout (replace `/mnt/<pool>` with your actual path).
+Edit the volume paths in `compose.yml` to point to directories on your host where models, cache, and output crops should be stored:
+
+```yaml
+volumes:
+  - /your/path/to/models:/models
+  - /your/path/to/cache:/app/.if_cache
+  - /your/path/to/output:/app/frigate_train
+```
+
+These directories will be created automatically by Docker if they don't exist.
 
 Start it:
 
@@ -74,15 +83,13 @@ Without `CRON_SCHEDULE`, the container runs once and exits.
 
 ---
 
-## TrueNAS Scale
+## GPU passthrough
 
-The included `compose.yml` uses TrueNAS-style volume paths. Replace `<pool>` with your pool name:
+To enable GPU acceleration, include the `deploy` block in `compose.yml` (already present in the example) and ensure the NVIDIA container toolkit is installed on your host:
 
-```yaml
-volumes:
-  - /mnt/tank/winnow/models:/models
-  - /mnt/tank/winnow/embeddings:/app/.if_cache
-  - /mnt/tank/winnow/output:/app/frigate_train
+```bash
+# Verify GPU is accessible to Docker
+docker run --rm --gpus all nvidia/cuda:12.9.2-base-ubuntu22.04 nvidia-smi
 ```
 
-GPU passthrough on TrueNAS requires the NVIDIA app to be installed from the TrueNAS catalog and the `deploy.resources.reservations.devices` block in `compose.yml` (already included).
+CPU mode works without any GPU setup — set `FORCE_CPU=true` to disable GPU explicitly.

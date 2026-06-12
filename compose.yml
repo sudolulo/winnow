@@ -52,10 +52,10 @@ services:
       # - CRON_SCHEDULE=0 3 1 * *
       # - CRON_SCHEDULE=*/30 * * * *
     volumes:
-      # Replace <pool> with your TrueNAS pool name, e.g. /mnt/tank/winnow/...
-      - /mnt/<pool>/winnow/models:/models
-      - /mnt/<pool>/winnow/embeddings:/app/.if_cache
-      - /mnt/<pool>/winnow/output:/app/frigate_train
+      # Replace with absolute paths on your host, e.g. /opt/winnow/models
+      - /path/to/winnow/models:/models
+      - /path/to/winnow/cache:/app/.if_cache
+      - /path/to/winnow/output:/app/frigate_train
     stdin_open: true
     tty: true
     restart: unless-stopped

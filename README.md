@@ -69,11 +69,11 @@ Uploaded asset IDs are recorded so the same image is never uploaded twice, even 
 
 ---
 
-## Early Stage Software
+## Note on Crop Quality
 
-winnow is functional but early. The quality filtering catches most bad crops, but some will slip through — blurry frames, partial faces, someone walking through the background. After a run you should review what was uploaded in Frigate's face management UI and manually delete anything that doesn't belong. A few bad training images won't break recognition, but a lot of them will hurt it.
+winnow works well, but no automated pipeline is perfect. Occasionally a bad crop will slip through quality filtering — a partial face, someone in the background, a blurry frame. After a run it's worth a quick review in Frigate's face management UI to remove anything that doesn't belong.
 
-Bug reports and feedback are welcome via [GitHub Issues](https://github.com/sudolulo/winnow/issues).
+Issues and feedback welcome via [GitHub Issues](https://github.com/sudolulo/winnow/issues).
 
 ---
 
@@ -135,7 +135,7 @@ services:
               capabilities: [gpu]
 ```
 
-See [compose.yml](compose.yml) for the full annotated example including TrueNAS volume paths.
+See [compose.yml](compose.yml) for the full annotated example.
 
 ### Scheduling Behaviour
 

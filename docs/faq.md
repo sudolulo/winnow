@@ -49,7 +49,7 @@ ARM builds (linux/arm64) use CPU-only — CUDA is not available on ARM.
 
 ## Does it work on Unraid / Proxmox / bare Docker?
 
-Yes — the `compose.yml` uses standard Docker volume mounts. The TrueNAS paths in the example (`/mnt/<pool>/...`) are just an example; replace them with whatever paths suit your setup.
+Yes — the `compose.yml` uses standard Docker volume mounts. Replace the example paths with whatever absolute paths suit your setup.
 
 ---
 

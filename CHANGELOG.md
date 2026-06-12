@@ -29,14 +29,14 @@ First release of winnow. Forked from [if-curator](https://github.com/ds-sebastia
 
 **Docker and scheduling**
 - `Dockerfile` — multi-stage build (CUDA 12.9 on amd64, plain Ubuntu on arm64); runtime stage excludes build tools (g++, python3.12-dev, curl, gnupg)
-- `compose.yml` — fully annotated with inline comments grouped by concern; TrueNAS volume paths in the example
+- `compose.yml` — fully annotated with inline comments grouped by concern
 - `entrypoint.sh` — runs the tool once on startup, then hands off to the scheduler if `CRON_SCHEDULE` is set
 - `scheduler.py` — in-process cron scheduler that keeps the container (and loaded models) alive between runs
 - `CRON_SCHEDULE` env var — standard cron expression for recurring runs; unset exits after first run
 - `.dockerignore` — keeps `.venv`, `__pycache__`, test files, and logs out of the image context
 - Multi-arch image: `linux/amd64` and `linux/arm64` built and merged into a single manifest on GHCR
 - `tini` as PID 1 init process for correct signal handling
-- Non-root container user (`appuser`, uid 568) matching TrueNAS default app UID
+- Non-root container user (`appuser`, uid 568)
 - `HEALTHCHECK` in Dockerfile
 
 **Object mode**
@@ -81,7 +81,7 @@ First release of winnow. Forked from [if-curator](https://github.com/ds-sebastia
 - 24 unit tests across four modules: `test_config`, `test_immich_api`, `test_jobs`, `test_upload_tracker`
 
 **Documentation**
-- `docs/setup.md` — step-by-step install guide with TrueNAS and bare-Docker sections
+- `docs/setup.md` — step-by-step install and GPU passthrough guide
 - `docs/troubleshooting.md` — common failure modes with fixes
 - `docs/faq.md` — answers to questions new users will ask
 - `.env.example` — copy-paste starting point with every env var and inline comments
