@@ -23,7 +23,7 @@ jobs:
           echo "Disk space freed."
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run Ruff
         uses: astral-sh/ruff-action@v3
