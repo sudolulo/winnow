@@ -2,6 +2,7 @@
 
 import logging
 import os
+import shutil
 from io import BytesIO
 from urllib.parse import quote
 
@@ -89,7 +90,9 @@ def execute_jobs(jobs: list[dict]) -> None:
 
             job_task = progress.add_task(f"Processing {name}...", total=len(assets))
             person_dir = os.path.join(Config.OUTPUT_DIR, name)
-            os.makedirs(person_dir, exist_ok=True)
+            if os.path.isdir(person_dir):
+                shutil.rmtree(person_dir)
+            os.makedirs(person_dir)
 
             # Track filename → asset_id mapping for upload dedup
             asset_map: dict[str, str] = {}
