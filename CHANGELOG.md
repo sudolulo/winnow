@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-06-12
+
+### Fixed
+
+- **Clear-text API key storage**: `config.py` no longer writes `API_KEY` to `.immich_config.json`. The key must come from an environment variable or `.env` file. Interactive mode now prints a tip directing users to `.env`. Resolves CodeQL `py/clear-text-storage-sensitive-data`.
+
+### Changed
+
+- **CI workflow permissions**: `test.yml` and `lint.yml` now declare `permissions: contents: read`, following least-privilege principle and resolving `actions/missing-workflow-permissions` scanner alerts.
+- **CI lockfile race condition**: removed the `verify-lockfile` pre-job from `docker-publish.yml` and `release.yml`. The `update-lockfile.yml` bot maintains the lockfile; the verify step raced against it on the same push event and caused false failures. `release.yml` now runs `uv lock` inline so tag-triggered builds are always self-consistent.
+- **Docs moved to wiki**: `docs/` folder removed from the repository. Setup, Troubleshooting, and FAQ pages are now at the [GitHub wiki](https://github.com/sudolulo/winnow/wiki).
+
 ## [0.2.2] - 2026-06-12
 
 ### Added
