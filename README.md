@@ -69,6 +69,14 @@ Uploaded asset IDs are recorded so the same image is never uploaded twice, even 
 
 ---
 
+## Early Stage Software
+
+winnow is functional but early. The quality filtering catches most bad crops, but some will slip through — blurry frames, partial faces, someone walking through the background. After a run you should review what was uploaded in Frigate's face management UI and manually delete anything that doesn't belong. A few bad training images won't break recognition, but a lot of them will hurt it.
+
+Bug reports and feedback are welcome via [GitHub Issues](https://github.com/sudolulo/winnow/issues).
+
+---
+
 ## Modes
 
 ### Face Mode (default)
