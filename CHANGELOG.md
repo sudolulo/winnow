@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-12
+
+### Added
+
+- **Confidence scores in upload tracker**: Immich face confidence scores are now stored per asset in `frigate_uploaded_ids.json` under `by_person[name].scores`. Lays the groundwork for future replacement logic (remove low-confidence uploads when better images are found).
+- **Frigate-authoritative capacity tracking**: At startup, `GET /api/faces` is queried on the Frigate host to retrieve the actual number of trained images per person from the `train` directory (pending/unclassified queue is excluded). This count is stored as `frigate_count` in the tracker JSON so it survives Frigate downtime.
+- **Lifetime cap uses Frigate count**: `MAX_AUTO_IMAGES` is now enforced against Frigate's live training image count rather than the local uploaded-asset tally. Fallback priority: live Frigate API → last cached `frigate_count` in JSON → local uploaded count.
+- **Startup summary shows Frigate count**: Tracker summary at startup now includes the last known Frigate training count per person (e.g. `78 uploaded, 2 rejected, 42 in Frigate`).
+- **`winnow/frigate_api.py`**: new module encapsulating Frigate API helpers; currently exposes `get_frigate_face_counts()`.
+
+### Changed
+
+- `upload_tracker.py`: `by_person` entries migrated from flat list to `{asset_ids, scores, frigate_count}` dict. Old list format is read and migrated transparently on first write.
+- `mark_uploaded()` now accepts an optional `score` keyword argument.
+- `get_person_summary()` now returns `frigate_count` and `scores` fields alongside `uploaded` and `rejected`.
+
 ## [0.2.1] - 2026-06-12
 
 ### Fixed

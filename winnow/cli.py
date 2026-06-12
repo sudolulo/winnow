@@ -48,7 +48,15 @@ def main() -> None:
         if summary:
             rprint("\n[dim]Tracker summary:[/dim]")
             for person_name, counts in summary.items():
-                rprint(f"  [dim]{person_name}: {counts['uploaded']} uploaded, {counts['rejected']} rejected[/dim]")
+                frigate_part = (
+                    f", {counts['frigate_count']} in Frigate"
+                    if counts.get("frigate_count") is not None
+                    else ""
+                )
+                rprint(
+                    f"  [dim]{person_name}: {counts['uploaded']} uploaded,"
+                    f" {counts['rejected']} rejected{frigate_part}[/dim]"
+                )
 
         people = get_people()
         if not people:

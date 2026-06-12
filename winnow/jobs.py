@@ -11,9 +11,10 @@ from rich.table import Table
 from .config import Config
 from .diversity import select_diverse_assets
 from .embeddings import is_embedding_available, load_embedding_model
+from .frigate_api import get_frigate_face_counts
 from .immich_api import fetch_all_assets, filter_recent_assets
 from .logging import console
-from .upload_tracker import filter_already_uploaded
+from .upload_tracker import filter_already_uploaded, get_person_summary, update_frigate_count
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,12 @@ def auto_configure(people: list[dict]) -> list[dict]:
                 f" ≥{min_face_count} assets (MIN_FACE_COUNT={min_face_count})"
             )
 
+    frigate_counts = get_frigate_face_counts()
+    # Persist each count to tracker so the last known value survives Frigate downtime
+    if frigate_counts is not None:
+        for pname, count in frigate_counts.items():
+            update_frigate_count(pname, count)
+    upload_summary = get_person_summary()
     jobs = []
     for person in valid_people:
         name = person["name"]
@@ -263,8 +270,33 @@ def auto_configure(people: list[dict]) -> list[dict]:
             rprint(f"  [dim]Skipping {name} (0 new images after dedup).[/dim]")
             continue
 
+        # Enforce MAX_AUTO_IMAGES as a lifetime cap per person.
+        # Priority: live Frigate count → last cached Frigate count → local uploaded count.
+        person_summary = upload_summary.get(name, {})
+        if frigate_counts is not None:
+            already_uploaded = frigate_counts.get(name, 0)
+        else:
+            already_uploaded = (
+                person_summary.get("frigate_count")
+                or person_summary.get("uploaded", 0)
+            )
+        capacity = Config.MAX_AUTO_IMAGES - already_uploaded
+        if capacity <= 0:
+            rprint(
+                f"  [dim]Skipping {name} (at lifetime cap:"
+                f" {already_uploaded}/{Config.MAX_AUTO_IMAGES} trained).[/dim]"
+            )
+            continue
+
         has_embedding = is_embedding_available(entity_type)
         limit, selection_mode = _resolve_strategy(strategy, has_embedding)
+
+        # Cap selection to remaining capacity
+        if limit == "auto":
+            if already_uploaded > 0:
+                limit = capacity  # partially filled — select exactly what remains
+        else:
+            limit = min(limit, capacity)
 
         if selection_mode == "skip":
             continue

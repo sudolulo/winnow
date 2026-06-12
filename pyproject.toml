@@ -1,6 +1,6 @@
 [project]
 name = "winnow"
-version = "0.2.1"
+version = "0.2.2"
 description = "Immich to Frigate training sets"
 license = "MIT"
 requires-python = ">=3.12"

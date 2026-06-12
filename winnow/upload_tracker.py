@@ -8,6 +8,13 @@ Both are excluded from future candidate pools. To reset:
   - All:           delete both files
   - One person:    call reset_person("Name") or set RESET_PERSON=Name
   - Rejects only:  delete frigate_rejected_ids.json, or set RETRY_REJECTED=true
+
+by_person schema (frigate_uploaded_ids.json):
+  {
+    "asset_ids":    ["immich-id-1", ...],   # all assets we attempted to upload
+    "scores":       {"immich-id-1": 0.953}, # Immich face confidence at upload time
+    "frigate_count": 42                     # last known Frigate training image count
+  }
 """
 
 import json
@@ -55,7 +62,23 @@ def _load_flat(filename: str) -> set[str]:
     return set(_load(filename).get(_flat_key(filename), []))
 
 
-def _mark(filename: str, asset_id: str, person_name: str | None) -> None:
+def _get_ids(entry: list | dict) -> list[str]:
+    """Extract asset_ids from either the old list format or the new dict format."""
+    if isinstance(entry, list):
+        return entry
+    return entry.get("asset_ids", [])
+
+
+def _migrate_entry(entry: list | dict) -> dict:
+    """Ensure by_person entry is in the current dict format."""
+    if isinstance(entry, list):
+        return {"asset_ids": sorted(entry), "scores": {}}
+    entry.setdefault("asset_ids", [])
+    entry.setdefault("scores", {})
+    return entry
+
+
+def _mark(filename: str, asset_id: str, person_name: str | None, score: float | None = None) -> None:
     data = _load(filename)
     flat_key = _flat_key(filename)
     flat = set(data.get(flat_key, []))
@@ -63,9 +86,13 @@ def _mark(filename: str, asset_id: str, person_name: str | None) -> None:
     data[flat_key] = sorted(flat)
     if person_name:
         by_person = data.setdefault("by_person", {})
-        person_ids = set(by_person.get(person_name, []))
-        person_ids.add(asset_id)
-        by_person[person_name] = sorted(person_ids)
+        entry = _migrate_entry(by_person.get(person_name, {}))
+        ids = set(entry["asset_ids"])
+        ids.add(asset_id)
+        entry["asset_ids"] = sorted(ids)
+        if score is not None:
+            entry["scores"][asset_id] = round(score, 4)
+        by_person[person_name] = entry
     _save(filename, data)
 
 
@@ -79,8 +106,8 @@ def load_rejected_ids() -> set[str]:
     return _load_flat(REJECT_TRACKER_FILE)
 
 
-def mark_uploaded(asset_id: str, person_name: str | None = None) -> None:
-    _mark(UPLOAD_TRACKER_FILE, asset_id, person_name)
+def mark_uploaded(asset_id: str, person_name: str | None = None, score: float | None = None) -> None:
+    _mark(UPLOAD_TRACKER_FILE, asset_id, person_name, score=score)
     logger.debug(f"Marked {asset_id} as uploaded ({person_name})")
 
 
@@ -89,14 +116,25 @@ def mark_rejected(asset_id: str, person_name: str | None = None) -> None:
     logger.debug(f"Marked {asset_id} as rejected ({person_name})")
 
 
+def update_frigate_count(person_name: str, count: int) -> None:
+    """Record Frigate's authoritative training image count for a person."""
+    data = _load(UPLOAD_TRACKER_FILE)
+    by_person = data.setdefault("by_person", {})
+    entry = _migrate_entry(by_person.get(person_name, {}))
+    entry["frigate_count"] = count
+    by_person[person_name] = entry
+    _save(UPLOAD_TRACKER_FILE, data)
+
+
 def reset_person(person_name: str) -> None:
     """Remove all uploaded and rejected records for a given person."""
     for filename in (UPLOAD_TRACKER_FILE, REJECT_TRACKER_FILE):
         data = _load(filename)
         flat_key = _flat_key(filename)
         by_person = data.get("by_person", {})
-        person_ids = set(by_person.pop(person_name, []))
-        if person_ids:
+        entry = by_person.pop(person_name, None)
+        if entry is not None:
+            person_ids = set(_get_ids(entry))
             flat = set(data.get(flat_key, [])) - person_ids
             data[flat_key] = sorted(flat)
             data["by_person"] = by_person
@@ -104,18 +142,22 @@ def reset_person(person_name: str) -> None:
     logger.info(f"Reset tracking data for {person_name}")
 
 
-def get_person_summary() -> dict[str, dict[str, int]]:
-    """Return {person_name: {uploaded: N, rejected: N}} for display."""
-    uploaded_by = _load(UPLOAD_TRACKER_FILE).get("by_person", {})
-    rejected_by = _load(REJECT_TRACKER_FILE).get("by_person", {})
-    names = set(uploaded_by) | set(rejected_by)
-    return {
-        name: {
-            "uploaded": len(uploaded_by.get(name, [])),
-            "rejected": len(rejected_by.get(name, [])),
+def get_person_summary() -> dict[str, dict]:
+    """Return {person_name: {uploaded, rejected, frigate_count, scores}} for display/capacity."""
+    uploaded_data = _load(UPLOAD_TRACKER_FILE).get("by_person", {})
+    rejected_data = _load(REJECT_TRACKER_FILE).get("by_person", {})
+    names = set(uploaded_data) | set(rejected_data)
+    result = {}
+    for name in sorted(names):
+        u_entry = uploaded_data.get(name, {})
+        r_entry = rejected_data.get(name, {})
+        result[name] = {
+            "uploaded": len(_get_ids(u_entry)),
+            "rejected": len(_get_ids(r_entry)),
+            "frigate_count": u_entry.get("frigate_count") if isinstance(u_entry, dict) else None,
+            "scores": u_entry.get("scores", {}) if isinstance(u_entry, dict) else {},
         }
-        for name in sorted(names)
-    }
+    return result
 
 
 def filter_already_uploaded(

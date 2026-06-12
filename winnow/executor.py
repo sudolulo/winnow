@@ -58,6 +58,7 @@ def _enrich_asset_with_face_data(asset: dict, person: dict) -> dict:
 
     # Inject into asset so process_face_mode can find it via asset["people"]
     asset["people"] = [{"id": person_id, "faces": [face_info]}]
+    asset["face_confidence"] = face_data.confidence
     return asset
 
 
@@ -96,8 +97,9 @@ def execute_jobs(jobs: list[dict]) -> None:
                 shutil.rmtree(person_dir)
             os.makedirs(person_dir, exist_ok=True)
 
-            # Track filename → asset_id mapping for upload dedup
+            # Track filename → asset_id and filename → confidence score
             asset_map: dict[str, str] = {}
+            score_map: dict[str, float | None] = {}
 
             count = 0
             for asset in assets:
@@ -132,11 +134,13 @@ def execute_jobs(jobs: list[dict]) -> None:
                             # Record which asset produced which output file
                             filename = f"{count}.jpg"
                             asset_map[filename] = asset["id"]
+                            score_map[filename] = asset.get("face_confidence")
                             # Also record object-mode variant filenames
                             if mode == "object":
                                 for f in sorted(os.listdir(person_dir)):
                                     if f.startswith(f"{count}_") and f not in asset_map:
                                         asset_map[f] = asset["id"]
+                                        score_map[f] = asset.get("face_confidence")
 
                             count += 1
                         else:
@@ -149,8 +153,9 @@ def execute_jobs(jobs: list[dict]) -> None:
                 progress.advance(job_task)
                 progress.advance(overall_task)
 
-            # Store asset_map on the job so upload_to_frigate can use it
+            # Store maps on the job so upload_to_frigate can use them
             job["asset_map"] = asset_map
+            job["score_map"] = score_map
 
             progress.remove_task(job_task)
 
@@ -230,6 +235,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 continue
 
             asset_map = filename_to_asset_id.get(name, {})
+            score_map = job.get("score_map", {})
             person_files = sorted(asset_map.keys())
 
             if not person_files:
@@ -257,7 +263,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             # Mark this asset as uploaded so it's skipped on future runs
                             asset_id = asset_map.get(fname)
                             if asset_id:
-                                mark_uploaded(asset_id, person_name=name)
+                                mark_uploaded(asset_id, person_name=name, score=score_map.get(fname))
 
                             break
                         else:
