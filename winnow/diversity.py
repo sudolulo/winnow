@@ -29,6 +29,7 @@ def select_diverse_assets(
     entity_name: str,
     selection_mode: str = "smart",
     entity_type: str = "face",
+    person_id: str | None = None,
     progress_callback=None,
 ) -> list:
     """
@@ -59,7 +60,7 @@ def select_diverse_assets(
         return _select_time_spread(assets, limit)
 
     try:
-        return _select_by_embedding(assets, limit, entity_type, progress_callback)
+        return _select_by_embedding(assets, limit, entity_type, person_id, progress_callback)
     except Exception as e:
         logger.error(f"Smart Diversity failed: {e}. Falling back to time spread.")
         return _select_time_spread(assets, limit)
@@ -80,9 +81,11 @@ def _fetch_thumbnail(asset_id: str, timeout: int = 10) -> Image.Image | None:
         return None
 
 
-def _get_face_bbox(asset: dict) -> tuple[float, float, float, float] | None:
-    """Extract face bounding box from asset metadata if available."""
+def _get_face_bbox(asset: dict, person_id: str | None = None) -> tuple[float, float, float, float] | None:
+    """Extract face bounding box from asset metadata for the given person."""
     for person in asset.get("people", []):
+        if person_id and person.get("id") != person_id:
+            continue
         faces = person.get("faces", [])
         if faces:
             f = faces[0]
@@ -95,9 +98,11 @@ def _get_face_bbox(asset: dict) -> tuple[float, float, float, float] | None:
     return None
 
 
-def _get_face_confidence(asset: dict) -> float | None:
-    """Extract face detection confidence from asset metadata if available."""
+def _get_face_confidence(asset: dict, person_id: str | None = None) -> float | None:
+    """Extract face detection confidence from asset metadata for the given person."""
     for person in asset.get("people", []):
+        if person_id and person.get("id") != person_id:
+            continue
         faces = person.get("faces", [])
         if faces:
             return faces[0].get("score") or faces[0].get("confidence")
@@ -108,6 +113,7 @@ def _crop_face_from_thumbnail(
     img: Image.Image,
     asset: dict,
     margin: float = 0.25,
+    person_id: str | None = None,
 ) -> Image.Image | None:
     """Crop the face region from a thumbnail using Immich bbox metadata.
 
@@ -118,11 +124,12 @@ def _crop_face_from_thumbnail(
         img: Full preview thumbnail
         asset: Asset dict with people/faces metadata
         margin: Extra margin around the bbox (fraction, default 25%)
+        person_id: If provided, only crop from this person's face data.
 
     Returns:
         Cropped face PIL image, or None if no face metadata available
     """
-    bbox = _get_face_bbox(asset)
+    bbox = _get_face_bbox(asset, person_id=person_id)
     if bbox is None:
         return None
 
@@ -169,6 +176,7 @@ def _select_by_embedding(
     assets: list,
     limit: int | str,
     entity_type: str,
+    person_id: str | None = None,
     progress_callback=None,
 ) -> list:
     """Select assets using embedding-based cluster-aware FPS.
@@ -217,11 +225,11 @@ def _select_by_embedding(
         if img is None:
             continue
 
-        confidence = _get_face_confidence(asset)
+        confidence = _get_face_confidence(asset, person_id=person_id)
 
         # Quality gate: filter before expensive embedding computation
         if entity_type == "face":
-            face_bbox = _get_face_bbox(asset)
+            face_bbox = _get_face_bbox(asset, person_id=person_id)
             quality = assess_quality(
                 img,
                 face_bbox=face_bbox,
@@ -236,7 +244,7 @@ def _select_by_embedding(
                 continue
 
             # Crop the target person's face before embedding
-            face_crop = _crop_face_from_thumbnail(img, asset)
+            face_crop = _crop_face_from_thumbnail(img, asset, person_id=person_id)
             embed_img = face_crop if face_crop is not None else img
         else:
             embed_img = img

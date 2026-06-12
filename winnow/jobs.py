@@ -81,7 +81,9 @@ def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, st
     return strategy_map.get(strategy, ("auto", "smart"))
 
 
-def _perform_selection(assets: list, limit: int | str, name: str, selection_mode: str, entity_type: str) -> list:
+def _perform_selection(
+    assets: list, limit: int | str, name: str, selection_mode: str, entity_type: str, person_id: str | None = None
+) -> list:
     """Run diversity selection with progress display."""
     if selection_mode == "smart":
         model_display = "InsightFace (face embeddings)" if entity_type == "face" else "SigLIP (visual embeddings)"
@@ -104,6 +106,7 @@ def _perform_selection(assets: list, limit: int | str, name: str, selection_mode
                 name,
                 selection_mode=selection_mode,
                 entity_type=entity_type,
+                person_id=person_id,
                 progress_callback=lambda c, t: progress.update(task, completed=c, total=t),
             )
 
@@ -113,7 +116,9 @@ def _perform_selection(assets: list, limit: int | str, name: str, selection_mode
 
     rprint(f"\n[cyan]Using time-spread selection for {limit} images...[/cyan]")
     with console.status(f"[bold]Selecting {limit} images evenly distributed over time...[/bold]"):
-        selected = select_diverse_assets(assets, limit, name, selection_mode="time", entity_type=entity_type)
+        selected = select_diverse_assets(
+            assets, limit, name, selection_mode="time", entity_type=entity_type, person_id=person_id
+        )
     rprint(f"  [green]Selected {len(selected)} images using time spread.[/green]")
     return selected
 
@@ -167,7 +172,9 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
         return None
 
     # Perform selection
-    selected_assets = _perform_selection(recent_assets, limit, name, selection_mode, entity_type)
+    selected_assets = _perform_selection(
+        recent_assets, limit, name, selection_mode, entity_type, person_id=person["id"]
+    )
 
     rprint(f"  [green]Queued {len(selected_assets)} images for {name}.[/green]")
     return {"person": person, "assets": selected_assets, "limit": len(selected_assets), "config": config}
@@ -276,10 +283,8 @@ def auto_configure(people: list[dict]) -> list[dict]:
         if frigate_counts is not None:
             already_uploaded = frigate_counts.get(name, 0)
         else:
-            already_uploaded = (
-                person_summary.get("frigate_count")
-                or person_summary.get("uploaded", 0)
-            )
+            fc = person_summary.get("frigate_count")
+            already_uploaded = fc if fc is not None else person_summary.get("uploaded", 0)
         capacity = Config.MAX_AUTO_IMAGES - already_uploaded
         if capacity <= 0:
             rprint(
@@ -301,7 +306,9 @@ def auto_configure(people: list[dict]) -> list[dict]:
         if selection_mode == "skip":
             continue
 
-        selected_assets = _perform_selection(recent_assets, limit, name, selection_mode, entity_type)
+        selected_assets = _perform_selection(
+            recent_assets, limit, name, selection_mode, entity_type, person_id=person["id"]
+        )
 
         if selected_assets:
             rprint(f"  [green]Queued {len(selected_assets)} images for {name}.[/green]")

@@ -6,11 +6,11 @@ Unified embedding interface for faces and objects.
 - Caching: Disk-based cache avoids recomputation on reruns
 """
 
-import contextlib
 import importlib
 import logging
 import os
 import warnings
+from contextlib import contextmanager
 
 import cv2
 import numpy as np
@@ -19,6 +19,24 @@ from PIL import Image
 from .cache import get_cache
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _suppress_output():
+    """Suppress stdout/stderr at the file-descriptor level, silencing C extension noise."""
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    saved_out, saved_err = os.dup(1), os.dup(2)
+    try:
+        os.dup2(devnull_fd, 1)
+        os.dup2(devnull_fd, 2)
+        yield
+    finally:
+        os.dup2(saved_out, 1)
+        os.dup2(saved_err, 2)
+        os.close(devnull_fd)
+        os.close(saved_out)
+        os.close(saved_err)
+
 
 # Lazy-loaded singletons
 _insightface_app = None
@@ -70,6 +88,8 @@ def get_insightface_app():
     # Preload CUDA/cuDNN DLLs BEFORE any ORT InferenceSession is created
     _preload_cuda_libs()
 
+    ctx_id = -1
+    insightface_home = os.environ.get("INSIGHTFACE_HOME", os.path.expanduser("~/.insightface"))
     try:
         import onnxruntime as ort
         from insightface.app import FaceAnalysis
@@ -78,7 +98,6 @@ def get_insightface_app():
         providers = [p for p in ort.get_available_providers() if p != "TensorrtExecutionProvider"]
         logger.info(f"Available ONNX providers: {providers}")
 
-        # Determine device: 0 for GPU, -1 for CPU
         gpu_providers = {
             "CUDAExecutionProvider",
             "ROCmExecutionProvider",
@@ -90,9 +109,7 @@ def get_insightface_app():
         device_str = "GPU" if ctx_id >= 0 else "CPU"
         logger.info(f"Loading InsightFace Buffalo_L on {device_str} (ctx_id={ctx_id})...")
 
-        # Suppress C-level output during model loading
-        with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
-            insightface_home = os.environ.get("INSIGHTFACE_HOME", os.path.expanduser("~/.insightface"))
+        with _suppress_output():
             _insightface_app = FaceAnalysis(name="buffalo_l", root=insightface_home, providers=providers)
             _insightface_app.prepare(ctx_id=ctx_id, det_size=(640, 640))
 
@@ -103,7 +120,6 @@ def get_insightface_app():
         return None
     except Exception as e:
         logger.error(f"Failed to load InsightFace: {e}")
-        # Retry on CPU if GPU failed
         if ctx_id == 0:
             logger.warning("Retrying InsightFace on CPU...")
             try:

@@ -161,7 +161,12 @@ class _ConfigAccessor:
 
 
 Config = _ConfigAccessor()
-ConfigManager = type("ConfigManager", (), {"get": staticmethod(lambda: _Config())})
+
+
+class ConfigManager:
+    @staticmethod
+    def get() -> _Config:
+        return _Config()
 
 
 def get_headers() -> dict[str, str]:
