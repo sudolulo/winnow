@@ -11,7 +11,7 @@ from rich.table import Table
 from .config import Config
 from .diversity import select_diverse_assets
 from .embeddings import is_embedding_available, load_embedding_model
-from .immich_api import fetch_all_assets, filter_recent_assets, get_people
+from .immich_api import fetch_all_assets, filter_recent_assets
 from .logging import console
 from .upload_tracker import filter_already_uploaded
 
@@ -231,7 +231,10 @@ def auto_configure(people: list[dict]) -> list[dict]:
     if min_face_count > 0:
         valid_people = [p for p in valid_people if p.get("assetCount", 0) >= min_face_count]
         if valid_people:
-            rprint(f"  Filtered to {len(valid_people)} people with ≥{min_face_count} assets (MIN_FACE_COUNT={min_face_count})")
+            rprint(
+                f"  Filtered to {len(valid_people)} people with"
+                f" ≥{min_face_count} assets (MIN_FACE_COUNT={min_face_count})"
+            )
 
     jobs = []
     for person in valid_people:

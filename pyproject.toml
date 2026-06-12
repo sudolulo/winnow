@@ -91,6 +91,9 @@ ultralytics = "ultralytics"
 [tool.deptry.per_rule_ignores]
 DEP002 = ["onnxruntime-gpu", "nvidia-cudnn-cu12"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

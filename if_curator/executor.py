@@ -242,8 +242,6 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
             for fname in person_files:
                 fpath = os.path.join(person_dir, fname)
-                success = False
-
                 for attempt in range(1, max_retries + 1):
                     try:
                         with open(fpath, "rb") as f:
@@ -255,7 +253,6 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         if resp.status_code == 200:
                             uploaded += 1
                             person_uploaded += 1
-                            success = True
 
                             # Mark this asset as uploaded so it's skipped on future runs
                             asset_id = asset_map.get(fname)
@@ -265,7 +262,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             break
                         else:
                             if attempt < max_retries:
-                                logger.warning(f"Upload attempt {attempt}/{max_retries} for {fname}: HTTP {resp.status_code}, retrying...")
+                                logger.warning(
+                                    f"Upload attempt {attempt}/{max_retries} for {fname}:"
+                                    f" HTTP {resp.status_code}, retrying..."
+                                )
                                 continue
                             failed += 1
                             person_failed += 1
@@ -284,17 +284,27 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                     mark_rejected(asset_id, person_name=name)
                     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
                         if attempt < max_retries:
-                            logger.warning(f"Upload attempt {attempt}/{max_retries} for {fname}: {type(exc).__name__}, retrying...")
+                            logger.warning(
+                                f"Upload attempt {attempt}/{max_retries} for {fname}:"
+                                f" {type(exc).__name__}, retrying..."
+                            )
                             continue
                         failed += 1
                         person_failed += 1
-                        label = "Connection refused" if isinstance(exc, requests.exceptions.ConnectionError) else "Request timed out (30s)"
+                        label = (
+                            "Connection refused"
+                            if isinstance(exc, requests.exceptions.ConnectionError)
+                            else "Request timed out (30s)"
+                        )
                         progress.console.print(
                             f"    [red]✗ {fname}: {label} (after {max_retries} attempts)[/red]"
                         )
                     except Exception as e:
                         if attempt < max_retries:
-                            logger.warning(f"Upload attempt {attempt}/{max_retries} for {fname}: {type(e).__name__}, retrying...")
+                            logger.warning(
+                                f"Upload attempt {attempt}/{max_retries} for {fname}:"
+                                f" {type(e).__name__}, retrying..."
+                            )
                             continue
                         failed += 1
                         person_failed += 1

@@ -7,11 +7,11 @@ from rich import print as rprint
 from rich.prompt import Confirm
 
 from .config import Config, ConfigManager
+from .executor import execute_jobs, upload_to_frigate
 from .immich_api import get_people
+from .jobs import _show_preview, auto_configure, interactive_configure
 from .logging import console, setup_logging
 from .upload_tracker import get_person_summary, reset_person
-from .executor import execute_jobs, upload_to_frigate
-from .jobs import auto_configure, interactive_configure, _show_preview
 
 logger = logging.getLogger(__name__)
 
