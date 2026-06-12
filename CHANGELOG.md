@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-06-12
+
+### Fixed
+
+- **Dockerfile: `ARG TARGETARCH` re-declared in each stage**: Docker's automatic platform ARGs are only in scope for `FROM` instructions, not `RUN` commands. The `$TARGETARCH` variable in the deadsnakes PPA conditional was silently empty, so the PPA was never added and `python3.13` could not be located on the Ubuntu 22.04 CUDA base. Adding `ARG TARGETARCH` at the top of both the `build` and `runtime` stage bodies fixes the amd64 build.
+
 ## [0.2.5] - 2026-06-12
 
 ### Changed

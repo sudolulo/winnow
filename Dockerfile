@@ -10,6 +10,7 @@ ARG TARGETARCH
 
 FROM base-${TARGETARCH} AS build
 
+ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
 
 # amd64 (Ubuntu 22.04 CUDA base): Python 3.13 via deadsnakes PPA
@@ -47,6 +48,7 @@ RUN chmod +x /app/entrypoint.sh
 
 FROM base-${TARGETARCH} AS runtime
 
+ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
