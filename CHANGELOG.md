@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-06-12
+
+### Changed
+
+- **CUDA base upgraded to 13.3.0**: amd64 base image bumped from `nvidia/cuda:12.9.2-cudnn-runtime-ubuntu22.04` to `nvidia/cuda:13.3.0-cudnn-runtime-ubuntu22.04`. Python packages (torch, onnxruntime-gpu) still target CUDA 12.6 via pip-installed libraries; the base image upgrade requires a host GPU driver that supports CUDA 13+.
+- **`torchvision>=0.27.0` added as explicit dependency**: routed through the `pytorch-cu126` index for linux/x86_64, ensuring it resolves to `0.27.0+cu126` (paired with `torch 2.12.0+cu126`) rather than being pulled from PyPI where the older `0.21.0` wheel would downgrade torch to 2.6.0.
+- **`torch>=2.12.0`** floor raised from 2.6.0 to prevent silent downgrade.
+- **`nvidia-cudnn-cu12>=9.0.0`** floor kept intentionally loose — torch pins an exact cuDNN ABI version (`9.10.2.21`) and must own that constraint.
+
 ## [0.2.4] - 2026-06-12
 
 ### Changed
