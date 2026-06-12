@@ -1,74 +1,136 @@
 [![Publish Docker Image](https://github.com/sudolulo/if_curator_headless/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/sudolulo/if_curator_headless/actions/workflows/docker-publish.yml) [![Release](https://github.com/sudolulo/if_curator_headless/actions/workflows/release.yml/badge.svg)](https://github.com/sudolulo/if_curator_headless/actions/workflows/release.yml) [![Lint](https://github.com/sudolulo/if_curator_headless/actions/workflows/lint.yml/badge.svg)](https://github.com/sudolulo/if_curator_headless/actions/workflows/lint.yml) [![Test](https://github.com/sudolulo/if_curator_headless/actions/workflows/test.yml/badge.svg)](https://github.com/sudolulo/if_curator_headless/actions/workflows/test.yml)
 
-### if-curator-headless
+# if-curator-headless
 
-> *A specialized tool to extract **high-quality, diverse** training images from your Immich library for Frigate's Face Recognition (ArcFace) and Object/State Classification models.*
+`if-curator-headless` pulls photos of people and objects from your [Immich](https://immich.app) library, selects the most diverse and highest-quality subset using AI embeddings, and delivers them as training data for [Frigate](https://frigate.video)'s face recognition and object classification models.
 
-Runs headless in Docker with full GPU acceleration, automatic Frigate upload, cron scheduling, and env-var-driven configuration — no interactive prompts required.
-
----
-
-## Why This Tool?
-
-> **"Diversity matters far more than volume."** — *Frigate Developer Tips*
-
-Training AI models on bulk data is often harmful. Feed the model 50 images from the same 10-second video clip and it learns the *lighting and background*, not the actual *face* or *object*.
-
-`if-curator-headless` solves this using **AI-powered diversity selection** and **quality filtering**:
-
-| Mode | Embedding Model | Algorithm |
-| :--- | :--- | :--- |
-| **👤 Face** | InsightFace (ArcFace) | K-Medoids Clustering + FPS + Hard Example Weighting |
-| **🐶 Object** | SigLIP (Vision Transformer) | K-Medoids Clustering + FPS |
+It runs fully headless in Docker, is configured entirely through environment variables, and can run on a schedule — no interactive prompts, no manual steps.
 
 ---
 
-## Features
+## The Problem
 
-### Smart Selection
-- **Auto Diversity [Recommended]**: Clusters images by visual similarity, selects representatives from each cluster, then fills with maximally-diverse picks until redundancy starts (capped at 80)
-- **Standard (30 images)**: Balanced set using Smart Diversity
-- **Broad (100 images)**: Extensive set using Smart Diversity
-- **Custom Count**: Set `LIMIT=N` for any exact number
+Frigate's face recognition model (ArcFace) and object classifier are only as good as the training data you give them. The instinct is to feed them as many photos as possible, but volume is not what matters — **diversity is**.
 
-### Quality Filtering
-Images are automatically rejected if they are:
-- **Blurry** — Laplacian variance below threshold
-- **Grayscale / IR** — ArcFace is trained on color images only
-- **Over/Underexposed** — Washed-out or too dark to use
-- **Low confidence** — Partial or occluded face detections
-- **Too small** — Faces under the minimum pixel width lack features
+If you upload 100 photos from the same week, the model learns the lighting in your living room and the jacket you wore that month. It struggles the moment anything changes. What you actually want is a spread: different years, different lighting conditions, different angles, different contexts.
 
-### Face Recognition Prep
-- Uses InsightFace embeddings on **face crops** (not full images — avoids wrong-face in group photos)
-- **Hard example prioritization** — unusual angles, sunglasses, and low-confidence detections are biased for selection
-- **Face alignment** via InsightFace landmarks (standard 112×112 ArcFace input)
-- **EXIF orientation** applied before cropping so bounding boxes align correctly
-- Downloads **full-resolution** originals for final crops (falls back to JPEG preview for HEIC/RAW)
-
-### Object/State Classification Prep
-- Uses **SigLIP** embeddings for semantic diversity
-- **YOLOv9c** to detect and crop specific objects (dogs, cars, etc.)
-- Captures variation in poses, lighting, and backgrounds
-
-> **Note:** Frigate does not support uploading custom images for object classification via the UI or API. Object mode crops are saved to disk for manual YOLO model training.
-
-### Performance
-- Concurrent thumbnail downloads (8 parallel workers)
-- Batch-capable SigLIP embeddings for GPU efficiency
-- Optional disk-based embedding cache for faster re-runs
-- Upload deduplication — already-uploaded assets are skipped on future runs
-- Multi-person batch mode
+Finding that spread manually across a library of thousands of photos is not practical. `if-curator-headless` does it automatically.
 
 ---
 
-## Requirements
+## How It Works
 
-- **NVIDIA GPU** (recommended) — auto-detects CUDA. CPU mode available via `FORCE_CPU=true` but significantly slower.
-- **Python 3.12+**
-- **[uv](https://astral.sh/uv/)**
-- **Immich Server** (v1.106+)
-- **Frigate** (v0.16+, for face recognition API — optional)
+For each person (or object) you configure, the tool runs this pipeline:
+
+```
+Immich library
+      │
+      ▼
+1. Fetch all assets tagged with this person
+      │
+      ▼
+2. Filter by recency (configurable years window)
+      │
+      ▼
+3. Skip already-uploaded assets (persistent tracker)
+      │
+      ▼
+4. Quality filter — reject:
+   • Blurry images (Laplacian variance)
+   • Grayscale / infrared (channel similarity check)
+   • Over- or underexposed
+   • Low detection confidence
+   • Face crops below minimum pixel size
+      │
+      ▼
+5. Compute embeddings for remaining candidates
+   • Faces   → InsightFace (ArcFace / Buffalo_L)
+   • Objects → SigLIP (Vision Transformer)
+      │
+      ▼
+6. Diversity selection
+   • K-Medoids clustering to find natural groupings
+   • Farthest Point Sampling (FPS) to pick maximally spread representatives
+   • Hard example weighting — unusual angles, partial occlusions,
+     and low-confidence detections are biased toward selection
+   • Auto mode: keeps selecting until marginal diversity drops off
+      │
+      ▼
+7. Crop and export
+   • Face mode: aligned 112×112 crops (ArcFace standard input),
+     uploaded directly to Frigate's face training API
+   • Object mode: YOLO-detected crops saved to disk
+```
+
+Uploaded asset IDs are recorded so the same image is never uploaded twice, even across runs weeks apart.
+
+---
+
+## Modes
+
+### Face Mode (default)
+
+Extracts face crops using Immich's bounding box metadata, scales them to the source image resolution, applies EXIF orientation correction, then either aligns them to the standard ArcFace 112×112 format using 5-point facial landmarks or falls back to a margin-padded bounding box crop.
+
+Crops are uploaded directly to Frigate's face registration API (`POST /api/faces/{name}/register`). After each successful upload the asset ID is marked in the tracker so future runs skip it.
+
+### Object Mode
+
+Runs each full image through YOLOv9c to detect instances of a target class (dog, cat, car, etc.), then crops each detection and saves it to the output directory. Frigate has no API for uploading object training images, so the crops are saved for you to place into your Frigate data directory manually.
+
+---
+
+## Diversity Selection in Detail
+
+The core of the tool is the embedding-based selection. Rather than picking images at random or evenly across time, it computes a vector embedding for each candidate image that encodes what the face or object actually looks like — the angle, lighting, expression, background context.
+
+It then:
+
+1. **Clusters** those embeddings using K-Medoids to find natural groups (e.g. "holiday photos", "outdoor summer shots", "indoor low light")
+2. **Selects one representative** from each cluster — the most central image in each group
+3. **Fills remaining slots** using Farthest Point Sampling, iteratively picking whichever image is most different from everything already selected
+4. **Weights toward hard examples** — images with unusual angles, partial occlusions, or borderline detection confidence are more likely to be picked, because those edge cases are where models fail
+
+In **Auto mode**, there is no fixed limit. The tool keeps selecting until the most-different remaining image is already close to something already in the set — at that point adding more would be redundant. This is capped at `MAX_AUTO_IMAGES` (default 80) as a safety limit.
+
+If the embedding model is unavailable, the tool falls back to **time spread**: evenly distributing picks across the date range of your photos.
+
+---
+
+## Running in Docker
+
+### Quick Start
+
+```yaml
+services:
+  if-curator:
+    image: ghcr.io/sudolulo/if-curator-headless:latest
+    environment:
+      - IMMICH_URL=http://192.168.1.10:2283
+      - API_KEY=your-immich-api-key
+      - FRIGATE_URL=http://192.168.1.10:5000
+      - AUTO_MODE=true
+      - CRON_SCHEDULE=0 3 * * 0   # Every Sunday at 3 AM
+    volumes:
+      - /path/to/models:/models
+      - /path/to/cache:/app/.if_cache
+      - /path/to/output:/app/frigate_train
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+```
+
+See [compose.yml](compose.yml) for the full annotated example including TrueNAS volume paths.
+
+### Scheduling Behaviour
+
+On startup the container always runs once immediately. If `CRON_SCHEDULE` is set, it then starts a scheduler that fires on the defined interval, keeping the process (and loaded models) alive between runs. Without `CRON_SCHEDULE` the container exits after the first run.
+
+The first run after a fresh install downloads the embedding models (~1-2 GB). Subsequent runs use the cached models from the mounted volume and start immediately.
 
 ---
 
@@ -78,74 +140,64 @@ Images are automatically rejected if they are:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `AUTO_MODE` | `false` | Run without interactive prompts |
-| `TRAINING_MODE` | `face` | `face` or `object` |
-| `STRATEGY` | `auto` | `auto`, `standard` (30), or `broad` (100) |
-| `LIMIT` | *(unset)* | Custom image count — overrides `STRATEGY` |
-| `OBJECT_CLASS` | `dog` | Object label for object mode (e.g. `dog`, `cat`, `car`) |
+| `AUTO_MODE` | `false` | Run without interactive prompts — required for Docker/cron use |
+| `TRAINING_MODE` | `face` | `face` — upload crops to Frigate API; `object` — save crops to disk |
+| `STRATEGY` | `auto` | `auto` (adaptive), `standard` (30 images), `broad` (100 images) |
+| `LIMIT` | *(unset)* | Exact image count — overrides `STRATEGY` |
+| `OBJECT_CLASS` | `dog` | Target class for object mode (any YOLO class: `dog`, `cat`, `car`, etc.) |
 
 ### People Filtering
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `ONLY_PEOPLE` | *(unset)* | Comma-separated whitelist of people to process |
+| `ONLY_PEOPLE` | *(unset)* | Comma-separated whitelist — only these people are processed |
 | `SKIP_PEOPLE` | *(unset)* | Comma-separated list of people to skip |
-| `MIN_FACE_COUNT` | `0` | Skip people with fewer than N assets in Immich |
-| `YEARS_FILTER` | `10` | Only include images from the last N years |
+| `MIN_FACE_COUNT` | `0` | Skip people with fewer than N tagged assets in Immich |
+| `YEARS_FILTER` | `10` | Ignore images older than N years |
 
 ### Connection
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `IMMICH_URL` | *(required)* | Full URL to Immich (e.g. `http://192.168.1.10:2283`) |
-| `API_KEY` | *(required)* | Your Immich API Key |
-| `FRIGATE_URL` | *(unset)* | Frigate server URL — enables automatic face upload when set |
+| `IMMICH_URL` | *(required)* | Full URL to your Immich instance |
+| `API_KEY` | *(required)* | Immich API key |
+| `FRIGATE_URL` | *(unset)* | Frigate URL — required for face upload; omit to skip upload |
 
 ### Image Quality
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `MIN_FACE_WIDTH` | `50` | Minimum face crop width in pixels |
-| `FACE_MARGIN` | `0.15` | Padding around face crop as a fraction of face size |
-| `ENABLE_FACE_ALIGNMENT` | `true` | Align face to ArcFace 112×112 format before cropping |
-| `USE_FULL_RESOLUTION` | `true` | Download full-resolution originals for final crops |
+| `FACE_MARGIN` | `0.15` | Padding added around the bounding box crop (fraction of face size) |
+| `ENABLE_FACE_ALIGNMENT` | `true` | Align to ArcFace 112×112 format using facial landmarks |
+| `USE_FULL_RESOLUTION` | `true` | Download full-resolution originals rather than preview thumbnails |
 | `MIN_CONFIDENCE` | `0.7` | Minimum Immich face detection confidence |
 | `BLUR_THRESHOLD` | `100.0` | Laplacian variance threshold — lower accepts more blur |
-| `MAX_AUTO_IMAGES` | `80` | Hard cap on auto-diversity selection |
+| `MAX_AUTO_IMAGES` | `80` | Maximum images in auto-diversity mode |
 
 ### Caching & Models
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `FORCE_CPU` | `false` | Disable GPU acceleration |
-| `ENABLE_CACHE` | `false` | Cache embeddings to disk for faster re-runs |
-| `CACHE_DIR` | `.if_cache` | Directory for embedding cache |
-| `HF_HOME` | *(system)* | Override HuggingFace model cache location |
-| `INSIGHTFACE_HOME` | *(system)* | Override InsightFace model cache location |
+| `FORCE_CPU` | `false` | Disable GPU — fall back to CPU for embedding computation |
+| `ENABLE_CACHE` | `false` | Cache computed embeddings to disk (speeds up re-runs on the same library) |
+| `CACHE_DIR` | `.if_cache` | Path for embedding cache and upload tracker files |
+| `HF_HOME` | *(system)* | HuggingFace model cache location (SigLIP) |
+| `INSIGHTFACE_HOME` | *(system)* | InsightFace model cache location (Buffalo_L) |
 
 ### Tracker Overrides *(one-shot — remove after use)*
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `DRY_RUN` | `false` | Preview selection without downloading or uploading |
-| `RETRY_REJECTED` | `false` | Re-attempt previously rejected images |
-| `RESET_PERSON` | *(unset)* | Clear uploaded + rejected history for one person by name |
+| `DRY_RUN` | `false` | Show what would be selected and uploaded without doing it |
+| `RETRY_REJECTED` | `false` | Re-attempt assets previously rejected by Frigate |
+| `RESET_PERSON` | *(unset)* | Clear upload and rejection history for one person by name |
 
 ### Scheduling
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `CRON_SCHEDULE` | *(unset)* | Cron expression — unset runs once and exits |
-
----
-
-## Docker
-
-```bash
-docker pull ghcr.io/sudolulo/if-curator-headless:latest
-```
-
-See [compose.yml](compose.yml) for a full example with volume mounts and GPU support.
+| `CRON_SCHEDULE` | *(unset)* | Cron expression for recurring runs — unset exits after first run |
 
 ---
 
@@ -157,6 +209,17 @@ cd if_curator_headless
 uv sync
 uv run if-curator
 ```
+
+Requires Python 3.12+ and [uv](https://astral.sh/uv/). An NVIDIA GPU is strongly recommended — CPU mode works but embedding computation is significantly slower.
+
+---
+
+## Requirements
+
+- **Immich** v1.106+
+- **Frigate** v0.16+ (face mode only — object mode has no Frigate API dependency)
+- **NVIDIA GPU** recommended (CUDA 12.x)
+- **Python 3.12+**
 
 ---
 
