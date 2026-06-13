@@ -65,10 +65,11 @@ def _stats(times_s: list[float]) -> dict:
 
 def bench_insightface(n_warmup: int = 5, n_runs: int = 30) -> None:
     import cv2
-    from winnow.embeddings import get_insightface_app, _insightface_app, _insightface_loaded
+
+    import winnow.embeddings as emb_mod
+    from winnow.embeddings import get_insightface_app
 
     # Reset singleton so we get a fresh load
-    import winnow.embeddings as emb_mod
     emb_mod._insightface_app = None
     emb_mod._insightface_loaded = False
 
@@ -97,7 +98,7 @@ def bench_insightface(n_warmup: int = 5, n_runs: int = 30) -> None:
 
     s = _stats(times)
     print(f"  Model load time : {load_s:.2f} s")
-    print(f"  Input size      : 640×640")
+    print("  Input size      : 640×640")
     print(f"  Runs            : {n_runs} (after {n_warmup} warmup)")
     print(f"  Median latency  : {s['median_ms']:.1f} ms")
     print(f"  Mean / p95      : {s['mean_ms']:.1f} ms / {s['p95_ms']:.1f} ms")
@@ -175,7 +176,7 @@ def bench_siglip(
 
 def main() -> None:
     print("=" * 56)
-    print(f"  winnow inference benchmark")
+    print("  winnow inference benchmark")
     print(f"  Mode: {_mode_label()}")
     print("=" * 56)
     print()
