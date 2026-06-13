@@ -69,13 +69,15 @@ def process_face_mode(
     output_dir: str,
     count: int,
     min_width: int | None = None,
+    insightface_app=None,
 ) -> tuple[int, int] | None:
     """Crop face based on Immich metadata and save to output directory.
 
     Returns (width, height) of the saved crop, or None if no crop was saved.
-    If face alignment is enabled and landmarks are available, produces
-    an aligned 112x112 crop. Otherwise falls back to bounding box crop
-    with configurable margin.
+    When insightface_app is provided and ENABLE_FACE_ALIGNMENT is True,
+    re-detects the face in the Immich bbox region using InsightFace to get
+    precise landmarks for a proper 112x112 aligned crop. Falls back to
+    bounding box crop with configurable margin if alignment is unavailable.
     """
     min_width = min_width or Config.MIN_FACE_WIDTH
 
@@ -109,18 +111,51 @@ def process_face_mode(
         logger.debug(f"Face too small ({face_w:.1f}x{face_h:.1f})")
         return None
 
-    # Try face alignment if enabled and landmarks available
+    # Re-detect face with InsightFace for landmark-based alignment.
+    # Immich's /api/faces endpoint does not include landmarks, so the
+    # align_face fallback below never fires without this step.
+    if insightface_app is not None and Config.ENABLE_FACE_ALIGNMENT:
+        try:
+            # Expand the Immich bbox by 50% to give InsightFace enough context
+            # for detection and alignment, then search for the face nearest the
+            # centre of that region (handles group photos at the boundary).
+            pad_x, pad_y = face_w * 0.5, face_h * 0.5
+            search_box = (
+                max(0, x1 - pad_x),
+                max(0, y1 - pad_y),
+                min(img_w, x2 + pad_x),
+                min(img_h, y2 + pad_y),
+            )
+            search_crop = img.crop(search_box)
+            detected = insightface_app.get(np.asarray(search_crop))
+            if detected:
+                cx, cy = search_crop.width / 2, search_crop.height / 2
+                best = min(
+                    detected,
+                    key=lambda f: abs((f.bbox[0] + f.bbox[2]) / 2 - cx)
+                    + abs((f.bbox[1] + f.bbox[3]) / 2 - cy),
+                )
+                kps = getattr(best, "kps", None)
+                if kps is not None and np.asarray(kps).shape == (5, 2):
+                    aligned = align_face(search_crop, kps)
+                    if aligned is not None:
+                        _save_jpeg(aligned, os.path.join(output_dir, f"{count}.jpg"))
+                        return aligned.size
+        except Exception as e:
+            logger.debug(f"InsightFace re-detection failed for {asset.get('id')}: {e}")
+
+    # Landmark alignment from Immich metadata (Immich does not currently
+    # expose landmarks, so this path is a future-proofing fallback)
     if Config.ENABLE_FACE_ALIGNMENT:
         landmarks = face_info.get("landmarks") or face_info.get("landmark")
         if landmarks:
-            # Scale landmarks
             scaled_landmarks = [[lm[0] * scale_x, lm[1] * scale_y] for lm in landmarks]
             aligned = align_face(img, scaled_landmarks)
             if aligned is not None:
                 _save_jpeg(aligned, os.path.join(output_dir, f"{count}.jpg"))
                 return aligned.size
 
-    # Fall back to bounding box crop with configurable margin
+    # Final fallback: bounding box crop with configurable margin
     margin = Config.FACE_MARGIN
     margin_x, margin_y = face_w * margin, face_h * margin
     crop_box = (

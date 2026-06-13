@@ -155,6 +155,18 @@ def execute_jobs(jobs: list[dict]) -> None:
 
     use_full_res = Config.USE_FULL_RESOLUTION
 
+    # Load InsightFace app for landmark-based crop alignment (face mode only).
+    # The model is already resident from the diversity/embedding phase, so this
+    # is just a singleton lookup — no load cost.
+    insightface_app = None
+    if any(j["config"].get("mode", "face") == "face" for j in jobs) and Config.ENABLE_FACE_ALIGNMENT:
+        try:
+            from .embeddings import get_insightface_app
+
+            insightface_app = get_insightface_app()
+        except Exception as e:
+            logger.debug(f"InsightFace unavailable for crop alignment: {e}")
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -216,7 +228,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                         progress.console.print(f"[red]Failed download {asset['id']}[/red]")
                     else:
                         saved = (
-                            process_face_mode(img, asset, person, person_dir, count)
+                            process_face_mode(img, asset, person, person_dir, count, insightface_app=insightface_app)
                             if mode == "face"
                             else process_object_mode(img, config, person_dir, count)
                             if mode == "object"
