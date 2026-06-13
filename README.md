@@ -177,7 +177,8 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | `USE_FULL_RESOLUTION` | `true` | Download full-resolution originals rather than preview thumbnails |
 | `MIN_CONFIDENCE` | `0.7` | Minimum Immich face detection confidence |
 | `BLUR_THRESHOLD` | `100.0` | Laplacian variance threshold — lower accepts more blur |
-| `MAX_AUTO_IMAGES` | `80` | Maximum images selected in auto mode |
+| `MAX_AUTO_IMAGES` | `80` | Maximum training images per person in Frigate |
+| `QUALITY_REPLACEMENT` | `true` | When at cap, replace the lowest-quality mapped training image if a better candidate is found. Only affects images winnow uploaded — manually added Frigate training files are never touched. Set `false` to disable and skip people already at cap |
 
 ### GPU & Models
 

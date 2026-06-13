@@ -91,8 +91,9 @@ RUN if [ "$VARIANT" = "gpu" ]; then \
 # Intel: install GPU compute runtime so OpenVINO EP can target Intel Arc / iGPU.
 # onnxruntime-openvino bundles OpenVINO itself; only the userspace GPU driver
 # (OpenCL ICD + Level Zero) is needed from the OS.
-# libze-intel-gpu1 / intel-level-zero-gpu aren't in Ubuntu 22.04 main, so this
-# block adds Intel's official graphics repo first, then installs.
+# These packages aren't in Ubuntu 22.04 main, so this block adds Intel's
+# official GPU repo first, then installs. libze-intel-gpu1 was renamed to
+# level-zero in Intel's repo.
 RUN if [ "$VARIANT" = "intel" ]; then \
         apt-get update \
         && apt-get install -y --no-install-recommends curl gnupg \
@@ -103,7 +104,7 @@ https://repositories.intel.com/graphics/ubuntu jammy flex" \
            > /etc/apt/sources.list.d/intel-graphics.list \
         && apt-get update \
         && apt-get install -y --no-install-recommends \
-               intel-opencl-icd intel-level-zero-gpu libze-intel-gpu1 \
+               intel-opencl-icd intel-level-zero-gpu level-zero \
         && apt-get remove -y --autoremove curl gnupg \
         && rm -rf /var/lib/apt/lists/*; \
     fi

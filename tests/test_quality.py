@@ -134,6 +134,16 @@ def test_assess_quality_passes_good_image():
     img = _noisy_color_image()
     result = assess_quality(img, face_bbox=(10, 10, 110, 110), confidence=0.9)
     assert result.passed
+    assert result.blur_score is not None
+    assert result.blur_score > 0
+
+
+def test_assess_quality_blur_score_is_low_for_flat_image():
+    from winnow.quality import assess_quality
+    flat = _rgb_image(128, 128, 128)
+    result = assess_quality(flat)
+    assert result.blur_score is not None
+    assert result.blur_score < 1.0
 
 
 def test_assess_quality_collects_multiple_failures():

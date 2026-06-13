@@ -69,3 +69,90 @@ def test_duplicate_marks_are_idempotent():
     mark_uploaded("dup", person_name="Alice")
     mark_uploaded("dup", person_name="Alice")
     assert filter_already_uploaded(["dup", "new"]) == ["new"]
+
+
+# ── frigate_files mapping ─────────────────────────────────────────────────────
+
+def test_record_and_remove_frigate_file():
+    from winnow.upload_tracker import get_person_summary, record_frigate_file, remove_frigate_file
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a1")
+    assert "Alice-1000.webp" in get_person_summary()["Alice"]["frigate_files"]
+    remove_frigate_file("Alice", "Alice-1000.webp")
+    assert "Alice-1000.webp" not in get_person_summary()["Alice"]["frigate_files"]
+
+
+def test_remove_nonexistent_frigate_file_is_safe():
+    from winnow.upload_tracker import remove_frigate_file
+    # Should not raise even if the file was never recorded
+    remove_frigate_file("Alice", "Alice-ghost.webp")
+
+
+def test_remove_frigate_file_does_not_unmark_asset():
+    """Deleting a Frigate file should not re-expose the source asset for upload."""
+    from winnow.upload_tracker import (
+        filter_already_uploaded,
+        mark_uploaded,
+        record_frigate_file,
+        remove_frigate_file,
+    )
+    mark_uploaded("asset-a1", person_name="Alice")
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a1")
+    remove_frigate_file("Alice", "Alice-1000.webp")
+    # Asset must still be excluded — it was deliberately replaced, not lost
+    assert filter_already_uploaded(["asset-a1"]) == []
+
+
+def test_get_tracked_frigate_file_count_zero_when_empty():
+    from winnow.upload_tracker import get_tracked_frigate_file_count
+    assert get_tracked_frigate_file_count("Alice") == 0
+
+
+def test_get_tracked_frigate_file_count_counts_only_mapped():
+    """Only files explicitly recorded via record_frigate_file count toward the cap."""
+    from winnow.upload_tracker import get_tracked_frigate_file_count, mark_uploaded, record_frigate_file
+    mark_uploaded("asset-a", person_name="Alice")
+    mark_uploaded("asset-b", person_name="Alice")
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a")
+    # asset-b is uploaded but not yet mapped — does not count
+    assert get_tracked_frigate_file_count("Alice") == 1
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-b")
+    assert get_tracked_frigate_file_count("Alice") == 2
+
+
+def test_get_lowest_quality_mapped_file_none_when_empty():
+    from winnow.upload_tracker import get_lowest_quality_mapped_file
+    assert get_lowest_quality_mapped_file("Alice") is None
+
+
+def test_get_lowest_quality_mapped_file_returns_lowest():
+    from winnow.upload_tracker import (
+        get_lowest_quality_mapped_file,
+        mark_uploaded,
+        record_frigate_file,
+    )
+    mark_uploaded("asset-hi", person_name="Alice", score=0.95)
+    mark_uploaded("asset-lo", person_name="Alice", score=0.71)
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-hi")
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-lo")
+    result = get_lowest_quality_mapped_file("Alice")
+    assert result is not None
+    frigate_filename, asset_id, score = result
+    assert frigate_filename == "Alice-1001.webp"
+    assert asset_id == "asset-lo"
+    assert score == pytest.approx(0.71, abs=0.001)
+
+
+def test_get_lowest_quality_mapped_file_skips_unscored():
+    """Files mapped without a score should not be returned as candidates."""
+    from winnow.upload_tracker import (
+        get_lowest_quality_mapped_file,
+        mark_uploaded,
+        record_frigate_file,
+    )
+    mark_uploaded("asset-scored", person_name="Alice", score=0.85)
+    mark_uploaded("asset-noscr", person_name="Alice")
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-scored")
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-noscr")
+    result = get_lowest_quality_mapped_file("Alice")
+    assert result is not None
+    assert result[1] == "asset-scored"  # only scored file is a candidate

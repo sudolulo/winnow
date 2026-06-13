@@ -139,7 +139,7 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
     mode_choice = Prompt.ask("Choice", choices=["1", "2"], default="1")
     entity_type = "face" if mode_choice == "1" else "object"
 
-    config = {"name": name, "mode": entity_type}
+    config = {"name": name, "mode": entity_type, "quality_replacement": Config.QUALITY_REPLACEMENT}
     if entity_type == "object":
         config["object_class"] = Prompt.ask("Enter Object Class (e.g. dog, cat, car)", default="dog")
 
@@ -283,34 +283,41 @@ def auto_configure(people: list[dict]) -> list[dict]:
             rprint(f"  [dim]Skipping {name} (0 new images after dedup).[/dim]")
             continue
 
-        # Enforce MAX_AUTO_IMAGES as a lifetime cap per person.
-        # Priority: live Frigate count → last cached Frigate count → local uploaded count.
+        # Enforce MAX_AUTO_IMAGES against the tracked file count only.
+        # Manually-added Frigate files are invisible to this cap so users can
+        # curate their own files without shrinking winnow's managed quota.
         person_summary = upload_summary.get(name, {})
-        if frigate_counts is not None:
-            already_uploaded = frigate_counts.get(name, 0)
-        else:
-            fc = person_summary.get("frigate_count")
-            already_uploaded = fc if fc is not None else person_summary.get("uploaded", 0)
+        already_uploaded = len(person_summary.get("frigate_files", {}))
         capacity = Config.MAX_AUTO_IMAGES - already_uploaded
         if capacity <= 0:
+            if not Config.QUALITY_REPLACEMENT:
+                rprint(
+                    f"  [dim]Skipping {name} (at cap:"
+                    f" {already_uploaded}/{Config.MAX_AUTO_IMAGES}, quality replacement disabled).[/dim]"
+                )
+                continue
             rprint(
-                f"  [dim]Skipping {name} (at lifetime cap:"
-                f" {already_uploaded}/{Config.MAX_AUTO_IMAGES} trained).[/dim]"
+                f"  [cyan]{name}: at cap ({already_uploaded}/{Config.MAX_AUTO_IMAGES}),"
+                f" checking for quality improvements...[/cyan]"
             )
-            continue
+            quality_replacement_only = True
+        else:
+            quality_replacement_only = False
+
+        config["quality_replacement"] = quality_replacement_only or Config.QUALITY_REPLACEMENT
 
         has_embedding = is_embedding_available(entity_type)
         limit, selection_mode = _resolve_strategy(strategy, has_embedding)
 
-        # Cap selection to remaining capacity.
-        # For auto mode with partial training, keep "auto" so adaptive stopping
-        # still runs — just trim the result to the remaining capacity afterward.
+        # Cap selection to remaining capacity (no cap when replacement-only — executor
+        # decides per-image whether to swap; any candidate could be an improvement).
         auto_cap = None
-        if limit == "auto":
-            if already_uploaded > 0:
-                auto_cap = capacity
-        else:
-            limit = min(limit, capacity)
+        if not quality_replacement_only:
+            if limit == "auto":
+                if already_uploaded > 0:
+                    auto_cap = capacity
+            else:
+                limit = min(limit, capacity)
 
         if selection_mode == "skip":
             continue

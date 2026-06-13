@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-06-13
+
+### Added
+
+- **Quality replacement**: when a person is at `MAX_AUTO_IMAGES`, winnow now checks each new candidate against the lowest-quality image already in Frigate and swaps it in if the new image scores higher. Only images winnow uploaded (tracked in `frigate_files`) are ever replaced — files added manually through Frigate's UI are left untouched permanently. Enabled by default; set `QUALITY_REPLACEMENT=false` to revert to the previous behaviour of skipping people at cap.
+- **Frigate filename mapping**: each successful upload now records the mapping from Frigate's assigned filename to the originating Immich asset ID and face confidence score in the tracker (`frigate_files` field). This is the foundation for quality replacement and future management of the Frigate training set.
+- **`QUALITY_REPLACEMENT` env var** (default `true`): controls whether at-cap people are eligible for quality replacement. When disabled, people at `MAX_AUTO_IMAGES` are skipped as before.
+- **NOTICES file**: third-party attribution for if_curator (MIT, Copyright © 2026 Sebastian) added to satisfy upstream license requirements.
+
 ## [0.2.12] - 2026-06-13
 
 ### Added

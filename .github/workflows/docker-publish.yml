@@ -36,11 +36,11 @@ jobs:
     steps:
       - name: Free up disk space
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          echo "Disk space freed."
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/share/swift
+          sudo rm -rf "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af
+          df -h
 
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -148,11 +148,11 @@ jobs:
     steps:
       - name: Free up disk space
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          echo "Disk space freed."
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/share/swift
+          sudo rm -rf "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af
+          df -h
 
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -210,11 +210,11 @@ jobs:
     steps:
       - name: Free up disk space
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          echo "Disk space freed."
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/share/swift
+          sudo rm -rf "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af
+          df -h
 
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -272,11 +272,11 @@ jobs:
     steps:
       - name: Free up disk space
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          echo "Disk space freed."
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/share/swift
+          sudo rm -rf "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af
+          df -h
 
       - name: Checkout repository
         uses: actions/checkout@v6

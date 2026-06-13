@@ -258,6 +258,7 @@ def _select_by_embedding(
                     logger.debug(f"Quality filtered {asset['id']}: {quality.reason}")
                     continue
 
+                asset["quality_score"] = quality.blur_score
                 face_crop = _crop_face_from_thumbnail(img, asset, person_id=person_id)
                 embed_img = face_crop if face_crop is not None else img
             else:
