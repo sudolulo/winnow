@@ -11,12 +11,18 @@ Both are excluded from future candidate pools. To reset:
 
 by_person schema (frigate_uploaded_ids.json):
   {
-    "asset_ids":     ["immich-id-1", ...],                    # all assets we attempted to upload
-    "scores":        {"immich-id-1": 450.3},                   # Laplacian blur variance at upload time
-    "frigate_files": {"PersonName-123.webp": "immich-id-1"},  # Frigate filename → asset ID
-    "crop_dims":     {"immich-id-1": [640, 480]},             # crop pixel dimensions at upload time
-    "frigate_count": 42                                       # last known Frigate training image count
+    "asset_ids":      ["immich-id-1", ...],                    # all assets we attempted to upload
+    "scores":         {"immich-id-1": 450.3},                  # Laplacian blur variance at upload time
+    "frigate_scores": {"immich-id-1": 0.87},                   # Frigate recognition confidence (0-1) post-upload
+    "frigate_files":  {"PersonName-123.webp": "immich-id-1"},  # Frigate filename → asset ID
+    "crop_dims":      {"immich-id-1": [640, 480]},             # crop pixel dimensions at upload time
+    "frigate_count":  42                                       # last known Frigate training image count
   }
+
+frigate_scores uses the same 0-1 sigmoid-mapped cosine similarity that Frigate
+displays in its UI. When available, quality replacement uses frigate_scores in
+preference to blur scores — an image Frigate cannot recognize is a poor training
+image regardless of sharpness.
 
 frigate_files only contains files winnow uploaded — files added manually through
 Frigate's UI are never mapped here and are never touched by quality replacement.
@@ -77,9 +83,10 @@ def _get_ids(entry: list | dict) -> list[str]:
 def _migrate_entry(entry: list | dict) -> dict:
     """Ensure by_person entry is in the current dict format."""
     if isinstance(entry, list):
-        return {"asset_ids": sorted(entry), "scores": {}, "frigate_files": {}, "crop_dims": {}}
+        return {"asset_ids": sorted(entry), "scores": {}, "frigate_scores": {}, "frigate_files": {}, "crop_dims": {}}
     entry.setdefault("asset_ids", [])
     entry.setdefault("scores", {})
+    entry.setdefault("frigate_scores", {})
     entry.setdefault("frigate_files", {})
     entry.setdefault("crop_dims", {})
     return entry
@@ -91,6 +98,7 @@ def _mark(
     person_name: str | None,
     score: float | None = None,
     crop_dims: tuple[int, int] | None = None,
+    frigate_score: float | None = None,
 ) -> None:
     data = _load(filename)
     flat_key = _flat_key(filename)
@@ -107,6 +115,8 @@ def _mark(
             entry["scores"][asset_id] = round(score, 4)
         if crop_dims is not None:
             entry["crop_dims"][asset_id] = [crop_dims[0], crop_dims[1]]
+        if frigate_score is not None:
+            entry["frigate_scores"][asset_id] = round(frigate_score, 4)
         by_person[person_name] = entry
     _save(filename, data)
 
@@ -126,8 +136,9 @@ def mark_uploaded(
     person_name: str | None = None,
     score: float | None = None,
     crop_dims: tuple[int, int] | None = None,
+    frigate_score: float | None = None,
 ) -> None:
-    _mark(UPLOAD_TRACKER_FILE, asset_id, person_name, score=score, crop_dims=crop_dims)
+    _mark(UPLOAD_TRACKER_FILE, asset_id, person_name, score=score, crop_dims=crop_dims, frigate_score=frigate_score)
     logger.debug(f"Marked {asset_id} as uploaded ({person_name})")
 
 
@@ -184,11 +195,24 @@ def get_tracked_frigate_filenames(person_name: str) -> set[str]:
     return set(entry["frigate_files"].keys())
 
 
+def has_frigate_scores(person_name: str) -> bool:
+    """Return True if any mapped file for this person has a stored Frigate recognition score."""
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    frigate_files = entry.get("frigate_files", {})
+    frigate_scores = entry.get("frigate_scores", {})
+    return any(asset_id in frigate_scores for asset_id in frigate_files.values())
+
+
 def get_lowest_quality_mapped_file(
     person_name: str, exclude: set[str] | None = None
 ) -> tuple[str, str, float] | None:
     """Return (frigate_filename, asset_id, score) for the mapped file with the lowest
     quality score, or None if no mapped files with known scores exist.
+
+    Uses Frigate recognition scores (0-1) when any are present for this person,
+    treating files without a Frigate score as 0.0. Falls back to Laplacian blur
+    scores when no Frigate scores exist yet.
 
     Pass `exclude` to skip files that failed to delete this run without removing
     them from the tracker — they remain candidates on the next run.
@@ -196,12 +220,31 @@ def get_lowest_quality_mapped_file(
     data = _load(UPLOAD_TRACKER_FILE)
     entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
     frigate_files = entry.get("frigate_files", {})
-    scores = entry.get("scores", {})
-    candidates = [
-        (frigate_filename, asset_id, scores[asset_id])
-        for frigate_filename, asset_id in frigate_files.items()
-        if asset_id in scores and (exclude is None or frigate_filename not in exclude)
+    blur_scores = entry.get("scores", {})
+    frigate_scores = entry.get("frigate_scores", {})
+
+    mapped = [
+        (ff, asset_id)
+        for ff, asset_id in frigate_files.items()
+        if exclude is None or ff not in exclude
     ]
+    if not mapped:
+        return None
+
+    use_frigate = any(asset_id in frigate_scores for _, asset_id in mapped)
+
+    if use_frigate:
+        candidates = [
+            (ff, asset_id, frigate_scores.get(asset_id, 0.0))
+            for ff, asset_id in mapped
+        ]
+    else:
+        candidates = [
+            (ff, asset_id, blur_scores[asset_id])
+            for ff, asset_id in mapped
+            if asset_id in blur_scores
+        ]
+
     if not candidates:
         return None
     return min(candidates, key=lambda x: x[2])
@@ -220,6 +263,7 @@ def find_by_crop_dimension(size: int) -> list[dict]:
         scores = entry.get("scores", {})
         frigate_files = entry.get("frigate_files", {})
         asset_to_frigate = {v: k for k, v in frigate_files.items()}
+        frigate_scores = entry.get("frigate_scores", {})
         for asset_id, dims in entry.get("crop_dims", {}).items():
             w, h = dims[0], dims[1]
             if w == size or h == size:
@@ -229,6 +273,7 @@ def find_by_crop_dimension(size: int) -> list[dict]:
                     "width": w,
                     "height": h,
                     "blur_score": scores.get(asset_id),
+                    "frigate_score": frigate_scores.get(asset_id),
                     "frigate_filename": asset_to_frigate.get(asset_id),
                 })
     return results

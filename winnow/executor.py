@@ -13,7 +13,7 @@ from rich import print as rprint
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from .config import Config, get_headers
-from .frigate_api import delete_frigate_person_files, get_frigate_person_files
+from .frigate_api import delete_frigate_person_files, get_frigate_person_files, recognize_face
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
 from .immich_api import fetch_face_data, fetch_full_image
 from .log_config import console
@@ -22,6 +22,7 @@ from .upload_tracker import (
     get_lowest_quality_mapped_file,
     get_tracked_frigate_file_count,
     get_tracked_frigate_filenames,
+    has_frigate_scores,
     mark_rejected,
     mark_uploaded,
     record_frigate_file,
@@ -383,30 +384,45 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         progress.console.print(f"    [dim]⏭  {fname}: at cap, quality replacement disabled[/dim]")
                         progress.advance(upload_task)
                         continue
-                    new_score = score_map.get(fname)
-                    if new_score is None:
-                        progress.console.print(f"    [dim]⏭  {fname}: no confidence score, skipping replacement[/dim]")
-                        progress.advance(upload_task)
-                        continue
+                    using_fscore = has_frigate_scores(name)
+                    if using_fscore:
+                        candidate_score = recognize_face(fpath)
+                        if candidate_score is None:
+                            progress.console.print(
+                                f"    [dim]⏭  {fname}: Frigate recognize unavailable, skipping replacement[/dim]"
+                            )
+                            progress.advance(upload_task)
+                            continue
+                        score_label = "frigate"
+                    else:
+                        candidate_score = score_map.get(fname)
+                        if candidate_score is None:
+                            progress.console.print(
+                                f"    [dim]⏭  {fname}: no quality score, skipping replacement[/dim]"
+                            )
+                            progress.advance(upload_task)
+                            continue
+                        score_label = "blur"
                     worst = get_lowest_quality_mapped_file(name, exclude=failed_deletes)
-                    if worst is None or new_score <= worst[2]:
+                    if worst is None or candidate_score <= worst[2]:
                         worst_score_str = f"{worst[2]:.3f}" if worst is not None else "N/A"
                         progress.console.print(
-                            f"    [dim]⏭  {fname}: score {new_score:.3f} ≤ worst mapped"
+                            f"    [dim]⏭  {fname}: {score_label} {candidate_score:.3f} ≤ worst"
                             f" {worst_score_str}, skipping[/dim]"
                         )
                         progress.advance(upload_task)
                         continue
-                    # Delete the worst mapped file to make room for the better one
                     worst_frigate_file, _worst_asset_id, worst_score = worst
                     progress.console.print(
-                        f"    🔄 {fname}: score {new_score:.3f} > {worst_score:.3f},"
+                        f"    🔄 {fname}: {score_label} {candidate_score:.3f} > {worst_score:.3f},"
                         f" replacing {worst_frigate_file}"
                     )
                     if delete_frigate_person_files(name, [worst_frigate_file]):
                         remove_frigate_file(name, worst_frigate_file)
                         effective_count -= 1
-                        min_quality_score_for_slot = worst_score
+                        # Slot floor guard uses blur scores only — frigate_score mode
+                        # will re-evaluate the next candidate via recognize_face anyway.
+                        min_quality_score_for_slot = score_map.get(fname) if not using_fscore else None
                     else:
                         logger.warning(f"Failed to delete {worst_frigate_file} for {name}, skipping replacement")
                         failed_deletes.add(worst_frigate_file)
@@ -429,11 +445,13 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
                             asset_id = asset_map.get(fname)
                             if asset_id:
+                                post_fscore = recognize_face(fpath)
                                 mark_uploaded(
                                     asset_id,
                                     person_name=name,
                                     score=score_map.get(fname),
                                     crop_dims=dims_map.get(fname),
+                                    frigate_score=post_fscore,
                                 )
                                 actually_uploaded.append((fname, asset_id))
 

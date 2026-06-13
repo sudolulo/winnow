@@ -41,6 +41,8 @@ def _handle_trace_crop(size_str: str) -> None:
             rprint(f"    Immich URL:   {immich_url}/photos/{m['asset_id']}")
         blur = m.get("blur_score")
         rprint(f"    Blur score:   {blur:.1f}" if blur is not None else "    Blur score:   unknown")
+        fscore = m.get("frigate_score")
+        rprint(f"    Frigate score: {fscore:.2f}" if fscore is not None else "    Frigate score: unknown")
         if m.get("frigate_filename"):
             rprint(f"    Frigate file: {m['frigate_filename']}")
         else:

@@ -53,6 +53,33 @@ def get_frigate_person_files(person_name: str) -> list[str] | None:
     return files if isinstance(files, list) else []
 
 
+def recognize_face(file_path: str) -> float | None:
+    """Submit an image to Frigate's recognize endpoint and return the confidence score.
+
+    Returns None if FRIGATE_URL is unset, the API is unreachable, no face is
+    detected, or face recognition is not enabled in Frigate.
+    """
+    frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
+    if not frigate_url:
+        return None
+    try:
+        with open(file_path, "rb") as f:
+            resp = requests.post(
+                f"{frigate_url}/api/faces/recognize",
+                files={"file": (os.path.basename(file_path), f, "image/jpeg")},
+                timeout=15,
+            )
+        if not resp.ok:
+            return None
+        data = resp.json()
+        if data.get("success") and "score" in data:
+            return round(float(data["score"]), 4)
+        return None
+    except Exception as e:
+        logger.debug(f"Frigate recognize failed for {file_path}: {e}")
+        return None
+
+
 def delete_frigate_person_files(person_name: str, filenames: list[str]) -> bool:
     """Delete specific training files for a person from Frigate.
 
