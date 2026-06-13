@@ -193,7 +193,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                         if conf is not None and conf < Config.MIN_CONFIDENCE:
                             progress.console.print(
                                 f"[yellow]Skipped {asset['id']}"
-                                f" (confidence {conf:.2f} < {Config.MIN_CONFIDENCE})[/yellow]"
+                                f" (detection confidence {conf:.2f} < {Config.MIN_CONFIDENCE})[/yellow]"
                             )
                             progress.advance(job_task)
                             progress.advance(overall_task)
