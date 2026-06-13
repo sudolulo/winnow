@@ -19,13 +19,11 @@ Immich library
 1. Fetch all assets tagged with this person
       │
       ▼
-2. Filter by recency (configurable years window)
+2. Filter by recency (YEARS_FILTER) and skip already-uploaded
+   and rejected assets (persistent tracker in CACHE_DIR)
       │
       ▼
-3. Skip already-uploaded assets (persistent tracker)
-      │
-      ▼
-4. Quality filter — reject:
+3. Quality filter — download preview thumbnails and reject:
    • Blurry images (Laplacian variance)
    • Grayscale / infrared (channel similarity)
    • Over- or underexposed
@@ -33,25 +31,39 @@ Immich library
    • Face crops below minimum pixel size
       │
       ▼
-5. Compute embeddings
-   • Faces   → InsightFace (ArcFace / Buffalo_L)
-   • Objects → SigLIP (Vision Transformer)
+4. Compute embeddings from the same preview thumbnails
+   • Faces   → InsightFace (ArcFace / Buffalo_L)  → 512-dim vector
+   • Objects → SigLIP (Vision Transformer)         → 768-dim vector
       │
       ▼
-6. Diversity selection
+5. Diversity selection
    • K-Medoids clustering → one representative per natural group
    • Farthest Point Sampling → fill remaining slots with maximally spread picks
    • Hard example weighting — unusual angles and low-confidence detections
      are biased toward selection, since those are where models tend to fail
-   • Auto mode: stops when the next candidate is too similar to what's already chosen
+   • Auto mode: stops when similarity to the existing set exceeds a threshold
+     (20 % of median pairwise distance for faces, 10 % for objects)
       │
       ▼
-7. Crop and deliver
-   • Face mode: aligned 112×112 crops uploaded directly to Frigate's face training API
-   • Object mode: YOLO-detected crops saved to disk
+6. Download full-resolution originals from Immich
+      │
+      ▼
+7. Crop and process
+   • Face mode: EXIF-corrected, landmark-aligned 112×112 crop (ArcFace format)
+   • Object mode: YOLOv9c detection → one crop per matched instance
+      │
+      ▼
+8. Deliver
+   • Face mode: upload crops to Frigate's face registration API
+     ↳ below MAX_AUTO_IMAGES — upload freely
+     ↳ at cap + QUALITY_REPLACEMENT=true — swap the lowest-scoring tracked
+       image if the new candidate scores higher; manually added files are
+       never touched
+     ↳ at cap + QUALITY_REPLACEMENT=false — skip this person
+   • Object mode: save crops to disk → place into your Frigate data directory
 ```
 
-Uploaded asset IDs are persisted so the same image is never uploaded twice, even across runs weeks apart.
+Uploaded and rejected asset IDs are persisted across runs. The same image is never processed twice; Frigate rejections are permanently skipped unless `RETRY_REJECTED=true`.
 
 ---
 
@@ -59,7 +71,7 @@ Uploaded asset IDs are persisted so the same image is never uploaded twice, even
 
 **Face mode** (default) — extracts face crops using Immich's bounding box metadata, applies EXIF orientation correction, and aligns them to ArcFace's standard 112×112 format using 5-point facial landmarks. Crops are uploaded directly to Frigate's face registration API.
 
-**Object mode** — runs each image through YOLOv9c to detect instances of a target class (dog, cat, car, etc.), crops each detection, and saves it to the output directory. Frigate has no API for uploading object training data; place the crops into your Frigate data directory manually.
+**Object mode** — runs each full-resolution image through YOLOv9c to detect instances of a target class (dog, cat, car, etc.), crops each detection, and saves it to the output directory. Frigate has no API for uploading object training data; place the crops into your Frigate data directory manually.
 
 ---
 
@@ -152,7 +164,7 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `TRAINING_MODE` | `face` | `face` — upload crops to Frigate; `object` — save crops to disk |
-| `STRATEGY` | `auto` | `auto` (adaptive), `standard` (30 images), `broad` (100 images) |
+| `STRATEGY` | `auto` | `auto` (embedding-based adaptive), `standard` (30 images), `broad` (100 images) |
 | `LIMIT` | *(unset)* | Exact image count — overrides `STRATEGY` |
 | `OBJECT_CLASS` | `dog` | Target class for object mode (any YOLO class: `dog`, `cat`, `car`, etc.) |
 | `AUTO_MODE` | *(auto)* | Force non-interactive mode in a terminal; auto-detected otherwise |
@@ -178,7 +190,7 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | `MIN_CONFIDENCE` | `0.7` | Minimum Immich face detection confidence |
 | `BLUR_THRESHOLD` | `100.0` | Laplacian variance threshold — lower accepts more blur |
 | `MAX_AUTO_IMAGES` | `80` | Maximum training images per person in Frigate |
-| `QUALITY_REPLACEMENT` | `true` | When at cap, swap the lowest-quality uploaded image for a better candidate. Never touches manually added Frigate files. Set `false` to skip people already at cap |
+| `QUALITY_REPLACEMENT` | `true` | When at cap, swap the lowest-scoring tracked image for a better candidate. Never touches manually added Frigate files. Set `false` to skip people already at cap |
 
 ### GPU & Models
 
@@ -190,6 +202,12 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | `CACHE_DIR` | `.if_cache` | Path for embedding cache and upload tracker files |
 | `HF_HOME` | *(system)* | HuggingFace model cache path (SigLIP) |
 | `INSIGHTFACE_HOME` | *(system)* | InsightFace model cache path (Buffalo_L) |
+
+### Output
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `OUTPUT_DIR` | `./frigate_train` | Directory for object-mode crops and the `winnow.log` file. In Docker, set this via the volume mount instead. |
 
 ### Tracker Overrides *(one-shot — remove after use)*
 
@@ -217,6 +235,8 @@ uv run winnow
 ```
 
 Requires Python 3.13+ and [uv](https://astral.sh/uv). An NVIDIA, AMD, or Intel GPU is recommended — CPU mode works but embedding computation is slower.
+
+When run with a terminal attached, winnow starts an interactive session: select which people to process and choose a strategy (auto, standard, broad, or a custom count) per person. Without a TTY — Docker, cron, or `AUTO_MODE=true` — it processes all people automatically using the configured defaults.
 
 ---
 
