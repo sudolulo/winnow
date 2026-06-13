@@ -147,6 +147,24 @@ def mark_rejected(asset_id: str, person_name: str | None = None) -> None:
     logger.debug(f"Marked {asset_id} as rejected ({person_name})")
 
 
+def reclassify_as_rejected(asset_id: str, person_name: str | None = None) -> None:
+    """Move a gate-failed asset from the uploaded flat set to rejected.
+
+    Preserves by_person history in the uploaded tracker (scores, crop dims,
+    etc.) but removes the asset from uploaded_asset_ids so it is excluded
+    from future candidate pools via the rejected tracker instead.
+    RESET_PERSON clears both trackers, so a full reset still re-evaluates
+    gate-failed images.
+    """
+    data = _load(UPLOAD_TRACKER_FILE)
+    flat = set(data.get("uploaded_asset_ids", []))
+    flat.discard(asset_id)
+    data["uploaded_asset_ids"] = sorted(flat)
+    _save(UPLOAD_TRACKER_FILE, data)
+    _mark(REJECT_TRACKER_FILE, asset_id, person_name)
+    logger.debug(f"Reclassified {asset_id} as gate-failed rejected ({person_name})")
+
+
 def record_frigate_file(person_name: str, frigate_filename: str, asset_id: str) -> None:
     """Record the mapping from a Frigate training filename to an Immich asset ID."""
     data = _load(UPLOAD_TRACKER_FILE)

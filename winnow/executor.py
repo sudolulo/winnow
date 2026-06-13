@@ -27,6 +27,7 @@ from .upload_tracker import (
     has_frigate_scores,
     mark_rejected,
     mark_uploaded,
+    reclassify_as_rejected,
     record_frigate_file,
     remove_frigate_file,
 )
@@ -371,22 +372,25 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             effective_count = get_tracked_frigate_file_count(name)
             pre_run_count = effective_count
             quality_replacement = job.get("config", {}).get("quality_replacement", False)
-            # Dynamic threshold: only active when FRIGATE_SCORE_THRESHOLD > 0.
-            # Zero means the gate is disabled — the dynamic floor does not activate.
-            if Config.FRIGATE_SCORE_THRESHOLD > 0:
-                _dynamic = get_min_frigate_score(name)
-                effective_threshold = max(Config.FRIGATE_SCORE_THRESHOLD, _dynamic or 0.0)
-                if _dynamic is not None and _dynamic > Config.FRIGATE_SCORE_THRESHOLD:
+            # Dynamic floor is always active once scores exist — new images must score
+            # at least as well as the weakest image already in the set.
+            # FRIGATE_SCORE_THRESHOLD adds an explicit absolute minimum on top.
+            _dynamic = get_min_frigate_score(name)
+            effective_threshold = max(Config.FRIGATE_SCORE_THRESHOLD, _dynamic or 0.0)
+            if _dynamic is not None and pre_run_count > 0:
+                if Config.FRIGATE_SCORE_THRESHOLD > 0 and _dynamic > Config.FRIGATE_SCORE_THRESHOLD:
                     progress.console.print(
                         f"  [dim]{name}: quality gate floor raised to {_dynamic:.2f}"
                         f" (min stored score, above configured {Config.FRIGATE_SCORE_THRESHOLD:.2f})[/dim]"
                     )
-                if pre_run_count == 0:
+                elif Config.FRIGATE_SCORE_THRESHOLD == 0:
                     progress.console.print(
-                        f"  [dim]{name}: first run — quality gate will apply from the next run[/dim]"
+                        f"  [dim]{name}: quality gate active at {_dynamic:.2f} (min stored score)[/dim]"
                     )
-            else:
-                effective_threshold = 0.0
+            if Config.ENABLE_FRIGATE_SCORES and pre_run_count == 0:
+                progress.console.print(
+                    f"  [dim]{name}: first run — quality gate will apply from the next run[/dim]"
+                )
             actually_uploaded: list[tuple[str, str | None]] = []
             failed_deletes: set[str] = set()
             quality_gate_failed: set[str] = set()
@@ -434,6 +438,15 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             progress.advance(upload_task)
                             continue
                         score_label = "blur"
+                    # Skip replacement if candidate would fail the quality gate —
+                    # deleting the worst then gating the new one is a net slot loss.
+                    if using_fscore and effective_threshold > 0 and pre_run_count > 0 and candidate_score < effective_threshold:
+                        progress.console.print(
+                            f"    [dim]⏭  {fname}: frigate {candidate_score:.3f} below gate threshold"
+                            f" {effective_threshold:.2f}, skipping replacement[/dim]"
+                        )
+                        progress.advance(upload_task)
+                        continue
                     worst = get_lowest_quality_mapped_file(name, exclude=failed_deletes)
                     if worst is None or candidate_score <= worst[2]:
                         worst_score_str = f"{worst[2]:.3f}" if worst is not None else "N/A"
@@ -581,8 +594,9 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         )
                 if to_delete:
                     if delete_frigate_person_files(name, [fn for fn, _ in to_delete]):
-                        for frigate_fn, _aid in to_delete:
+                        for frigate_fn, aid in to_delete:
                             remove_frigate_file(name, frigate_fn)
+                            reclassify_as_rejected(aid, name)
                         gate_removed = len(to_delete)
                         effective_count -= gate_removed
                         gate_total += gate_removed
