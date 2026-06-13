@@ -36,6 +36,10 @@ CI runs both on every push and PR to `main` and `dev`. PRs must pass before merg
 - Keep the `CHANGELOG.md` entry in the `[Unreleased]` section updated.
 - Commit messages should be plain English describing what changed and why.
 
+## Development Tooling
+
+Development uses Claude Code (Anthropic) for implementation assistance. All code is reviewed and the final call on design, behavior, and what ships is made by the maintainer. Contributions from humans are equally welcome.
+
 ## License
 
 By submitting a contribution you agree that your work will be released under the project's [AGPLv3+ license](LICENSE).
