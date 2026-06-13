@@ -37,8 +37,25 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Ensure uv.lock is current
-        run: uv lock
+      - name: Verify release branch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            echo "::error::Releases must be dispatched from main (current: ${{ github.ref_name }})"
+            exit 1
+          fi
+
+      - name: Ensure lockfiles are current
+        run: |
+          cp pyproject.toml _pyproject_orig.toml
+          for variant in cpu rocm intel; do
+            cp pyproject-${variant}.toml pyproject.toml
+            uv lock
+            cp uv.lock uv-${variant}.lock
+          done
+          cp _pyproject_orig.toml pyproject.toml
+          uv lock
+          rm _pyproject_orig.toml
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
