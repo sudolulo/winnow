@@ -29,7 +29,10 @@ Frigate's UI are never mapped here and are never touched by quality replacement.
 
 import json
 import logging
+import os
 from pathlib import Path
+
+from .frigate_api import delete_frigate_person_files
 
 logger = logging.getLogger(__name__)
 
@@ -297,19 +300,41 @@ def update_frigate_count(person_name: str, count: int) -> None:
 
 
 def reset_person(person_name: str) -> None:
-    """Remove all uploaded and rejected records for a given person."""
-    for filename in (UPLOAD_TRACKER_FILE, REJECT_TRACKER_FILE):
-        data = _load(filename)
+    """Remove all uploaded and rejected records for a given person.
+
+    Also deletes winnow-managed Frigate training files so the next run starts
+    clean rather than uploading on top of orphaned files. Manually-added Frigate
+    files (not in frigate_files) are never touched. Proceeds with tracker reset
+    even if Frigate is unreachable.
+    """
+    upload_data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(upload_data.get("by_person", {}).get(person_name, {}))
+    frigate_filenames = list(entry.get("frigate_files", {}).keys())
+    if frigate_filenames:
+        if not os.environ.get("FRIGATE_URL", "").strip():
+            logger.info(f"FRIGATE_URL not set — skipping Frigate file deletion for {person_name}")
+        elif delete_frigate_person_files(person_name, frigate_filenames):
+            logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
+        else:
+            logger.warning(f"Could not delete Frigate files for {person_name} — tracker reset proceeding anyway")
+
+    changed = False
+    tracker_files = ((UPLOAD_TRACKER_FILE, upload_data), (REJECT_TRACKER_FILE, _load(REJECT_TRACKER_FILE)))
+    for filename, data in tracker_files:
         flat_key = _flat_key(filename)
         by_person = data.get("by_person", {})
-        entry = by_person.pop(person_name, None)
-        if entry is not None:
-            person_ids = set(_get_ids(entry))
+        tracker_entry = by_person.pop(person_name, None)
+        if tracker_entry is not None:
+            person_ids = set(_get_ids(tracker_entry))
             flat = set(data.get(flat_key, [])) - person_ids
             data[flat_key] = sorted(flat)
             data["by_person"] = by_person
             _save(filename, data)
-    logger.info(f"Reset tracking data for {person_name}")
+            changed = True
+    if changed:
+        logger.info(f"Reset tracking data for {person_name}")
+    else:
+        logger.debug(f"reset_person: no tracking data found for {person_name}")
 
 
 def get_person_summary() -> dict[str, dict]:
