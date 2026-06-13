@@ -338,9 +338,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         continue
                     worst = get_lowest_quality_mapped_file(name)
                     if worst is None or new_score <= worst[2]:
+                        worst_score_str = f"{worst[2]:.3f}" if worst is not None else "N/A"
                         progress.console.print(
                             f"    [dim]⏭  {fname}: score {new_score:.3f} ≤ worst mapped"
-                            f" {worst[2]:.3f if worst else 'N/A'}, skipping[/dim]"
+                            f" {worst_score_str}, skipping[/dim]"
                         )
                         progress.advance(upload_task)
                         continue
