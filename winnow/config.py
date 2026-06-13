@@ -31,6 +31,7 @@ class _Config:
     MIN_CONFIDENCE: float = 0.7
     MAX_AUTO_IMAGES: int = 80
     QUALITY_REPLACEMENT: bool = True
+    FRIGATE_SCORE_THRESHOLD: float = 0.0
 
     # People filtering
     MIN_FACE_COUNT: int = 0
@@ -62,6 +63,7 @@ class _Config:
         self.MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.7"))
         self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "80"))
         self.QUALITY_REPLACEMENT = os.getenv("QUALITY_REPLACEMENT", "true").lower() in ("true", "1", "yes")
+        self.FRIGATE_SCORE_THRESHOLD = float(os.getenv("FRIGATE_SCORE_THRESHOLD", "0.0"))
         self.FACE_MARGIN = float(os.getenv("FACE_MARGIN", "0.15"))
         self.USE_FULL_RESOLUTION = os.getenv("USE_FULL_RESOLUTION", "true").lower() in ("true", "1", "yes")
         self.ENABLE_FACE_ALIGNMENT = os.getenv("ENABLE_FACE_ALIGNMENT", "true").lower() in ("true", "1", "yes")

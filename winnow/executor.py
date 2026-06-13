@@ -19,6 +19,7 @@ from .immich_api import fetch_face_data, fetch_full_image
 from .log_config import console
 from .quality import assess_quality
 from .upload_tracker import (
+    get_frigate_filename_for_asset,
     get_lowest_quality_mapped_file,
     get_tracked_frigate_file_count,
     get_tracked_frigate_filenames,
@@ -356,9 +357,11 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             else:
                 known_frigate_files_at_start: set[str] = set(_snapshot)
             effective_count = get_tracked_frigate_file_count(name)
+            pre_run_count = effective_count
             quality_replacement = job.get("config", {}).get("quality_replacement", False)
             actually_uploaded: list[tuple[str, str | None]] = []
             failed_deletes: set[str] = set()
+            quality_gate_failed: set[str] = set()
             min_quality_score_for_slot: float | None = None
 
             for fname in person_files:
@@ -455,6 +458,22 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                 )
                                 actually_uploaded.append((fname, asset_id))
 
+                                # Flag for post-reconcile removal if below threshold.
+                                # We don't know the Frigate filename yet — reconcile maps
+                                # it first, then we delete using the mapped name.
+                                threshold = Config.FRIGATE_SCORE_THRESHOLD
+                                if (
+                                    threshold > 0
+                                    and pre_run_count > 0
+                                    and post_fscore is not None
+                                    and post_fscore < threshold
+                                ):
+                                    quality_gate_failed.add(asset_id)
+                                    progress.console.print(
+                                        f"    [yellow]⚠  {fname}: Frigate score {post_fscore:.2f}"
+                                        f" < threshold {threshold:.2f}, will remove after mapping[/yellow]"
+                                    )
+
                             break
                         else:
                             if attempt < max_retries:
@@ -519,6 +538,26 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             # Batch-map Frigate filenames to asset IDs now that all uploads are done.
             if actually_uploaded:
                 _reconcile_frigate_mappings(name, known_frigate_files_at_start, actually_uploaded)
+
+            # Post-reconcile quality gate: filenames are now mapped, so we can delete.
+            if quality_gate_failed:
+                removed = 0
+                for asset_id in quality_gate_failed:
+                    frigate_fn = get_frigate_filename_for_asset(name, asset_id)
+                    if frigate_fn and delete_frigate_person_files(name, [frigate_fn]):
+                        remove_frigate_file(name, frigate_fn)
+                        effective_count -= 1
+                        removed += 1
+                    else:
+                        logger.warning(
+                            f"{name}: could not remove low-score file for {asset_id}"
+                            " — no Frigate filename mapped (reconciliation race?)"
+                        )
+                if removed:
+                    progress.console.print(
+                        f"  [yellow]🗑  {name}: removed {removed} image(s) below"
+                        f" Frigate score threshold ({Config.FRIGATE_SCORE_THRESHOLD:.2f})[/yellow]"
+                    )
 
             # Per-person summary
             if person_failed == 0:

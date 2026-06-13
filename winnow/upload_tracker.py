@@ -250,6 +250,16 @@ def get_lowest_quality_mapped_file(
     return min(candidates, key=lambda x: x[2])
 
 
+def get_frigate_filename_for_asset(person_name: str, asset_id: str) -> str | None:
+    """Return the Frigate training filename mapped to this asset ID, or None."""
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    for frigate_filename, aid in entry["frigate_files"].items():
+        if aid == asset_id:
+            return frigate_filename
+    return None
+
+
 def find_by_crop_dimension(size: int) -> list[dict]:
     """Return all tracked crops whose width or height matches `size` pixels.
 
