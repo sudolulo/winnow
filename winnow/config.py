@@ -27,7 +27,7 @@ class _Config:
 
     # Quality filtering
     MIN_FACE_WIDTH: int = 90
-    BLUR_THRESHOLD: float = 100.0
+    BLUR_THRESHOLD: float = 120.0
     MIN_CONFIDENCE: float = 0.7
     MAX_AUTO_IMAGES: int = 80
     QUALITY_REPLACEMENT: bool = True
@@ -58,7 +58,7 @@ class _Config:
         self.YEARS_FILTER = int(os.getenv("YEARS_FILTER", "10"))
         self.MIN_FACE_WIDTH = int(os.getenv("MIN_FACE_WIDTH", "90"))
         self.MIN_FACE_COUNT = int(os.getenv("MIN_FACE_COUNT", "0"))
-        self.BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "100.0"))
+        self.BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "120.0"))
         self.MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.7"))
         self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "80"))
         self.QUALITY_REPLACEMENT = os.getenv("QUALITY_REPLACEMENT", "true").lower() in ("true", "1", "yes")
