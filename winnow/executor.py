@@ -293,6 +293,9 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         known_frigate_files.discard(worst_frigate_file)
                     else:
                         logger.warning(f"Failed to delete {worst_frigate_file} for {name}, skipping replacement")
+                        # Remove from tracker so the next candidate targets a different file.
+                        # The file stays in Frigate (unmapped, like a manually-added file).
+                        remove_frigate_file(name, worst_frigate_file)
                         progress.advance(upload_task)
                         continue
 
@@ -315,16 +318,23 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
                             # Identify the Frigate filename assigned to this upload
                             # and record the mapping for future quality management.
-                            current_files = set(get_frigate_person_files(name) or known_frigate_files)
-                            new_files = current_files - known_frigate_files
-                            if len(new_files) == 1 and asset_id:
-                                record_frigate_file(name, next(iter(new_files)), asset_id)
-                            elif len(new_files) > 1:
-                                logger.info(
-                                    f"{name}: {len(new_files)} new Frigate files after uploading {fname}"
-                                    f" (concurrent upload detected) — skipping file mapping"
+                            fresh = get_frigate_person_files(name)
+                            if fresh is None:
+                                logger.warning(
+                                    f"{name}: Frigate API unreachable after uploading {fname}"
+                                    f" — file mapping skipped, quality replacement won't target this file"
                                 )
-                            known_frigate_files = current_files
+                            else:
+                                current_files = set(fresh)
+                                new_files = current_files - known_frigate_files
+                                if len(new_files) == 1 and asset_id:
+                                    record_frigate_file(name, next(iter(new_files)), asset_id)
+                                elif len(new_files) > 1:
+                                    logger.info(
+                                        f"{name}: {len(new_files)} new Frigate files after uploading {fname}"
+                                        f" (concurrent upload detected) — skipping file mapping"
+                                    )
+                                known_frigate_files = current_files
 
                             break
                         else:

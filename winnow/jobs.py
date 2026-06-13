@@ -139,7 +139,7 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
     mode_choice = Prompt.ask("Choice", choices=["1", "2"], default="1")
     entity_type = "face" if mode_choice == "1" else "object"
 
-    config = {"name": name, "mode": entity_type}
+    config = {"name": name, "mode": entity_type, "quality_replacement": Config.QUALITY_REPLACEMENT}
     if entity_type == "object":
         config["object_class"] = Prompt.ask("Enter Object Class (e.g. dog, cat, car)", default="dog")
 
