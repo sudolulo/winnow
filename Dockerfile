@@ -1,5 +1,5 @@
 # ── Base images ───────────────────────────────────────────────────────────────
-#   amd64 + gpu:   NVIDIA CUDA 13.3 + cuDNN (GPU acceleration via NVIDIA Container Toolkit)
+#   amd64 + gpu:   NVIDIA CUDA 12.8 + cuDNN (GPU acceleration via NVIDIA Container Toolkit)
 #   amd64 + rocm:  Ubuntu 22.04 (AMD GPU via ROCm — pass /dev/kfd and /dev/dri)
 #   amd64 + intel: Ubuntu 22.04 (Intel Arc / iGPU via OpenVINO — pass /dev/dri)
 #   amd64 + cpu:   Ubuntu 22.04 (CPU-only, ~2 GB smaller image)
@@ -7,7 +7,7 @@
 
 ARG VARIANT=gpu
 
-FROM --platform=$BUILDPLATFORM nvidia/cuda:13.3.0-cudnn-runtime-ubuntu22.04 AS base-amd64-gpu
+FROM --platform=$BUILDPLATFORM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04 AS base-amd64-gpu
 FROM ubuntu:22.04 AS base-amd64-rocm
 FROM ubuntu:22.04 AS base-amd64-intel
 FROM ubuntu:22.04 AS base-amd64-cpu
