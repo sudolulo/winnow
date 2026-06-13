@@ -293,24 +293,34 @@ def auto_configure(people: list[dict]) -> list[dict]:
             already_uploaded = fc if fc is not None else person_summary.get("uploaded", 0)
         capacity = Config.MAX_AUTO_IMAGES - already_uploaded
         if capacity <= 0:
+            if not Config.QUALITY_REPLACEMENT:
+                rprint(
+                    f"  [dim]Skipping {name} (at cap:"
+                    f" {already_uploaded}/{Config.MAX_AUTO_IMAGES}, quality replacement disabled).[/dim]"
+                )
+                continue
             rprint(
-                f"  [dim]Skipping {name} (at lifetime cap:"
-                f" {already_uploaded}/{Config.MAX_AUTO_IMAGES} trained).[/dim]"
+                f"  [cyan]{name}: at cap ({already_uploaded}/{Config.MAX_AUTO_IMAGES}),"
+                f" checking for quality improvements...[/cyan]"
             )
-            continue
+            quality_replacement_only = True
+        else:
+            quality_replacement_only = False
+
+        config["quality_replacement"] = quality_replacement_only or Config.QUALITY_REPLACEMENT
 
         has_embedding = is_embedding_available(entity_type)
         limit, selection_mode = _resolve_strategy(strategy, has_embedding)
 
-        # Cap selection to remaining capacity.
-        # For auto mode with partial training, keep "auto" so adaptive stopping
-        # still runs — just trim the result to the remaining capacity afterward.
+        # Cap selection to remaining capacity (no cap when replacement-only — executor
+        # decides per-image whether to swap; any candidate could be an improvement).
         auto_cap = None
-        if limit == "auto":
-            if already_uploaded > 0:
-                auto_cap = capacity
-        else:
-            limit = min(limit, capacity)
+        if not quality_replacement_only:
+            if limit == "auto":
+                if already_uploaded > 0:
+                    auto_cap = capacity
+            else:
+                limit = min(limit, capacity)
 
         if selection_mode == "skip":
             continue

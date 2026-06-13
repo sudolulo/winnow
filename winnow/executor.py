@@ -15,7 +15,14 @@ from .config import Config, get_headers
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
 from .immich_api import fetch_face_data, fetch_full_image
 from .log_config import console
-from .upload_tracker import mark_rejected, mark_uploaded
+from .frigate_api import delete_frigate_person_files, get_frigate_person_files
+from .upload_tracker import (
+    get_lowest_quality_mapped_file,
+    mark_rejected,
+    mark_uploaded,
+    record_frigate_file,
+    remove_frigate_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -246,8 +253,49 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             person_uploaded = 0
             person_failed = 0
 
+            # Snapshot current Frigate filenames so we can identify which file
+            # each upload produces (Frigate assigns its own filename on ingest).
+            known_frigate_files: set[str] = set(get_frigate_person_files(name) or [])
+            quality_replacement = job.get("config", {}).get("quality_replacement", False)
+
             for fname in person_files:
                 fpath = os.path.join(person_dir, fname)
+
+                # Quality replacement gate: when at cap, only upload if this image
+                # scores higher than the worst mapped file already in Frigate.
+                at_cap = len(known_frigate_files) >= Config.MAX_AUTO_IMAGES
+                if at_cap:
+                    if not quality_replacement:
+                        progress.console.print(f"    [dim]⏭  {fname}: at cap, quality replacement disabled[/dim]")
+                        progress.advance(upload_task)
+                        continue
+                    new_score = score_map.get(fname)
+                    if new_score is None:
+                        progress.console.print(f"    [dim]⏭  {fname}: no confidence score, skipping replacement[/dim]")
+                        progress.advance(upload_task)
+                        continue
+                    worst = get_lowest_quality_mapped_file(name)
+                    if worst is None or new_score <= worst[2]:
+                        progress.console.print(
+                            f"    [dim]⏭  {fname}: score {new_score:.3f} ≤ worst mapped"
+                            f" {worst[2]:.3f if worst else 'N/A'}, skipping[/dim]"
+                        )
+                        progress.advance(upload_task)
+                        continue
+                    # Delete the worst mapped file to make room for the better one
+                    worst_frigate_file, _worst_asset_id, worst_score = worst
+                    progress.console.print(
+                        f"    🔄 {fname}: score {new_score:.3f} > {worst_score:.3f},"
+                        f" replacing {worst_frigate_file}"
+                    )
+                    if delete_frigate_person_files(name, [worst_frigate_file]):
+                        remove_frigate_file(name, worst_frigate_file)
+                        known_frigate_files.discard(worst_frigate_file)
+                    else:
+                        logger.warning(f"Failed to delete {worst_frigate_file} for {name}, skipping replacement")
+                        progress.advance(upload_task)
+                        continue
+
                 for attempt in range(1, max_retries + 1):
                     try:
                         with open(fpath, "rb") as f:
@@ -264,6 +312,19 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             asset_id = asset_map.get(fname)
                             if asset_id:
                                 mark_uploaded(asset_id, person_name=name, score=score_map.get(fname))
+
+                            # Identify the Frigate filename assigned to this upload
+                            # and record the mapping for future quality management.
+                            current_files = set(get_frigate_person_files(name) or known_frigate_files)
+                            new_files = current_files - known_frigate_files
+                            if len(new_files) == 1 and asset_id:
+                                record_frigate_file(name, next(iter(new_files)), asset_id)
+                            elif len(new_files) > 1:
+                                logger.info(
+                                    f"{name}: {len(new_files)} new Frigate files after uploading {fname}"
+                                    f" (concurrent upload detected) — skipping file mapping"
+                                )
+                            known_frigate_files = current_files
 
                             break
                         else:
