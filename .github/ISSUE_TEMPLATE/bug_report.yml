@@ -1,0 +1,81 @@
+name: Bug Report
+description: Something isn't working as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check the [Troubleshooting wiki](https://github.com/sudolulo/winnow/wiki/Troubleshooting) and [existing issues](https://github.com/sudolulo/winnow/issues).
+
+  - type: dropdown
+    id: image-tag
+    attributes:
+      label: Image tag
+      description: Which winnow image are you running?
+      options:
+        - ":latest (NVIDIA CUDA)"
+        - ":rocm (AMD)"
+        - ":intel (Intel Arc / iGPU)"
+        - ":cpu (CPU only)"
+        - "Local install (uv)"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: winnow version
+      description: Output of `docker inspect ghcr.io/sudolulo/winnow:<tag> | grep org.opencontainers.image.version` or the version in `pyproject.toml`.
+      placeholder: "0.2.13"
+    validations:
+      required: true
+
+  - type: input
+    id: immich-version
+    attributes:
+      label: Immich version
+      placeholder: "v1.110.0"
+    validations:
+      required: false
+
+  - type: input
+    id: frigate-version
+    attributes:
+      label: Frigate version
+      placeholder: "0.16.0"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste logs from `docker logs winnow` or `winnow.log`. Set `VERBOSE=true` for more detail.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: compose
+    attributes:
+      label: Relevant compose / env config
+      description: Paste your `services.winnow` block. Redact your API key.
+      render: yaml
+    validations:
+      required: false

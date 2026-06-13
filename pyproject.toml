@@ -37,6 +37,8 @@ winnow = "winnow.cli:main"
 
 [project.urls]
 Repository = "https://github.com/sudolulo/winnow"
+Changelog = "https://github.com/sudolulo/winnow/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/sudolulo/winnow/wiki"
 
 [tool.uv]
 conflicts = [
