@@ -21,6 +21,7 @@ from .quality import assess_quality
 from .upload_tracker import (
     get_frigate_filename_for_asset,
     get_lowest_quality_mapped_file,
+    get_min_frigate_score,
     get_tracked_frigate_file_count,
     get_tracked_frigate_filenames,
     has_frigate_scores,
@@ -359,6 +360,15 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             effective_count = get_tracked_frigate_file_count(name)
             pre_run_count = effective_count
             quality_replacement = job.get("config", {}).get("quality_replacement", False)
+            # Dynamic threshold: at least as strict as the weakest image already stored.
+            # Takes whichever is higher — the configured floor or the current set minimum.
+            _dynamic = get_min_frigate_score(name)
+            effective_threshold = max(
+                Config.FRIGATE_SCORE_THRESHOLD,
+                _dynamic if _dynamic is not None else 0.0,
+            )
+            if _dynamic is not None and _dynamic > Config.FRIGATE_SCORE_THRESHOLD:
+                logger.debug(f"{name}: dynamic Frigate score threshold {_dynamic:.3f}")
             actually_uploaded: list[tuple[str, str | None]] = []
             failed_deletes: set[str] = set()
             quality_gate_failed: set[str] = set()
@@ -461,17 +471,16 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                 # Flag for post-reconcile removal if below threshold.
                                 # We don't know the Frigate filename yet — reconcile maps
                                 # it first, then we delete using the mapped name.
-                                threshold = Config.FRIGATE_SCORE_THRESHOLD
                                 if (
-                                    threshold > 0
+                                    effective_threshold > 0
                                     and pre_run_count > 0
                                     and post_fscore is not None
-                                    and post_fscore < threshold
+                                    and post_fscore < effective_threshold
                                 ):
                                     quality_gate_failed.add(asset_id)
                                     progress.console.print(
                                         f"    [yellow]⚠  {fname}: Frigate score {post_fscore:.2f}"
-                                        f" < threshold {threshold:.2f}, will remove after mapping[/yellow]"
+                                        f" < threshold {effective_threshold:.2f}, will remove after mapping[/yellow]"
                                     )
 
                             break
@@ -556,7 +565,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 if removed:
                     progress.console.print(
                         f"  [yellow]🗑  {name}: removed {removed} image(s) below"
-                        f" Frigate score threshold ({Config.FRIGATE_SCORE_THRESHOLD:.2f})[/yellow]"
+                        f" Frigate score threshold ({effective_threshold:.2f})[/yellow]"
                     )
 
             # Per-person summary

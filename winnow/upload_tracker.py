@@ -250,6 +250,21 @@ def get_lowest_quality_mapped_file(
     return min(candidates, key=lambda x: x[2])
 
 
+def get_min_frigate_score(person_name: str) -> float | None:
+    """Return the lowest stored Frigate recognition score for this person's mapped files.
+
+    Returns None if no Frigate scores have been recorded yet (cold start or
+    feature not yet active). Used to derive a dynamic quality threshold so new
+    uploads must score at least as well as the weakest image already in the set.
+    """
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    frigate_files = entry.get("frigate_files", {})
+    frigate_scores = entry.get("frigate_scores", {})
+    scored = [frigate_scores[aid] for aid in frigate_files.values() if aid in frigate_scores]
+    return min(scored) if scored else None
+
+
 def get_frigate_filename_for_asset(person_name: str, asset_id: str) -> str | None:
     """Return the Frigate training filename mapped to this asset ID, or None."""
     data = _load(UPLOAD_TRACKER_FILE)
