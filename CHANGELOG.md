@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-13
+
+### Added
+
+- **`get_tracked_frigate_filenames()`** — new upload-tracker function that returns the set of Frigate filenames currently mapped for a person. Used internally as a reconciliation baseline when the Frigate GET endpoint is unreachable; also available to callers that need the mapped filename set without a count.
+- **Community scaffolding**: `CONTRIBUTING.md`, `SECURITY.md`, GitHub issue templates (bug report, feature request), and pull request template.
+- **OCI image labels**: `org.opencontainers.image.*` labels added to the runtime stage of the Dockerfile so image metadata is surfaced by container registries.
+- **Additional tracker tests**: coverage added for `get_tracked_frigate_filenames` and for `get_lowest_quality_mapped_file` with the `exclude` parameter.
+
+### Fixed
+
+- **Quality score scale mismatch (USE_FULL_RESOLUTION=true)**: the time-spread quality-score fallback called `assess_quality` on the full-resolution download, while the embedding path always scores on preview thumbnails. Laplacian variance scales with image resolution, so the two paths produced incomparable scores for people with mixed-mode files. The fallback now caps the image at 1440 px before scoring to match the thumbnail scale.
+- **assess_quality failure left file permanently unreplaceable**: if `assess_quality` raised an exception (e.g. an RGBA image with an unsupported channel count), `score_map` kept `None` and `mark_uploaded(score=None)` skipped writing the score. The uploaded file was then permanently invisible to `get_lowest_quality_mapped_file` because it had no entry in `scores{}`. The fallback now converts the image to RGB before scoring and stores `0.0` on any exception, so every uploaded file is eligible for future quality replacement.
+- **Uploads during Frigate GET outage never mapped**: when `GET /api/faces` failed at upload start, the reconciliation guard (`_snapshot is not None`) correctly skipped the post-upload diff — but uploads that succeeded during the outage were never recorded in `frigate_files`, causing `get_tracked_frigate_file_count` to permanently under-report and Frigate to eventually exceed `MAX_AUTO_IMAGES`. The code now uses the tracker's mapped filenames as a pre-upload baseline when the live snapshot is unavailable, so reconciliation proceeds normally (the `>target` guard handles concurrent external uploads as before).
+- **Freed quality-replacement slot could be filled by a worse image**: when a replacement delete succeeded but the subsequent upload failed all retries, `effective_count` stayed decremented and the next file in the iteration uploaded unconditionally — it could have a lower quality score than the file that was deleted. A `min_quality_score_for_slot` variable now records the deleted file's score on a successful delete; any candidate that doesn't beat that floor is skipped until the slot is filled by a qualifying image or the run ends.
+- **CI multi-arch and lockfile bot**: hardened the build workflow — lockfile-update bot no longer races against Docker publish on the same push event; CPU image now builds for both `linux/amd64` and `linux/arm64`; `paths-ignore` prevents documentation-only pushes from triggering image builds.
+- **README pipeline diagram updated**: step 8 now explicitly documents the quality-replacement decision tree (`below cap → upload`, `at cap + enabled → swap if better`, `at cap + disabled → skip`).
+
 ## [0.2.13] - 2026-06-13
 
 ### Added
