@@ -156,3 +156,65 @@ def test_get_lowest_quality_mapped_file_skips_unscored():
     result = get_lowest_quality_mapped_file("Alice")
     assert result is not None
     assert result[1] == "asset-scored"  # only scored file is a candidate
+
+
+# ── get_tracked_frigate_filenames ─────────────────────────────────────────────
+
+def test_get_tracked_frigate_filenames_empty():
+    from winnow.upload_tracker import get_tracked_frigate_filenames
+    assert get_tracked_frigate_filenames("Alice") == set()
+
+
+def test_get_tracked_frigate_filenames_returns_mapped():
+    from winnow.upload_tracker import get_tracked_frigate_filenames, record_frigate_file
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a")
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-b")
+    assert get_tracked_frigate_filenames("Alice") == {"Alice-1000.webp", "Alice-1001.webp"}
+
+
+def test_get_tracked_frigate_filenames_excludes_removed():
+    from winnow.upload_tracker import (
+        get_tracked_frigate_filenames,
+        record_frigate_file,
+        remove_frigate_file,
+    )
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a")
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-b")
+    remove_frigate_file("Alice", "Alice-1000.webp")
+    assert get_tracked_frigate_filenames("Alice") == {"Alice-1001.webp"}
+
+
+def test_get_tracked_frigate_filenames_isolated_by_person():
+    from winnow.upload_tracker import get_tracked_frigate_filenames, record_frigate_file
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a")
+    record_frigate_file("Bob", "Bob-2000.webp", "asset-b")
+    assert get_tracked_frigate_filenames("Alice") == {"Alice-1000.webp"}
+    assert get_tracked_frigate_filenames("Bob") == {"Bob-2000.webp"}
+
+
+# ── get_lowest_quality_mapped_file with exclude ───────────────────────────────
+
+def test_get_lowest_quality_exclude_skips_specified_file():
+    from winnow.upload_tracker import (
+        get_lowest_quality_mapped_file,
+        mark_uploaded,
+        record_frigate_file,
+    )
+    mark_uploaded("asset-lo", person_name="Alice", score=0.10)
+    mark_uploaded("asset-hi", person_name="Alice", score=0.90)
+    record_frigate_file("Alice", "Alice-lo.webp", "asset-lo")
+    record_frigate_file("Alice", "Alice-hi.webp", "asset-hi")
+    result = get_lowest_quality_mapped_file("Alice", exclude={"Alice-lo.webp"})
+    assert result is not None
+    assert result[1] == "asset-hi"  # lo was excluded; hi is returned
+
+
+def test_get_lowest_quality_exclude_all_returns_none():
+    from winnow.upload_tracker import (
+        get_lowest_quality_mapped_file,
+        mark_uploaded,
+        record_frigate_file,
+    )
+    mark_uploaded("asset-a", person_name="Alice", score=0.50)
+    record_frigate_file("Alice", "Alice-a.webp", "asset-a")
+    assert get_lowest_quality_mapped_file("Alice", exclude={"Alice-a.webp"}) is None

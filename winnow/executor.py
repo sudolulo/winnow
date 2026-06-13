@@ -17,9 +17,11 @@ from .frigate_api import delete_frigate_person_files, get_frigate_person_files
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
 from .immich_api import fetch_face_data, fetch_full_image
 from .log_config import console
+from .quality import assess_quality
 from .upload_tracker import (
     get_lowest_quality_mapped_file,
     get_tracked_frigate_file_count,
+    get_tracked_frigate_filenames,
     mark_rejected,
     mark_uploaded,
     record_frigate_file,
@@ -205,7 +207,22 @@ def execute_jobs(jobs: list[dict]) -> None:
                             # Record which asset produced which output file
                             filename = f"{count}.jpg"
                             asset_map[filename] = asset["id"]
-                            score_map[filename] = asset.get("quality_score") or asset.get("face_confidence")
+                            score_map[filename] = asset.get("quality_score")
+                            # Time-spread path: compute blur score from the downloaded
+                            # image. Cap at 1440px so the scale matches the preview
+                            # thumbnails the embedding path uses for scoring — Laplacian
+                            # variance grows with resolution, making full-res and
+                            # thumbnail scores incomparable if left uncapped.
+                            if mode == "face" and score_map[filename] is None:
+                                try:
+                                    score_img = img.convert("RGB") if img.mode != "RGB" else img
+                                    if score_img.width > 1440 or score_img.height > 1440:
+                                        score_img = score_img.copy()
+                                        score_img.thumbnail((1440, 1440), Image.LANCZOS)
+                                    score_map[filename] = assess_quality(score_img).blur_score
+                                except Exception as exc:
+                                    logger.debug(f"Quality score fallback for {asset['id']}: {exc}")
+                                    score_map[filename] = 0.0  # unknown quality — treat as lowest
                             # Also record object-mode variant filenames
                             if mode == "object":
                                 for f in sorted(os.listdir(person_dir)):
@@ -320,13 +337,40 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             # Snapshot live Frigate files for post-upload reconciliation diff only.
             # effective_count is sourced from the tracker (mapped files) so that
             # manually-added Frigate files don't consume winnow's managed quota.
-            known_frigate_files_at_start: set[str] = set(get_frigate_person_files(name) or [])
+            _snapshot = get_frigate_person_files(name)
+            if _snapshot is None:
+                # Frigate GET is down; fall back to the tracker's mapped filenames
+                # as the pre-upload baseline. reconciliation will still work unless
+                # there are concurrent manual uploads (handled by >target guard).
+                logger.warning(
+                    f"{name}: Frigate API unreachable at upload start"
+                    " — using tracker baseline for post-upload reconciliation"
+                )
+                known_frigate_files_at_start: set[str] = get_tracked_frigate_filenames(name)
+            else:
+                known_frigate_files_at_start: set[str] = set(_snapshot)
             effective_count = get_tracked_frigate_file_count(name)
             quality_replacement = job.get("config", {}).get("quality_replacement", False)
             actually_uploaded: list[tuple[str, str | None]] = []
+            failed_deletes: set[str] = set()
+            min_quality_score_for_slot: float | None = None
 
             for fname in person_files:
                 fpath = os.path.join(person_dir, fname)
+
+                # If a previous replacement delete succeeded but that upload failed,
+                # require the next candidate to beat the deleted file's score so the
+                # freed slot isn't filled with something worse than what we removed.
+                if min_quality_score_for_slot is not None:
+                    file_score = score_map.get(fname)
+                    if file_score is None or file_score <= min_quality_score_for_slot:
+                        score_str = f"{file_score:.3f}" if file_score is not None else "N/A"
+                        progress.console.print(
+                            f"    [dim]⏭  {fname}: score {score_str} ≤ freed slot floor"
+                            f" {min_quality_score_for_slot:.3f}, skipping[/dim]"
+                        )
+                        progress.advance(upload_task)
+                        continue
 
                 at_cap = effective_count >= Config.MAX_AUTO_IMAGES
                 if at_cap:
@@ -339,7 +383,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         progress.console.print(f"    [dim]⏭  {fname}: no confidence score, skipping replacement[/dim]")
                         progress.advance(upload_task)
                         continue
-                    worst = get_lowest_quality_mapped_file(name)
+                    worst = get_lowest_quality_mapped_file(name, exclude=failed_deletes)
                     if worst is None or new_score <= worst[2]:
                         worst_score_str = f"{worst[2]:.3f}" if worst is not None else "N/A"
                         progress.console.print(
@@ -357,11 +401,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     if delete_frigate_person_files(name, [worst_frigate_file]):
                         remove_frigate_file(name, worst_frigate_file)
                         effective_count -= 1
+                        min_quality_score_for_slot = worst_score
                     else:
                         logger.warning(f"Failed to delete {worst_frigate_file} for {name}, skipping replacement")
-                        # Remove from tracker so the next candidate targets a different file.
-                        # The file stays in Frigate (unmapped, like a manually-added file).
-                        remove_frigate_file(name, worst_frigate_file)
+                        failed_deletes.add(worst_frigate_file)
                         progress.advance(upload_task)
                         continue
 
@@ -377,6 +420,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             uploaded += 1
                             person_uploaded += 1
                             effective_count += 1
+                            min_quality_score_for_slot = None
 
                             asset_id = asset_map.get(fname)
                             if asset_id:
@@ -438,7 +482,13 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
                 progress.advance(upload_task)
 
-            # Batch-map Frigate filenames to asset IDs now that all uploads are done
+            if min_quality_score_for_slot is not None:
+                logger.warning(
+                    f"{name}: freed replacement slot (floor {min_quality_score_for_slot:.3f})"
+                    " was not filled this run — will be available next run"
+                )
+
+            # Batch-map Frigate filenames to asset IDs now that all uploads are done.
             if actually_uploaded:
                 _reconcile_frigate_mappings(name, known_frigate_files_at_start, actually_uploaded)
 

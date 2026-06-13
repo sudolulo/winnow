@@ -12,7 +12,7 @@ Both are excluded from future candidate pools. To reset:
 by_person schema (frigate_uploaded_ids.json):
   {
     "asset_ids":     ["immich-id-1", ...],                    # all assets we attempted to upload
-    "scores":        {"immich-id-1": 0.953},                  # Immich face confidence at upload time
+    "scores":        {"immich-id-1": 450.3},                   # Laplacian blur variance at upload time
     "frigate_files": {"PersonName-123.webp": "immich-id-1"},  # Frigate filename → asset ID
     "frigate_count": 42                                       # last known Frigate training image count
   }
@@ -158,9 +158,26 @@ def get_tracked_frigate_file_count(person_name: str) -> int:
     return len(entry["frigate_files"])
 
 
-def get_lowest_quality_mapped_file(person_name: str) -> tuple[str, str, float] | None:
+def get_tracked_frigate_filenames(person_name: str) -> set[str]:
+    """Return the set of Frigate filenames currently mapped in the tracker for a person.
+
+    Used as a pre-upload baseline when the Frigate GET API is unreachable at
+    upload start, so reconciliation can still identify newly uploaded files.
+    """
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    return set(entry["frigate_files"].keys())
+
+
+def get_lowest_quality_mapped_file(
+    person_name: str, exclude: set[str] | None = None
+) -> tuple[str, str, float] | None:
     """Return (frigate_filename, asset_id, score) for the mapped file with the lowest
-    confidence score, or None if no mapped files with known scores exist."""
+    quality score, or None if no mapped files with known scores exist.
+
+    Pass `exclude` to skip files that failed to delete this run without removing
+    them from the tracker — they remain candidates on the next run.
+    """
     data = _load(UPLOAD_TRACKER_FILE)
     entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
     frigate_files = entry.get("frigate_files", {})
@@ -168,7 +185,7 @@ def get_lowest_quality_mapped_file(person_name: str) -> tuple[str, str, float] |
     candidates = [
         (frigate_filename, asset_id, scores[asset_id])
         for frigate_filename, asset_id in frigate_files.items()
-        if asset_id in scores
+        if asset_id in scores and (exclude is None or frigate_filename not in exclude)
     ]
     if not candidates:
         return None

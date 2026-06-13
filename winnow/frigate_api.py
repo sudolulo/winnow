@@ -73,6 +73,11 @@ def delete_frigate_person_files(person_name: str, filenames: list[str]) -> bool:
         if resp.ok:
             logger.debug(f"Deleted {len(filenames)} Frigate file(s) for {person_name}")
             return True
+        if resp.status_code == 404:
+            # File already absent — stale tracker entry. Return True so the caller
+            # removes it from the tracker and frees the slot cleanly.
+            logger.warning(f"Frigate file(s) not found for {person_name} (stale tracker entry?): {filenames}")
+            return True
         logger.warning(f"Frigate delete returned {resp.status_code} for {person_name}")
         return False
     except Exception as e:
