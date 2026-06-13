@@ -2,7 +2,7 @@ name: Publish Docker Image
 
 on:
   push:
-    branches: ["main", "dev"]
+    branches: ["dev"]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -15,6 +15,16 @@ on:
       - "uv-cpu.lock"
       - "uv-rocm.lock"
       - "uv-intel.lock"
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: false
+        description: "Release tag, e.g. v0.4.1 — triggers :latest + versioned image tags"
+      version:
+        type: string
+        required: false
+        description: "Version string without v prefix, e.g. 0.4.1"
 
 concurrency:
   group: docker-${{ github.ref }}
@@ -50,6 +60,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up QEMU
         if: matrix.platform == 'linux/arm64'
@@ -65,6 +77,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute build version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v7
@@ -72,6 +93,7 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
+          build-args: VERSION=${{ steps.version.outputs.value }}
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -120,22 +142,26 @@ jobs:
       - name: Determine image tags
         id: tags
         run: |
-          if [ "${{ github.ref_name }}" = "dev" ]; then
-            echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev" >> "$GITHUB_OUTPUT"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          INPUT_TAG="${{ inputs.tag }}"
+          if [ -n "$INPUT_TAG" ]; then
+            echo "tag_args=-t ${IMAGE}:latest -t ${IMAGE}:${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+            echo "inspect_tag=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
           else
-            echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
+            echo "tag_args=-t ${IMAGE}:dev" >> "$GITHUB_OUTPUT"
+            echo "inspect_tag=${IMAGE}:dev" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create and push multi-arch manifest
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create \
-            -t ${{ steps.tags.outputs.tags }} \
+            ${{ steps.tags.outputs.tag_args }} \
             $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ${{ steps.tags.outputs.tags }}
+          docker buildx imagetools inspect ${{ steps.tags.outputs.inspect_tag }}
 
       - name: Ensure package is public
         run: |
@@ -162,6 +188,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -176,13 +204,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine CPU image tag
-        id: cpu-tag
+      - name: Determine CPU image tags
+        id: cpu-tags
         run: |
-          if [ "${{ github.ref_name }}" = "dev" ]; then
-            echo "tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-cpu" >> "$GITHUB_OUTPUT"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          INPUT_TAG="${{ inputs.tag }}"
+          if [ -n "$INPUT_TAG" ]; then
+            {
+              echo "tags<<EOF"
+              printf '%s\n' "${IMAGE}:cpu" "${IMAGE}:${INPUT_TAG}-cpu"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "inspect_tag=${IMAGE}:cpu" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cpu" >> "$GITHUB_OUTPUT"
+            echo "tags=${IMAGE}:dev-cpu" >> "$GITHUB_OUTPUT"
+            echo "inspect_tag=${IMAGE}:dev-cpu" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute build version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push CPU image
@@ -191,16 +236,18 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          build-args: VARIANT=cpu
+          build-args: |
+            VARIANT=cpu
+            VERSION=${{ steps.version.outputs.value }}
           cache-from: type=gha,scope=cpu
           cache-to: type=gha,mode=max,scope=cpu
           github-token: ${{ secrets.GITHUB_TOKEN }}
           push: true
-          tags: ${{ steps.cpu-tag.outputs.tag }}
+          tags: ${{ steps.cpu-tags.outputs.tags }}
 
       - name: Inspect CPU image
         run: |
-          docker buildx imagetools inspect ${{ steps.cpu-tag.outputs.tag }}
+          docker buildx imagetools inspect ${{ steps.cpu-tags.outputs.inspect_tag }}
 
       - name: Ensure package is public
         run: |
@@ -227,6 +274,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -238,13 +287,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine ROCm image tag
-        id: rocm-tag
+      - name: Determine ROCm image tags
+        id: rocm-tags
         run: |
-          if [ "${{ github.ref_name }}" = "dev" ]; then
-            echo "tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-rocm" >> "$GITHUB_OUTPUT"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          INPUT_TAG="${{ inputs.tag }}"
+          if [ -n "$INPUT_TAG" ]; then
+            {
+              echo "tags<<EOF"
+              printf '%s\n' "${IMAGE}:rocm" "${IMAGE}:${INPUT_TAG}-rocm"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "inspect_tag=${IMAGE}:rocm" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:rocm" >> "$GITHUB_OUTPUT"
+            echo "tags=${IMAGE}:dev-rocm" >> "$GITHUB_OUTPUT"
+            echo "inspect_tag=${IMAGE}:dev-rocm" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute build version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push ROCm image
@@ -253,16 +319,18 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
-          build-args: VARIANT=rocm
+          build-args: |
+            VARIANT=rocm
+            VERSION=${{ steps.version.outputs.value }}
           cache-from: type=gha,scope=linux/amd64-rocm
           cache-to: type=gha,mode=max,scope=linux/amd64-rocm
           github-token: ${{ secrets.GITHUB_TOKEN }}
           push: true
-          tags: ${{ steps.rocm-tag.outputs.tag }}
+          tags: ${{ steps.rocm-tags.outputs.tags }}
 
       - name: Inspect ROCm image
         run: |
-          docker buildx imagetools inspect ${{ steps.rocm-tag.outputs.tag }}
+          docker buildx imagetools inspect ${{ steps.rocm-tags.outputs.inspect_tag }}
 
       - name: Ensure package is public
         run: |
@@ -289,6 +357,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -300,13 +370,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine Intel image tag
-        id: intel-tag
+      - name: Determine Intel image tags
+        id: intel-tags
         run: |
-          if [ "${{ github.ref_name }}" = "dev" ]; then
-            echo "tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-intel" >> "$GITHUB_OUTPUT"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          INPUT_TAG="${{ inputs.tag }}"
+          if [ -n "$INPUT_TAG" ]; then
+            {
+              echo "tags<<EOF"
+              printf '%s\n' "${IMAGE}:intel" "${IMAGE}:${INPUT_TAG}-intel"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "inspect_tag=${IMAGE}:intel" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:intel" >> "$GITHUB_OUTPUT"
+            echo "tags=${IMAGE}:dev-intel" >> "$GITHUB_OUTPUT"
+            echo "inspect_tag=${IMAGE}:dev-intel" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute build version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Intel image
@@ -315,16 +402,18 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
-          build-args: VARIANT=intel
+          build-args: |
+            VARIANT=intel
+            VERSION=${{ steps.version.outputs.value }}
           cache-from: type=gha,scope=linux/amd64-intel
           cache-to: type=gha,mode=max,scope=linux/amd64-intel
           github-token: ${{ secrets.GITHUB_TOKEN }}
           push: true
-          tags: ${{ steps.intel-tag.outputs.tag }}
+          tags: ${{ steps.intel-tags.outputs.tags }}
 
       - name: Inspect Intel image
         run: |
-          docker buildx imagetools inspect ${{ steps.intel-tag.outputs.tag }}
+          docker buildx imagetools inspect ${{ steps.intel-tags.outputs.inspect_tag }}
 
       - name: Ensure package is public
         run: |
