@@ -376,6 +376,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             # Snapshot live Frigate files for post-upload reconciliation diff only.
             # effective_count is sourced from the tracker (mapped files) so that
             # manually-added Frigate files don't consume winnow's managed quota.
+            # Replacement targets also come exclusively from the tracker, so manually
+            # added files are never selected for deletion — only winnow-uploaded ones.
             _snapshot = (
                 all_frigate_files.get(name, []) if all_frigate_files is not None
                 else get_frigate_person_files(name)

@@ -26,6 +26,7 @@ services:
       # - SKIP_PEOPLE=Unknown         # Comma-separated; skip these people
       # - MIN_FACE_COUNT=5            # Skip people with fewer than N assets in Immich
       # - YEARS_FILTER=10             # Only include images from the last N years (default: 10)
+      # - MERGE_DUPLICATE_PEOPLE=true # Auto-merge Immich people with the same name (keeps most assets)
 
       # ── Image Quality ─────────────────────────────────────────────────────
       # - MIN_FACE_WIDTH=50           # Minimum face width in pixels (default: 50)
