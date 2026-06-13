@@ -69,8 +69,13 @@ def get_frigate_person_files(person_name: str) -> list[str] | None:
     return files if isinstance(files, list) else []
 
 
-def recognize_face(file_path: str) -> float | None:
-    """Submit an image to Frigate's recognize endpoint and return the confidence score.
+def recognize_face(file_path: str) -> tuple[str | None, float] | None:
+    """Submit an image to Frigate's recognize endpoint.
+
+    Returns (face_name, score) where face_name is the best-matching person
+    (may be "unknown" if below Frigate's confidence threshold) and score is
+    the sigmoid-mapped cosine similarity (0-1) against that person's mean
+    embedding.
 
     Returns None if FRIGATE_URL is unset, the API is unreachable, no face is
     detected, or face recognition is not enabled in Frigate.
@@ -89,7 +94,7 @@ def recognize_face(file_path: str) -> float | None:
             return None
         data = resp.json()
         if data.get("success") and "score" in data:
-            return round(float(data["score"]), 4)
+            return (data.get("face_name"), round(float(data["score"]), 4))
         return None
     except Exception as e:
         logger.debug(f"Frigate recognize failed for {file_path}: {e}")

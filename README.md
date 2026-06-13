@@ -2,6 +2,9 @@
 
 [![Docker](https://github.com/sudolulo/winnow/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/docker-publish.yml) [![Test](https://github.com/sudolulo/winnow/actions/workflows/test.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/test.yml) [![GitHub release](https://img.shields.io/github/v/release/sudolulo/winnow)](https://github.com/sudolulo/winnow/releases/latest) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE) [![Immich](https://img.shields.io/badge/Immich-v1.106%2B-blueviolet)](https://immich.app) [![Frigate](https://img.shields.io/badge/Frigate-Ready-brightgreen)](https://frigate.video)
 
+> **Early Development — Use With Caution**
+> winnow is functional but still maturing. Features that modify your Frigate training data — quality replacement, stale mapping cleanup — can remove images from your dataset and are not yet battle-tested at scale. Review the logs after each run and keep backups of your Frigate face training directory until you are confident in the results.
+
 **Docs:** [Setup](https://github.com/sudolulo/winnow/wiki/Setup) · [Troubleshooting](https://github.com/sudolulo/winnow/wiki/Troubleshooting) · [FAQ](https://github.com/sudolulo/winnow/wiki/FAQ)
 
 `winnow` pulls photos from your [Immich](https://immich.app) library, selects the most diverse and highest-quality subset using AI embeddings, and delivers them as training data for [Frigate](https://frigate.video)'s face recognition and object classification models.
@@ -56,9 +59,11 @@ Immich library
 8. Deliver
    • Face mode: upload crops to Frigate's face registration API
      ↳ below MAX_AUTO_IMAGES — upload freely
-     ↳ at cap + QUALITY_REPLACEMENT=true — swap the lowest-scoring tracked
-       image if the new candidate scores higher; manually added files are
-       never touched
+     ↳ at cap + QUALITY_REPLACEMENT=true — with Frigate scoring active,
+       swap the most redundant tracked image (highest pre-upload recognize
+       score) if the candidate is more novel (lower score); falling back to
+       blur-score comparison when no Frigate scores are available; manually
+       added files are never touched
      ↳ at cap + QUALITY_REPLACEMENT=false — skip this person
    • Object mode: save crops to disk → place into your Frigate data directory
 ```
@@ -183,14 +188,16 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `MIN_FACE_WIDTH` | `50` | Minimum face crop width in pixels |
+| `MIN_FACE_WIDTH` | `90` | Minimum face crop width in pixels |
 | `FACE_MARGIN` | `0.15` | Padding around bounding box crop (fraction of face size) |
 | `ENABLE_FACE_ALIGNMENT` | `true` | Align to ArcFace 112×112 format using facial landmarks |
 | `USE_FULL_RESOLUTION` | `true` | Download full-resolution originals rather than preview thumbnails |
 | `MIN_CONFIDENCE` | `0.7` | Minimum Immich face detection confidence |
-| `BLUR_THRESHOLD` | `100.0` | Laplacian variance threshold — lower accepts more blur |
+| `BLUR_THRESHOLD` | `120.0` | Laplacian variance threshold — lower accepts more blur |
 | `MAX_AUTO_IMAGES` | `80` | Maximum training images per person in Frigate |
-| `QUALITY_REPLACEMENT` | `true` | When at cap, swap the lowest-scoring tracked image for a better candidate. Never touches manually added Frigate files. Set `false` to skip people already at cap |
+| `QUALITY_REPLACEMENT` | `true` | When at cap, swap a weaker tracked image for a better candidate. With Frigate scoring active, targets the most redundant image (highest pre-upload recognize score); otherwise uses blur score. Never touches manually added Frigate files. Set `false` to skip people at cap |
+| `FRIGATE_SCORE_CEILING` | `0.0` | Skip uploads whose pre-upload Frigate recognize score exceeds this value — they are already well-covered. `0` disables; requires at least one prior run to have scores |
+| `ENABLE_FRIGATE_SCORES` | `true` | Call Frigate's recognize endpoint pre-upload to store diversity scores used for quality replacement. Adds ~200 ms per upload. Disable to use blur-score replacement only |
 
 ### GPU & Models
 

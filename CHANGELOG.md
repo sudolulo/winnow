@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-13
+
+### Added
+
+- **Pre-upload Frigate recognition scores**: `recognize_face` is now called before each upload to measure how novel the candidate is relative to the existing training set. The score is stored in the tracker (`frigate_scores` field) and drives quality replacement in subsequent runs. Adds ~200 ms per upload.
+- **`ENABLE_FRIGATE_SCORES`** (default `true`): controls all pre-upload Frigate recognize calls. Set `false` to use blur-score replacement only and skip the Frigate round-trip entirely.
+- **`FRIGATE_SCORE_CEILING`** (default `0.0`): skip uploads whose pre-upload recognize score already exceeds this value — those face conditions are already well-covered by the training set. `0` disables (no ceiling); requires at least one prior run to have stored scores.
+- **`get_most_redundant_mapped_file()`**: new upload-tracker function that returns the mapped file with the highest Frigate pre-upload score. High score = the training set already covers that face condition well = the best deletion target for quality replacement.
+- **Cold-start notice**: first run (no existing Frigate model) now logs a clear message explaining why Frigate scores are unavailable and that they will populate on subsequent runs.
+- **4 new tests** for `get_most_redundant_mapped_file` covering score ordering, ties, excludes, and no-score cases.
+
+### Changed
+
+- **Quality replacement now uses Frigate scores**: when Frigate scores are available, at-cap replacement targets the _most redundant_ mapped file (highest pre-upload score) and replaces it only when the candidate is _more novel_ (lower score). Falls back to blur-score comparison when no Frigate scores have been stored yet.
+- **`recognize_face` returns `(face_name, score) | None`** instead of `float | None`: the caller now validates that the recognized person matches the expected person before using the score. Wrong-person scores no longer drive ceiling skips or replacement decisions.
+- **Bootstrap fix**: recognize was previously called below-cap only when `FRIGATE_SCORE_CEILING > 0`, so `frigate_scores` was never populated with default settings and the Frigate replacement path never activated. Recognize is now called for all below-cap uploads when `ENABLE_FRIGATE_SCORES=true`, seeding scores for future at-cap runs regardless of ceiling setting.
+- **Batch GET `/api/faces`**: Frigate file-count lookups are now batched to reduce round-trip overhead on runs with many people.
+- **Skip candidate download on low Frigate confidence**: candidates where the Immich detection confidence is below threshold are now filtered before the full-resolution download, saving bandwidth.
+
+### Removed
+
+- **Post-upload quality gate (`FRIGATE_SCORE_THRESHOLD`)**: enforcement of a Frigate score threshold after upload has been removed. Post-upload scores are taken after the image is already in the training set, so the model has already retrained on it — deleting it at that point is wasteful and disrupts the model for the next Frigate run. Pre-upload scoring (`FRIGATE_SCORE_CEILING`) provides a cleaner signal at the right moment.
+
+### Fixed
+
+- **Frigate replacement path never activated with default settings**: with `FRIGATE_SCORE_CEILING=0.0` (default), the bootstrap call to `recognize_face` was gated behind `CEILING > 0`, so `frigate_scores` stayed empty, `has_frigate_scores` was always False, and the Frigate replacement branch was permanently unreachable. Removing the ceiling guard from the below-cap recognize call breaks the circular dependency.
+- **Schema comment contradiction**: `upload_tracker.py` line-16 comment described `frigate_scores` as "post-upload" while the block comment on lines 22–24 said "pre-upload". Corrected to "pre-upload" throughout.
+- **README default values**: `MIN_FACE_WIDTH` was documented as `50` (actual default: `90`); `BLUR_THRESHOLD` was documented as `100.0` (actual default: `120.0`). Both corrected.
+- **README missing env vars**: `FRIGATE_SCORE_CEILING` and `ENABLE_FRIGATE_SCORES` were present in `config.py` and `.env.example` but absent from the README env var table. Both added.
+- **README quality-replacement description**: Step 8 and the `QUALITY_REPLACEMENT` row now document the dual-mode behaviour (Frigate-score path and blur-score fallback) instead of describing only the original blur-score path.
+
 ## [0.3.3] - 2026-06-13
 
 ### Fixed

@@ -13,16 +13,15 @@ by_person schema (frigate_uploaded_ids.json):
   {
     "asset_ids":      ["immich-id-1", ...],                    # all assets we attempted to upload
     "scores":         {"immich-id-1": 450.3},                  # Laplacian blur variance at upload time
-    "frigate_scores": {"immich-id-1": 0.87},                   # Frigate recognition confidence (0-1) post-upload
+    "frigate_scores": {"immich-id-1": 0.87},                   # Frigate recognition confidence (0-1) pre-upload
     "frigate_files":  {"PersonName-123.webp": "immich-id-1"},  # Frigate filename → asset ID
     "crop_dims":      {"immich-id-1": [640, 480]},             # crop pixel dimensions at upload time
     "frigate_count":  42                                       # last known Frigate training image count
   }
 
-frigate_scores uses the same 0-1 sigmoid-mapped cosine similarity that Frigate
-displays in its UI. When available, quality replacement uses frigate_scores in
-preference to blur scores — an image Frigate cannot recognize is a poor training
-image regardless of sharpness.
+frigate_scores stores pre-upload recognize scores (0-1 sigmoid-mapped cosine
+similarity). High score = the existing training set already covers this face
+condition well. Low score = a gap — novel/diverse for the training set.
 
 frigate_files only contains files winnow uploaded — files added manually through
 Frigate's UI are never mapped here and are never touched by quality replacement.
@@ -147,62 +146,6 @@ def mark_rejected(asset_id: str, person_name: str | None = None) -> None:
     logger.debug(f"Marked {asset_id} as rejected ({person_name})")
 
 
-def remove_and_reclassify_batch(
-    person_name: str, frigate_files_and_assets: list[tuple[str, str]]
-) -> None:
-    """Remove Frigate file mappings and reclassify asset IDs as rejected in one pass.
-
-    Replaces individual remove_frigate_file + reclassify_as_rejected calls in the
-    quality gate batch — 2 file writes total instead of 3×N.
-    """
-    frigate_fns = [fn for fn, _ in frigate_files_and_assets]
-    asset_ids = [aid for _, aid in frigate_files_and_assets]
-
-    # Uploaded tracker: remove file mappings + remove from flat set
-    uploaded_data = _load(UPLOAD_TRACKER_FILE)
-    flat_up = set(uploaded_data.get("uploaded_asset_ids", []))
-    for aid in asset_ids:
-        flat_up.discard(aid)
-    uploaded_data["uploaded_asset_ids"] = sorted(flat_up)
-    by_person = uploaded_data.setdefault("by_person", {})
-    entry = _migrate_entry(by_person.get(person_name, {}))
-    for fn in frigate_fns:
-        entry["frigate_files"].pop(fn, None)
-    by_person[person_name] = entry
-    _save(UPLOAD_TRACKER_FILE, uploaded_data)
-
-    # Rejected tracker: add to flat set + by_person
-    rejected_data = _load(REJECT_TRACKER_FILE)
-    flat_rej = set(rejected_data.get("rejected_asset_ids", []))
-    flat_rej.update(asset_ids)
-    rejected_data["rejected_asset_ids"] = sorted(flat_rej)
-    rej_by_person = rejected_data.setdefault("by_person", {})
-    rej_entry = _migrate_entry(rej_by_person.get(person_name, {}))
-    ids = set(rej_entry["asset_ids"])
-    ids.update(asset_ids)
-    rej_entry["asset_ids"] = sorted(ids)
-    rej_by_person[person_name] = rej_entry
-    _save(REJECT_TRACKER_FILE, rejected_data)
-    logger.debug(f"Batch-reclassified {len(asset_ids)} asset(s) as rejected ({person_name})")
-
-
-def reclassify_as_rejected(asset_id: str, person_name: str | None = None) -> None:
-    """Move a gate-failed asset from the uploaded flat set to rejected.
-
-    Preserves by_person history in the uploaded tracker (scores, crop dims,
-    etc.) but removes the asset from uploaded_asset_ids so it is excluded
-    from future candidate pools via the rejected tracker instead.
-    RESET_PERSON clears both trackers, so a full reset still re-evaluates
-    gate-failed images.
-    """
-    data = _load(UPLOAD_TRACKER_FILE)
-    flat = set(data.get("uploaded_asset_ids", []))
-    flat.discard(asset_id)
-    data["uploaded_asset_ids"] = sorted(flat)
-    _save(UPLOAD_TRACKER_FILE, data)
-    _mark(REJECT_TRACKER_FILE, asset_id, person_name)
-    logger.debug(f"Reclassified {asset_id} as gate-failed rejected ({person_name})")
-
 
 def record_frigate_file(person_name: str, frigate_filename: str, asset_id: str) -> None:
     """Record the mapping from a Frigate training filename to an Immich asset ID."""
@@ -265,61 +208,53 @@ def get_lowest_quality_mapped_file(
     person_name: str, exclude: set[str] | None = None
 ) -> tuple[str, str, float] | None:
     """Return (frigate_filename, asset_id, score) for the mapped file with the lowest
-    quality score, or None if no mapped files with known scores exist.
+    blur score, or None if no mapped files with known scores exist.
 
-    Uses Frigate recognition scores (0-1) when any are present for this person,
-    treating files without a Frigate score as 0.0. Falls back to Laplacian blur
-    scores when no Frigate scores exist yet.
-
-    Pass `exclude` to skip files that failed to delete this run without removing
-    them from the tracker — they remain candidates on the next run.
+    Used for quality replacement when no Frigate scores are available.
+    Pass `exclude` to skip files that failed to delete this run.
     """
     data = _load(UPLOAD_TRACKER_FILE)
     entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
     frigate_files = entry.get("frigate_files", {})
     blur_scores = entry.get("scores", {})
-    frigate_scores = entry.get("frigate_scores", {})
 
-    mapped = [
-        (ff, asset_id)
+    candidates = [
+        (ff, asset_id, blur_scores[asset_id])
         for ff, asset_id in frigate_files.items()
-        if exclude is None or ff not in exclude
+        if (exclude is None or ff not in exclude)
+        and asset_id in blur_scores
     ]
-    if not mapped:
-        return None
-
-    use_frigate = any(asset_id in frigate_scores for _, asset_id in mapped)
-
-    if use_frigate:
-        candidates = [
-            (ff, asset_id, frigate_scores.get(asset_id, 0.0))
-            for ff, asset_id in mapped
-        ]
-    else:
-        candidates = [
-            (ff, asset_id, blur_scores[asset_id])
-            for ff, asset_id in mapped
-            if asset_id in blur_scores
-        ]
 
     if not candidates:
         return None
     return min(candidates, key=lambda x: x[2])
 
 
-def get_min_frigate_score(person_name: str) -> float | None:
-    """Return the lowest stored Frigate recognition score for this person's mapped files.
+def get_most_redundant_mapped_file(
+    person_name: str, exclude: set[str] | None = None
+) -> tuple[str, str, float] | None:
+    """Return (frigate_filename, asset_id, score) for the mapped file with the highest
+    Frigate recognition score, or None if no mapped files with Frigate scores exist.
 
-    Returns None if no Frigate scores have been recorded yet (cold start or
-    feature not yet active). Used to derive a dynamic quality threshold so new
-    uploads must score at least as well as the weakest image already in the set.
+    High Frigate score = the training set already covers this face condition well
+    = the most redundant file and therefore the best replacement target.
+    Pass `exclude` to skip files that failed to delete this run.
     """
     data = _load(UPLOAD_TRACKER_FILE)
     entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
     frigate_files = entry.get("frigate_files", {})
     frigate_scores = entry.get("frigate_scores", {})
-    scored = [frigate_scores[aid] for aid in frigate_files.values() if aid in frigate_scores]
-    return min(scored) if scored else None
+
+    candidates = [
+        (ff, asset_id, frigate_scores[asset_id])
+        for ff, asset_id in frigate_files.items()
+        if (exclude is None or ff not in exclude)
+        and asset_id in frigate_scores
+    ]
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda x: x[2])
 
 
 def get_frigate_filename_for_asset(person_name: str, asset_id: str) -> str | None:
