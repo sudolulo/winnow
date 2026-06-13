@@ -12,9 +12,41 @@ from .executor import execute_jobs, upload_to_frigate
 from .immich_api import get_people
 from .jobs import _show_preview, auto_configure, interactive_configure
 from .log_config import console, setup_logging
-from .upload_tracker import get_person_summary, reset_person
+from .upload_tracker import find_by_crop_dimension, get_person_summary, reset_person
 
 logger = logging.getLogger(__name__)
+
+
+def _handle_trace_crop(size_str: str) -> None:
+    """Print tracker records whose crop dimension matches the given pixel size and exit."""
+    try:
+        size = int(size_str)
+    except ValueError:
+        rprint(f"[bold red]TRACE_CROP_SIZE must be an integer, got: {size_str!r}[/bold red]")
+        sys.exit(1)
+
+    immich_url = os.environ.get("IMMICH_URL", "").rstrip("/")
+    matches = find_by_crop_dimension(size)
+    if not matches:
+        rprint(f"[yellow]No crops with dimension {size}px found in tracker.[/yellow]")
+        rprint("[dim]Note: crop dimensions are only recorded for uploads made after this feature was added.[/dim]")
+        sys.exit(0)
+
+    rprint(f"\n[bold]Crops matching dimension {size}px:[/bold] ({len(matches)} found)\n")
+    for m in matches:
+        rprint(f"  [bold cyan]{m['person']}[/bold cyan]")
+        rprint(f"    Dimensions:   {m['width']}×{m['height']}px")
+        rprint(f"    Asset ID:     {m['asset_id']}")
+        if immich_url:
+            rprint(f"    Immich URL:   {immich_url}/photos/{m['asset_id']}")
+        blur = m.get("blur_score")
+        rprint(f"    Blur score:   {blur:.1f}" if blur is not None else "    Blur score:   unknown")
+        if m.get("frigate_filename"):
+            rprint(f"    Frigate file: {m['frigate_filename']}")
+        else:
+            rprint("    Frigate file: [dim]unmapped (reconciliation race)[/dim]")
+        rprint()
+    sys.exit(0)
 
 
 def main() -> None:
@@ -22,6 +54,10 @@ def main() -> None:
     try:
         verbose = os.environ.get("VERBOSE", "").lower() in ("true", "1", "yes")
         setup_logging(verbose=verbose)
+
+        trace_size = os.environ.get("TRACE_CROP_SIZE", "").strip()
+        if trace_size:
+            _handle_trace_crop(trace_size)
 
         console.print(r"""
     [bold blue]winnow[/bold blue]

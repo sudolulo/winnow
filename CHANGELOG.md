@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-06-13
+
+### Added
+
+- **Crop dimension tracing**: winnow now records the pixel dimensions (width × height) of each face crop at upload time in the tracker (`crop_dims` field). Run `TRACE_CROP_SIZE=3848 winnow` to look up which Immich asset produced a crop with that pixel dimension — output includes person name, asset ID, Immich URL, blur score, and the Frigate filename. Useful for tracing low-quality or unexpected images visible in Frigate back to their source.
+
 ## [0.3.1] - 2026-06-13
 
 ### Fixed

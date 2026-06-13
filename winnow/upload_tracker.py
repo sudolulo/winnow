@@ -14,6 +14,7 @@ by_person schema (frigate_uploaded_ids.json):
     "asset_ids":     ["immich-id-1", ...],                    # all assets we attempted to upload
     "scores":        {"immich-id-1": 450.3},                   # Laplacian blur variance at upload time
     "frigate_files": {"PersonName-123.webp": "immich-id-1"},  # Frigate filename → asset ID
+    "crop_dims":     {"immich-id-1": [640, 480]},             # crop pixel dimensions at upload time
     "frigate_count": 42                                       # last known Frigate training image count
   }
 
@@ -76,14 +77,21 @@ def _get_ids(entry: list | dict) -> list[str]:
 def _migrate_entry(entry: list | dict) -> dict:
     """Ensure by_person entry is in the current dict format."""
     if isinstance(entry, list):
-        return {"asset_ids": sorted(entry), "scores": {}, "frigate_files": {}}
+        return {"asset_ids": sorted(entry), "scores": {}, "frigate_files": {}, "crop_dims": {}}
     entry.setdefault("asset_ids", [])
     entry.setdefault("scores", {})
     entry.setdefault("frigate_files", {})
+    entry.setdefault("crop_dims", {})
     return entry
 
 
-def _mark(filename: str, asset_id: str, person_name: str | None, score: float | None = None) -> None:
+def _mark(
+    filename: str,
+    asset_id: str,
+    person_name: str | None,
+    score: float | None = None,
+    crop_dims: tuple[int, int] | None = None,
+) -> None:
     data = _load(filename)
     flat_key = _flat_key(filename)
     flat = set(data.get(flat_key, []))
@@ -97,6 +105,8 @@ def _mark(filename: str, asset_id: str, person_name: str | None, score: float | 
         entry["asset_ids"] = sorted(ids)
         if score is not None:
             entry["scores"][asset_id] = round(score, 4)
+        if crop_dims is not None:
+            entry["crop_dims"][asset_id] = [crop_dims[0], crop_dims[1]]
         by_person[person_name] = entry
     _save(filename, data)
 
@@ -111,8 +121,13 @@ def load_rejected_ids() -> set[str]:
     return _load_flat(REJECT_TRACKER_FILE)
 
 
-def mark_uploaded(asset_id: str, person_name: str | None = None, score: float | None = None) -> None:
-    _mark(UPLOAD_TRACKER_FILE, asset_id, person_name, score=score)
+def mark_uploaded(
+    asset_id: str,
+    person_name: str | None = None,
+    score: float | None = None,
+    crop_dims: tuple[int, int] | None = None,
+) -> None:
+    _mark(UPLOAD_TRACKER_FILE, asset_id, person_name, score=score, crop_dims=crop_dims)
     logger.debug(f"Marked {asset_id} as uploaded ({person_name})")
 
 
@@ -190,6 +205,33 @@ def get_lowest_quality_mapped_file(
     if not candidates:
         return None
     return min(candidates, key=lambda x: x[2])
+
+
+def find_by_crop_dimension(size: int) -> list[dict]:
+    """Return all tracked crops whose width or height matches `size` pixels.
+
+    Returns a list of dicts: {person, asset_id, width, height, blur_score, frigate_filename}.
+    frigate_filename is None when the Frigate mapping was lost to a reconciliation race.
+    """
+    data = _load(UPLOAD_TRACKER_FILE)
+    results = []
+    for person_name, raw_entry in data.get("by_person", {}).items():
+        entry = _migrate_entry(raw_entry)
+        scores = entry.get("scores", {})
+        frigate_files = entry.get("frigate_files", {})
+        asset_to_frigate = {v: k for k, v in frigate_files.items()}
+        for asset_id, dims in entry.get("crop_dims", {}).items():
+            w, h = dims[0], dims[1]
+            if w == size or h == size:
+                results.append({
+                    "person": person_name,
+                    "asset_id": asset_id,
+                    "width": w,
+                    "height": h,
+                    "blur_score": scores.get(asset_id),
+                    "frigate_filename": asset_to_frigate.get(asset_id),
+                })
+    return results
 
 
 def update_frigate_count(person_name: str, count: int) -> None:

@@ -69,9 +69,10 @@ def process_face_mode(
     output_dir: str,
     count: int,
     min_width: int | None = None,
-) -> bool:
+) -> tuple[int, int] | None:
     """Crop face based on Immich metadata and save to output directory.
 
+    Returns (width, height) of the saved crop, or None if no crop was saved.
     If face alignment is enabled and landmarks are available, produces
     an aligned 112x112 crop. Otherwise falls back to bounding box crop
     with configurable margin.
@@ -90,7 +91,7 @@ def process_face_mode(
 
     if not face_info:
         logger.debug(f"No face info for {person.get('name')} in asset {asset.get('id')}")
-        return False
+        return None
 
     img_w, img_h = img.size
     meta_w = face_info.get("imageWidth") or img_w
@@ -106,7 +107,7 @@ def process_face_mode(
     face_w, face_h = x2 - x1, y2 - y1
     if face_w < min_width or face_h < min_width:
         logger.debug(f"Face too small ({face_w:.1f}x{face_h:.1f})")
-        return False
+        return None
 
     # Try face alignment if enabled and landmarks available
     if Config.ENABLE_FACE_ALIGNMENT:
@@ -117,7 +118,7 @@ def process_face_mode(
             aligned = align_face(img, scaled_landmarks)
             if aligned is not None:
                 _save_jpeg(aligned, os.path.join(output_dir, f"{count}.jpg"))
-                return True
+                return aligned.size
 
     # Fall back to bounding box crop with configurable margin
     margin = Config.FACE_MARGIN
@@ -131,7 +132,7 @@ def process_face_mode(
 
     face_crop = img.crop(crop_box)
     _save_jpeg(face_crop, os.path.join(output_dir, f"{count}.jpg"))
-    return True
+    return face_crop.size
 
 
 def process_object_mode(

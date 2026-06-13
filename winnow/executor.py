@@ -170,9 +170,10 @@ def execute_jobs(jobs: list[dict]) -> None:
                 shutil.rmtree(person_dir)
             os.makedirs(person_dir, exist_ok=True)
 
-            # Track filename → asset_id and filename → confidence score
+            # Track filename → asset_id, filename → confidence score, filename → crop dims
             asset_map: dict[str, str] = {}
             score_map: dict[str, float | None] = {}
+            dims_map: dict[str, tuple[int, int]] = {}
 
             count = 0
             for asset in assets:
@@ -208,6 +209,8 @@ def execute_jobs(jobs: list[dict]) -> None:
                             filename = f"{count}.jpg"
                             asset_map[filename] = asset["id"]
                             score_map[filename] = asset.get("quality_score")
+                            if mode == "face" and isinstance(saved, tuple):
+                                dims_map[filename] = saved
                             # Time-spread path: compute blur score from the downloaded
                             # image. Cap at 1440px so the scale matches the preview
                             # thumbnails the embedding path uses for scoring — Laplacian
@@ -244,6 +247,7 @@ def execute_jobs(jobs: list[dict]) -> None:
             # Store maps on the job so upload_to_frigate can use them
             job["asset_map"] = asset_map
             job["score_map"] = score_map
+            job["dims_map"] = dims_map
 
             progress.remove_task(job_task)
 
@@ -324,6 +328,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
             asset_map = filename_to_asset_id.get(name, {})
             score_map = job.get("score_map", {})
+            dims_map = job.get("dims_map", {})
             person_files = sorted(asset_map.keys())
 
             if not person_files:
@@ -424,7 +429,12 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
                             asset_id = asset_map.get(fname)
                             if asset_id:
-                                mark_uploaded(asset_id, person_name=name, score=score_map.get(fname))
+                                mark_uploaded(
+                                    asset_id,
+                                    person_name=name,
+                                    score=score_map.get(fname),
+                                    crop_dims=dims_map.get(fname),
+                                )
                                 actually_uploaded.append((fname, asset_id))
 
                             break
