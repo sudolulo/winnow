@@ -26,7 +26,7 @@ class _Config:
     YEARS_FILTER: int = 10
 
     # Quality filtering
-    MIN_FACE_WIDTH: int = 50
+    MIN_FACE_WIDTH: int = 90
     BLUR_THRESHOLD: float = 100.0
     MIN_CONFIDENCE: float = 0.7
     MAX_AUTO_IMAGES: int = 80
@@ -56,7 +56,7 @@ class _Config:
         self.API_KEY = os.getenv("API_KEY")
         self.OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./frigate_train")
         self.YEARS_FILTER = int(os.getenv("YEARS_FILTER", "10"))
-        self.MIN_FACE_WIDTH = int(os.getenv("MIN_FACE_WIDTH", "50"))
+        self.MIN_FACE_WIDTH = int(os.getenv("MIN_FACE_WIDTH", "90"))
         self.MIN_FACE_COUNT = int(os.getenv("MIN_FACE_COUNT", "0"))
         self.BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "100.0"))
         self.MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.7"))
