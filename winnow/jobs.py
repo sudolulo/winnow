@@ -283,14 +283,11 @@ def auto_configure(people: list[dict]) -> list[dict]:
             rprint(f"  [dim]Skipping {name} (0 new images after dedup).[/dim]")
             continue
 
-        # Enforce MAX_AUTO_IMAGES as a lifetime cap per person.
-        # Priority: live Frigate count → last cached Frigate count → local uploaded count.
+        # Enforce MAX_AUTO_IMAGES against the tracked file count only.
+        # Manually-added Frigate files are invisible to this cap so users can
+        # curate their own files without shrinking winnow's managed quota.
         person_summary = upload_summary.get(name, {})
-        if frigate_counts is not None:
-            already_uploaded = frigate_counts.get(name, 0)
-        else:
-            fc = person_summary.get("frigate_count")
-            already_uploaded = fc if fc is not None else person_summary.get("uploaded", 0)
+        already_uploaded = len(person_summary.get("frigate_files", {}))
         capacity = Config.MAX_AUTO_IMAGES - already_uploaded
         if capacity <= 0:
             if not Config.QUALITY_REPLACEMENT:

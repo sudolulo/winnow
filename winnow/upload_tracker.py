@@ -147,6 +147,17 @@ def remove_frigate_file(person_name: str, frigate_filename: str) -> None:
     logger.debug(f"Removed Frigate file mapping {frigate_filename} ({person_name})")
 
 
+def get_tracked_frigate_file_count(person_name: str) -> int:
+    """Return the number of Frigate training files winnow has mapped for this person.
+
+    Used as the cap baseline so that manually-added Frigate files do not
+    consume slots from winnow's managed quota.
+    """
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    return len(entry["frigate_files"])
+
+
 def get_lowest_quality_mapped_file(person_name: str) -> tuple[str, str, float] | None:
     """Return (frigate_filename, asset_id, score) for the mapped file with the lowest
     confidence score, or None if no mapped files with known scores exist."""

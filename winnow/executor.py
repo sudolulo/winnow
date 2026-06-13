@@ -19,6 +19,7 @@ from .immich_api import fetch_face_data, fetch_full_image
 from .log_config import console
 from .upload_tracker import (
     get_lowest_quality_mapped_file,
+    get_tracked_frigate_file_count,
     mark_rejected,
     mark_uploaded,
     record_frigate_file,
@@ -316,9 +317,11 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             person_uploaded = 0
             person_failed = 0
 
-            known_frigate_files: set[str] = set(get_frigate_person_files(name) or [])
-            known_frigate_files_at_start = set(known_frigate_files)
-            effective_count = len(known_frigate_files)
+            # Snapshot live Frigate files for post-upload reconciliation diff only.
+            # effective_count is sourced from the tracker (mapped files) so that
+            # manually-added Frigate files don't consume winnow's managed quota.
+            known_frigate_files_at_start: set[str] = set(get_frigate_person_files(name) or [])
+            effective_count = get_tracked_frigate_file_count(name)
             quality_replacement = job.get("config", {}).get("quality_replacement", False)
             actually_uploaded: list[tuple[str, str | None]] = []
 
@@ -353,7 +356,6 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     )
                     if delete_frigate_person_files(name, [worst_frigate_file]):
                         remove_frigate_file(name, worst_frigate_file)
-                        known_frigate_files.discard(worst_frigate_file)
                         effective_count -= 1
                     else:
                         logger.warning(f"Failed to delete {worst_frigate_file} for {name}, skipping replacement")

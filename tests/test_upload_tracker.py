@@ -102,6 +102,23 @@ def test_remove_frigate_file_does_not_unmark_asset():
     assert filter_already_uploaded(["asset-a1"]) == []
 
 
+def test_get_tracked_frigate_file_count_zero_when_empty():
+    from winnow.upload_tracker import get_tracked_frigate_file_count
+    assert get_tracked_frigate_file_count("Alice") == 0
+
+
+def test_get_tracked_frigate_file_count_counts_only_mapped():
+    """Only files explicitly recorded via record_frigate_file count toward the cap."""
+    from winnow.upload_tracker import get_tracked_frigate_file_count, mark_uploaded, record_frigate_file
+    mark_uploaded("asset-a", person_name="Alice")
+    mark_uploaded("asset-b", person_name="Alice")
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a")
+    # asset-b is uploaded but not yet mapped — does not count
+    assert get_tracked_frigate_file_count("Alice") == 1
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-b")
+    assert get_tracked_frigate_file_count("Alice") == 2
+
+
 def test_get_lowest_quality_mapped_file_none_when_empty():
     from winnow.upload_tracker import get_lowest_quality_mapped_file
     assert get_lowest_quality_mapped_file("Alice") is None
