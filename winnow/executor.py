@@ -357,6 +357,17 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 known_frigate_files_at_start: set[str] = get_tracked_frigate_filenames(name)
             else:
                 known_frigate_files_at_start: set[str] = set(_snapshot)
+                # Remove tracker mappings for files that no longer exist in Frigate
+                # (manually deleted, or cleaned up outside winnow). This corrects the
+                # effective_count so those slots are available for new uploads.
+                stale = get_tracked_frigate_filenames(name) - known_frigate_files_at_start
+                for stale_fn in stale:
+                    remove_frigate_file(name, stale_fn)
+                if stale:
+                    progress.console.print(
+                        f"  [dim]{name}: cleared {len(stale)} stale mapping(s)"
+                        " (file(s) no longer in Frigate)[/dim]"
+                    )
             effective_count = get_tracked_frigate_file_count(name)
             pre_run_count = effective_count
             quality_replacement = job.get("config", {}).get("quality_replacement", False)
@@ -367,6 +378,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 effective_threshold = max(Config.FRIGATE_SCORE_THRESHOLD, _dynamic or 0.0)
                 if _dynamic is not None and _dynamic > Config.FRIGATE_SCORE_THRESHOLD:
                     logger.debug(f"{name}: dynamic Frigate score threshold {_dynamic:.3f}")
+                if pre_run_count == 0:
+                    progress.console.print(
+                        f"  [dim]{name}: first run — quality gate will apply from the next run[/dim]"
+                    )
             else:
                 effective_threshold = 0.0
             actually_uploaded: list[tuple[str, str | None]] = []
@@ -397,7 +412,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         progress.console.print(f"    [dim]⏭  {fname}: at cap, quality replacement disabled[/dim]")
                         progress.advance(upload_task)
                         continue
-                    using_fscore = has_frigate_scores(name)
+                    using_fscore = has_frigate_scores(name) and Config.ENABLE_FRIGATE_SCORES
                     if using_fscore:
                         candidate_score = recognize_face(fpath)
                         if candidate_score is None:
@@ -458,7 +473,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
                             asset_id = asset_map.get(fname)
                             if asset_id:
-                                post_fscore = recognize_face(fpath)
+                                post_fscore = recognize_face(fpath) if Config.ENABLE_FRIGATE_SCORES else None
                                 mark_uploaded(
                                     asset_id,
                                     person_name=name,
