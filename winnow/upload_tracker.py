@@ -11,10 +11,14 @@ Both are excluded from future candidate pools. To reset:
 
 by_person schema (frigate_uploaded_ids.json):
   {
-    "asset_ids":    ["immich-id-1", ...],   # all assets we attempted to upload
-    "scores":       {"immich-id-1": 0.953}, # Immich face confidence at upload time
-    "frigate_count": 42                     # last known Frigate training image count
+    "asset_ids":     ["immich-id-1", ...],                    # all assets we attempted to upload
+    "scores":        {"immich-id-1": 0.953},                  # Immich face confidence at upload time
+    "frigate_files": {"PersonName-123.webp": "immich-id-1"},  # Frigate filename → asset ID
+    "frigate_count": 42                                       # last known Frigate training image count
   }
+
+frigate_files only contains files winnow uploaded — files added manually through
+Frigate's UI are never mapped here and are never touched by quality replacement.
 """
 
 import json
@@ -72,9 +76,10 @@ def _get_ids(entry: list | dict) -> list[str]:
 def _migrate_entry(entry: list | dict) -> dict:
     """Ensure by_person entry is in the current dict format."""
     if isinstance(entry, list):
-        return {"asset_ids": sorted(entry), "scores": {}}
+        return {"asset_ids": sorted(entry), "scores": {}, "frigate_files": {}}
     entry.setdefault("asset_ids", [])
     entry.setdefault("scores", {})
+    entry.setdefault("frigate_files", {})
     return entry
 
 
@@ -116,6 +121,49 @@ def mark_rejected(asset_id: str, person_name: str | None = None) -> None:
     logger.debug(f"Marked {asset_id} as rejected ({person_name})")
 
 
+def record_frigate_file(person_name: str, frigate_filename: str, asset_id: str) -> None:
+    """Record the mapping from a Frigate training filename to an Immich asset ID."""
+    data = _load(UPLOAD_TRACKER_FILE)
+    by_person = data.setdefault("by_person", {})
+    entry = _migrate_entry(by_person.get(person_name, {}))
+    entry["frigate_files"][frigate_filename] = asset_id
+    by_person[person_name] = entry
+    _save(UPLOAD_TRACKER_FILE, data)
+    logger.debug(f"Mapped Frigate file {frigate_filename} → {asset_id} ({person_name})")
+
+
+def remove_frigate_file(person_name: str, frigate_filename: str) -> None:
+    """Remove a Frigate filename from the mapping after it has been deleted.
+
+    Does NOT unmark the source asset_id — the deletion was deliberate and
+    we don't want to re-upload the inferior image on the next run.
+    """
+    data = _load(UPLOAD_TRACKER_FILE)
+    by_person = data.get("by_person", {})
+    entry = _migrate_entry(by_person.get(person_name, {}))
+    entry["frigate_files"].pop(frigate_filename, None)
+    by_person[person_name] = entry
+    _save(UPLOAD_TRACKER_FILE, data)
+    logger.debug(f"Removed Frigate file mapping {frigate_filename} ({person_name})")
+
+
+def get_lowest_quality_mapped_file(person_name: str) -> tuple[str, str, float] | None:
+    """Return (frigate_filename, asset_id, score) for the mapped file with the lowest
+    confidence score, or None if no mapped files with known scores exist."""
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    frigate_files = entry.get("frigate_files", {})
+    scores = entry.get("scores", {})
+    candidates = [
+        (frigate_filename, asset_id, scores[asset_id])
+        for frigate_filename, asset_id in frigate_files.items()
+        if asset_id in scores
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda x: x[2])
+
+
 def update_frigate_count(person_name: str, count: int) -> None:
     """Record Frigate's authoritative training image count for a person."""
     data = _load(UPLOAD_TRACKER_FILE)
@@ -143,7 +191,7 @@ def reset_person(person_name: str) -> None:
 
 
 def get_person_summary() -> dict[str, dict]:
-    """Return {person_name: {uploaded, rejected, frigate_count, scores}} for display/capacity."""
+    """Return {person_name: {uploaded, rejected, frigate_count, scores, frigate_files}} for display/capacity."""
     uploaded_data = _load(UPLOAD_TRACKER_FILE).get("by_person", {})
     rejected_data = _load(REJECT_TRACKER_FILE).get("by_person", {})
     names = set(uploaded_data) | set(rejected_data)
@@ -156,6 +204,7 @@ def get_person_summary() -> dict[str, dict]:
             "rejected": len(_get_ids(r_entry)),
             "frigate_count": u_entry.get("frigate_count") if isinstance(u_entry, dict) else None,
             "scores": u_entry.get("scores", {}) if isinstance(u_entry, dict) else {},
+            "frigate_files": u_entry.get("frigate_files", {}) if isinstance(u_entry, dict) else {},
         }
     return result
 

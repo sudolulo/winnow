@@ -22,6 +22,7 @@ def test_config_loads_defaults(monkeypatch):
     assert cfg.BLUR_THRESHOLD == 100.0
     assert cfg.MIN_CONFIDENCE == 0.7
     assert cfg.MAX_AUTO_IMAGES == 80
+    assert cfg.QUALITY_REPLACEMENT is True
     assert cfg.FACE_MARGIN == 0.15
     assert cfg.USE_FULL_RESOLUTION is True
     assert cfg.ENABLE_FACE_ALIGNMENT is True
@@ -39,6 +40,7 @@ def test_config_env_overrides(monkeypatch):
     monkeypatch.setenv("BLUR_THRESHOLD", "50.0")
     monkeypatch.setenv("MIN_CONFIDENCE", "0.9")
     monkeypatch.setenv("MAX_AUTO_IMAGES", "40")
+    monkeypatch.setenv("QUALITY_REPLACEMENT", "false")
     monkeypatch.setenv("FACE_MARGIN", "0.2")
     monkeypatch.setenv("USE_FULL_RESOLUTION", "false")
     monkeypatch.setenv("ENABLE_FACE_ALIGNMENT", "false")
@@ -54,6 +56,7 @@ def test_config_env_overrides(monkeypatch):
     assert cfg.BLUR_THRESHOLD == 50.0
     assert cfg.MIN_CONFIDENCE == 0.9
     assert cfg.MAX_AUTO_IMAGES == 40
+    assert cfg.QUALITY_REPLACEMENT is False
     assert cfg.FACE_MARGIN == 0.2
     assert cfg.USE_FULL_RESOLUTION is False
     assert cfg.ENABLE_FACE_ALIGNMENT is False

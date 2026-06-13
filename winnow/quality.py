@@ -20,6 +20,7 @@ class QualityResult:
 
     passed: bool
     reasons: list[str] = field(default_factory=list)
+    blur_score: float | None = None
 
     @property
     def reason(self) -> str:
@@ -113,9 +114,12 @@ def assess_quality(
     img_np = np.asarray(img)
     reasons = []
 
-    # Run all checks, collect failures
+    # Compute laplacian variance once (used by check_blur and stored as blur_score)
+    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY) if img_np.ndim == 3 else img_np
+    blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
     checks = [
-        check_blur(img_np, blur_threshold),
+        (blur_score >= blur_threshold, f"Blurry (laplacian={blur_score:.1f}, threshold={blur_threshold})" if blur_score < blur_threshold else ""),
         check_grayscale(img_np),
         check_exposure(img_np),
         check_confidence(confidence, min_confidence),
@@ -129,5 +133,5 @@ def assess_quality(
         if not passed:
             reasons.append(reason)
 
-    return QualityResult(passed=len(reasons) == 0, reasons=reasons)
+    return QualityResult(passed=len(reasons) == 0, reasons=reasons, blur_score=blur_score)
 
