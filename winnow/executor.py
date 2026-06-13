@@ -305,7 +305,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
     rprint(f"  People: [bold]{len(face_jobs)}[/bold], Total images: [bold]{total_files}[/bold]")
 
-    uploaded, failed = 0, 0
+    uploaded, failed, gate_total = 0, 0, 0
     max_retries = 2
 
     with Progress(
@@ -360,15 +360,15 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             effective_count = get_tracked_frigate_file_count(name)
             pre_run_count = effective_count
             quality_replacement = job.get("config", {}).get("quality_replacement", False)
-            # Dynamic threshold: at least as strict as the weakest image already stored.
-            # Takes whichever is higher — the configured floor or the current set minimum.
-            _dynamic = get_min_frigate_score(name)
-            effective_threshold = max(
-                Config.FRIGATE_SCORE_THRESHOLD,
-                _dynamic if _dynamic is not None else 0.0,
-            )
-            if _dynamic is not None and _dynamic > Config.FRIGATE_SCORE_THRESHOLD:
-                logger.debug(f"{name}: dynamic Frigate score threshold {_dynamic:.3f}")
+            # Dynamic threshold: only active when FRIGATE_SCORE_THRESHOLD > 0.
+            # Zero means the gate is disabled — the dynamic floor does not activate.
+            if Config.FRIGATE_SCORE_THRESHOLD > 0:
+                _dynamic = get_min_frigate_score(name)
+                effective_threshold = max(Config.FRIGATE_SCORE_THRESHOLD, _dynamic or 0.0)
+                if _dynamic is not None and _dynamic > Config.FRIGATE_SCORE_THRESHOLD:
+                    logger.debug(f"{name}: dynamic Frigate score threshold {_dynamic:.3f}")
+            else:
+                effective_threshold = 0.0
             actually_uploaded: list[tuple[str, str | None]] = []
             failed_deletes: set[str] = set()
             quality_gate_failed: set[str] = set()
@@ -549,33 +549,46 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 _reconcile_frigate_mappings(name, known_frigate_files_at_start, actually_uploaded)
 
             # Post-reconcile quality gate: filenames are now mapped, so we can delete.
+            gate_removed = 0
             if quality_gate_failed:
-                removed = 0
+                to_delete: list[tuple[str, str]] = []  # (frigate_fn, asset_id)
                 for asset_id in quality_gate_failed:
                     frigate_fn = get_frigate_filename_for_asset(name, asset_id)
-                    if frigate_fn and delete_frigate_person_files(name, [frigate_fn]):
-                        remove_frigate_file(name, frigate_fn)
-                        effective_count -= 1
-                        removed += 1
+                    if frigate_fn:
+                        to_delete.append((frigate_fn, asset_id))
                     else:
                         logger.warning(
                             f"{name}: could not remove low-score file for {asset_id}"
                             " — no Frigate filename mapped (reconciliation race?)"
                         )
-                if removed:
-                    progress.console.print(
-                        f"  [yellow]🗑  {name}: removed {removed} image(s) below"
-                        f" Frigate score threshold ({effective_threshold:.2f})[/yellow]"
-                    )
+                if to_delete:
+                    if delete_frigate_person_files(name, [fn for fn, _ in to_delete]):
+                        for frigate_fn, _aid in to_delete:
+                            remove_frigate_file(name, frigate_fn)
+                        gate_removed = len(to_delete)
+                        effective_count -= gate_removed
+                        gate_total += gate_removed
+                    else:
+                        logger.warning(
+                            f"{name}: batch delete of {len(to_delete)} low-score file(s) failed"
+                        )
 
             # Per-person summary
-            if person_failed == 0:
+            if person_failed == 0 and gate_removed == 0:
                 progress.console.print(
                     f"  ✅ {name}: {person_uploaded}/{person_uploaded} uploaded"
                 )
-            else:
+            elif person_failed == 0:
+                net = person_uploaded - gate_removed
                 progress.console.print(
-                    f"  ⚠️  {name}: {person_uploaded} succeeded, {person_failed} failed"
+                    f"  [yellow]✅ {name}: {person_uploaded} uploaded,"
+                    f" {gate_removed} removed by quality gate (score < {effective_threshold:.2f})"
+                    f" → {net} net[/yellow]"
+                )
+            else:
+                gate_note = f", {gate_removed} removed by quality gate" if gate_removed else ""
+                progress.console.print(
+                    f"  ⚠️  {name}: {person_uploaded} succeeded, {person_failed} failed{gate_note}"
                 )
 
     # Grand summary
@@ -585,6 +598,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
         rprint(f"    ❌ Failed:    [red]{failed}[/red]")
     else:
         rprint("    ❌ Failed:    0")
+    if gate_total:
+        rprint(f"    🗑  Removed (quality gate): [yellow]{gate_total}[/yellow]")
 
     if failed > 0:
         rprint("  [yellow]Check logs above for per-file error details.[/yellow]")
