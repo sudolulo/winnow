@@ -1,6 +1,6 @@
 # winnow
 
-[![Docker](https://github.com/sudolulo/winnow/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/docker-publish.yml) [![Test](https://github.com/sudolulo/winnow/actions/workflows/test.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/test.yml) [![Immich](https://img.shields.io/badge/Immich-v1.106%2B-blueviolet)](https://immich.app) [![Frigate](https://img.shields.io/badge/Frigate-Ready-brightgreen)](https://frigate.video)
+[![Docker](https://github.com/sudolulo/winnow/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/docker-publish.yml) [![Test](https://github.com/sudolulo/winnow/actions/workflows/test.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/test.yml) [![GitHub release](https://img.shields.io/github/v/release/sudolulo/winnow)](https://github.com/sudolulo/winnow/releases/latest) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE) [![Immich](https://img.shields.io/badge/Immich-v1.106%2B-blueviolet)](https://immich.app) [![Frigate](https://img.shields.io/badge/Frigate-Ready-brightgreen)](https://frigate.video)
 
 **Docs:** [Setup](https://github.com/sudolulo/winnow/wiki/Setup) · [Troubleshooting](https://github.com/sudolulo/winnow/wiki/Troubleshooting) · [FAQ](https://github.com/sudolulo/winnow/wiki/FAQ)
 
@@ -178,7 +178,7 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | `MIN_CONFIDENCE` | `0.7` | Minimum Immich face detection confidence |
 | `BLUR_THRESHOLD` | `100.0` | Laplacian variance threshold — lower accepts more blur |
 | `MAX_AUTO_IMAGES` | `80` | Maximum training images per person in Frigate |
-| `QUALITY_REPLACEMENT` | `true` | When at cap, replace the lowest-quality mapped training image if a better candidate is found. Only affects images winnow uploaded — manually added Frigate training files are never touched. Set `false` to disable and skip people already at cap |
+| `QUALITY_REPLACEMENT` | `true` | When at cap, swap the lowest-quality uploaded image for a better candidate. Never touches manually added Frigate files. Set `false` to skip people already at cap |
 
 ### GPU & Models
 
