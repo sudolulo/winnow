@@ -11,6 +11,8 @@
 
 Frigate's face recognition is only as good as its training data — and the key quality metric is **diversity**, not volume. A hundred photos from the same week teach the model one lighting condition. What you need is a spread: different years, different angles, different lighting, different contexts. Your photo library already has that data. winnow finds and delivers the right subset automatically.
 
+> **winnow only touches files it uploaded.** Faces added to Frigate manually through its UI are never deleted, replaced, or modified — not by quality replacement, not by `RESET_PERSON`, not by stale cleanup. If you have a curated training set you want to keep, it is safe.
+
 ---
 
 ## How It Works
@@ -222,7 +224,7 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | :--- | :--- | :--- |
 | `DRY_RUN` | `false` | Preview selection without downloading or uploading |
 | `RETRY_REJECTED` | `false` | Re-attempt assets previously rejected by Frigate |
-| `RESET_PERSON` | *(unset)* | Clear upload and rejection history for one person by name |
+| `RESET_PERSON` | *(unset)* | Clear upload history for one person and delete their winnow-managed Frigate training files so the next run starts fresh. Manually added Frigate files are never touched |
 
 ### Scheduling
 

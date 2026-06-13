@@ -13,7 +13,12 @@ from rich import print as rprint
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from .config import Config, get_headers
-from .frigate_api import delete_frigate_person_files, get_all_frigate_person_files, get_frigate_person_files, recognize_face
+from .frigate_api import (
+    delete_frigate_person_files,
+    get_all_frigate_person_files,
+    get_frigate_person_files,
+    recognize_face,
+)
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
 from .immich_api import fetch_face_data, fetch_full_image
 from .log_config import console
@@ -479,7 +484,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             remove_frigate_file(name, target_frigate_file)
                             person_has_fscores = has_frigate_scores(name)
                             effective_count -= 1
-                            min_quality_score_for_slot = None  # clear any blur-mode slot floor — Frigate uses a different score metric
+                            # clear any blur-mode slot floor — Frigate uses a different score metric
+                            min_quality_score_for_slot = None
                         else:
                             logger.warning(f"Failed to delete {target_frigate_file} for {name}, skipping replacement")
                             failed_deletes.add(target_frigate_file)

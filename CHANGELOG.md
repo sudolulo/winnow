@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-13
+
+### Fixed
+
+- **`RESET_PERSON` no longer creates duplicate Frigate files**: previously, resetting a person only wiped the local tracker — existing Frigate training files were left as unmanaged orphans, causing the next run to upload a full new batch on top of them. `reset_person` now deletes all winnow-managed files for that person from Frigate before clearing the tracker. Manually-added Frigate files are unaffected.
+- **No spurious warning when `FRIGATE_URL` is unset and `RESET_PERSON` is used**: the deletion step is now skipped silently at info level rather than logging a misleading "could not delete" warning.
+
 ## [0.4.0] - 2026-06-13
 
 ### Added
