@@ -58,8 +58,11 @@ def _get_strategy_choice(has_embedding: bool, entity_type: str) -> tuple[int | s
     rprint("  [bold]4.[/bold] Skip")
 
     choice = Prompt.ask("Choice", choices=["1", "2", "3", "4"], default="1")
-    limits = {"1": 30, "2": 100, "3": IntPrompt.ask("Enter number of images", default=30)}
-    return limits.get(choice, 0), "time" if choice != "4" else "skip"
+    if choice == "4":
+        return 0, "skip"
+    if choice == "3":
+        return IntPrompt.ask("Enter number of images", default=30), "time"
+    return {"1": 30, "2": 100}.get(choice, 30), "time"
 
 
 def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, str]:

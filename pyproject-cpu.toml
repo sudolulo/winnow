@@ -1,6 +1,6 @@
 [project]
 name = "winnow"
-version = "0.2.11"
+version = "0.2.12"
 description = "Immich to Frigate training sets"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.13"
