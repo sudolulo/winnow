@@ -192,8 +192,8 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: VARIANT=cpu
-          cache-from: type=gha,scope=linux/amd64-cpu
-          cache-to: type=gha,mode=max,scope=linux/amd64-cpu
+          cache-from: type=gha,scope=cpu
+          cache-to: type=gha,mode=max,scope=cpu
           github-token: ${{ secrets.GITHUB_TOKEN }}
           push: true
           tags: ${{ steps.cpu-tag.outputs.tag }}

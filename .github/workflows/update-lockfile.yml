@@ -1,5 +1,5 @@
 # .github/workflows/update-lockfile.yml
-name: Update uv.lock
+name: Update lockfiles
 
 on:
   push:
