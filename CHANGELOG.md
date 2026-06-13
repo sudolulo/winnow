@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-13
+
+### Changed
+
+- **GPU image now uses CUDA 12.8.1** (was 13.3): CUDA 13.3 requires driver ≥ 575; driver 570 (the current stable release) was incorrectly rejected with "CUDA driver version is insufficient" at startup. The `:latest` image now works with any NVIDIA driver ≥ 570.
+
+### Added
+
+- **`scripts/benchmark.py`**: measures InsightFace and SigLIP inference latency and throughput across GPU and CPU modes. Run inside the container with `python /app/scripts/benchmark.py`. RTX 2070 SUPER results: InsightFace 12.8 ms / 78 img/s (8× CPU), SigLIP batch 32 at 5.4 ms/img / 187 img/s (33× CPU).
+
 ## [0.4.1] - 2026-06-13
 
 ### Fixed
