@@ -22,24 +22,6 @@ def _get_faces_data() -> dict | None:
         return None
 
 
-def get_frigate_face_counts() -> dict[str, int] | None:
-    """Return {person_name: training_image_count} from Frigate's train directory.
-
-    Returns None if FRIGATE_URL is not set or the API is unreachable, so callers
-    can distinguish "API unavailable" from "person has 0 images."
-    """
-    data = _get_faces_data()
-    if data is None:
-        return None
-    # Response: {person_name: [file, ...], "train": [...], ...}
-    # "train" is a flat pending list, not a person — skip it.
-    return {
-        name: len(files)
-        for name, files in data.items()
-        if name != "train" and isinstance(files, list)
-    }
-
-
 def get_all_frigate_person_files() -> dict[str, list[str]] | None:
     """Return {person_name: [filename, ...]} for every person in Frigate.
 
@@ -49,11 +31,25 @@ def get_all_frigate_person_files() -> dict[str, list[str]] | None:
     data = _get_faces_data()
     if data is None:
         return None
+    # Response: {person_name: [file, ...], "train": [...], ...}
+    # "train" is a flat pending list, not a person — skip it.
     return {
         name: files
         for name, files in data.items()
         if name != "train" and isinstance(files, list)
     }
+
+
+def get_frigate_face_counts() -> dict[str, int] | None:
+    """Return {person_name: training_image_count} from Frigate's train directory.
+
+    Returns None if FRIGATE_URL is not set or the API is unreachable, so callers
+    can distinguish "API unavailable" from "person has 0 images."
+    """
+    all_files = get_all_frigate_person_files()
+    if all_files is None:
+        return None
+    return {name: len(files) for name, files in all_files.items()}
 
 
 def get_frigate_person_files(person_name: str) -> list[str] | None:

@@ -395,6 +395,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             actually_uploaded: list[tuple[str, str | None]] = []
             failed_deletes: set[str] = set()
             min_quality_score_for_slot: float | None = None
+            person_has_fscores: bool = has_frigate_scores(name)
 
             for fname in person_files:
                 fpath = os.path.join(person_dir, fname)
@@ -427,9 +428,9 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 # handles this conservatively by skipping that candidate until the next run.
                 pre_fscore: float | None = None
                 if Config.ENABLE_FRIGATE_SCORES and pre_run_count > 0:
-                    if not at_cap or has_frigate_scores(name):
+                    if not at_cap or person_has_fscores:
                         _result = recognize_face(fpath)
-                        if _result is not None and _result[0] == name:
+                        if _result is not None and (_result[0] or "").casefold() == name.casefold():
                             pre_fscore = _result[1]
 
                 # Ceiling check: skip if the existing training set already covers this
@@ -450,7 +451,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         progress.advance(upload_task)
                         continue
 
-                    using_fscore = has_frigate_scores(name) and Config.ENABLE_FRIGATE_SCORES
+                    using_fscore = person_has_fscores and Config.ENABLE_FRIGATE_SCORES
                     if using_fscore:
                         candidate_score = pre_fscore
                         if candidate_score is None:
@@ -476,6 +477,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         )
                         if delete_frigate_person_files(name, [target_frigate_file]):
                             remove_frigate_file(name, target_frigate_file)
+                            person_has_fscores = has_frigate_scores(name)
                             effective_count -= 1
                             min_quality_score_for_slot = None  # clear any blur-mode slot floor — Frigate uses a different score metric
                         else:
@@ -507,6 +509,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         )
                         if delete_frigate_person_files(name, [target_frigate_file]):
                             remove_frigate_file(name, target_frigate_file)
+                            person_has_fscores = has_frigate_scores(name)
                             effective_count -= 1
                             min_quality_score_for_slot = score_map.get(fname)
                         else:
@@ -538,6 +541,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                     crop_dims=dims_map.get(fname),
                                     frigate_score=pre_fscore,
                                 )
+                                if pre_fscore is not None:
+                                    person_has_fscores = True
                                 actually_uploaded.append((fname, asset_id))
 
                             break

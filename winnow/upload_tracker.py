@@ -167,7 +167,9 @@ def remove_frigate_file(person_name: str, frigate_filename: str) -> None:
     data = _load(UPLOAD_TRACKER_FILE)
     by_person = data.get("by_person", {})
     entry = _migrate_entry(by_person.get(person_name, {}))
-    entry["frigate_files"].pop(frigate_filename, None)
+    asset_id = entry["frigate_files"].pop(frigate_filename, None)
+    if asset_id:
+        entry["frigate_scores"].pop(asset_id, None)
     by_person[person_name] = entry
     _save(UPLOAD_TRACKER_FILE, data)
     logger.debug(f"Removed Frigate file mapping {frigate_filename} ({person_name})")
@@ -204,6 +206,22 @@ def has_frigate_scores(person_name: str) -> bool:
     return any(asset_id in frigate_scores for asset_id in frigate_files.values())
 
 
+def _pick_mapped_file(
+    person_name: str, score_key: str, *, highest: bool, exclude: set[str] | None = None
+) -> tuple[str, str, float] | None:
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    scores = entry.get(score_key, {})
+    candidates = [
+        (ff, asset_id, scores[asset_id])
+        for ff, asset_id in entry.get("frigate_files", {}).items()
+        if (exclude is None or ff not in exclude) and asset_id in scores
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda x: x[2]) if highest else min(candidates, key=lambda x: x[2])
+
+
 def get_lowest_quality_mapped_file(
     person_name: str, exclude: set[str] | None = None
 ) -> tuple[str, str, float] | None:
@@ -213,21 +231,7 @@ def get_lowest_quality_mapped_file(
     Used for quality replacement when no Frigate scores are available.
     Pass `exclude` to skip files that failed to delete this run.
     """
-    data = _load(UPLOAD_TRACKER_FILE)
-    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
-    frigate_files = entry.get("frigate_files", {})
-    blur_scores = entry.get("scores", {})
-
-    candidates = [
-        (ff, asset_id, blur_scores[asset_id])
-        for ff, asset_id in frigate_files.items()
-        if (exclude is None or ff not in exclude)
-        and asset_id in blur_scores
-    ]
-
-    if not candidates:
-        return None
-    return min(candidates, key=lambda x: x[2])
+    return _pick_mapped_file(person_name, "scores", highest=False, exclude=exclude)
 
 
 def get_most_redundant_mapped_file(
@@ -240,21 +244,7 @@ def get_most_redundant_mapped_file(
     = the most redundant file and therefore the best replacement target.
     Pass `exclude` to skip files that failed to delete this run.
     """
-    data = _load(UPLOAD_TRACKER_FILE)
-    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
-    frigate_files = entry.get("frigate_files", {})
-    frigate_scores = entry.get("frigate_scores", {})
-
-    candidates = [
-        (ff, asset_id, frigate_scores[asset_id])
-        for ff, asset_id in frigate_files.items()
-        if (exclude is None or ff not in exclude)
-        and asset_id in frigate_scores
-    ]
-
-    if not candidates:
-        return None
-    return max(candidates, key=lambda x: x[2])
+    return _pick_mapped_file(person_name, "frigate_scores", highest=True, exclude=exclude)
 
 
 def get_frigate_filename_for_asset(person_name: str, asset_id: str) -> str | None:
