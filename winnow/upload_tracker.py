@@ -147,6 +147,45 @@ def mark_rejected(asset_id: str, person_name: str | None = None) -> None:
     logger.debug(f"Marked {asset_id} as rejected ({person_name})")
 
 
+def remove_and_reclassify_batch(
+    person_name: str, frigate_files_and_assets: list[tuple[str, str]]
+) -> None:
+    """Remove Frigate file mappings and reclassify asset IDs as rejected in one pass.
+
+    Replaces individual remove_frigate_file + reclassify_as_rejected calls in the
+    quality gate batch — 2 file writes total instead of 3×N.
+    """
+    frigate_fns = [fn for fn, _ in frigate_files_and_assets]
+    asset_ids = [aid for _, aid in frigate_files_and_assets]
+
+    # Uploaded tracker: remove file mappings + remove from flat set
+    uploaded_data = _load(UPLOAD_TRACKER_FILE)
+    flat_up = set(uploaded_data.get("uploaded_asset_ids", []))
+    for aid in asset_ids:
+        flat_up.discard(aid)
+    uploaded_data["uploaded_asset_ids"] = sorted(flat_up)
+    by_person = uploaded_data.setdefault("by_person", {})
+    entry = _migrate_entry(by_person.get(person_name, {}))
+    for fn in frigate_fns:
+        entry["frigate_files"].pop(fn, None)
+    by_person[person_name] = entry
+    _save(UPLOAD_TRACKER_FILE, uploaded_data)
+
+    # Rejected tracker: add to flat set + by_person
+    rejected_data = _load(REJECT_TRACKER_FILE)
+    flat_rej = set(rejected_data.get("rejected_asset_ids", []))
+    flat_rej.update(asset_ids)
+    rejected_data["rejected_asset_ids"] = sorted(flat_rej)
+    rej_by_person = rejected_data.setdefault("by_person", {})
+    rej_entry = _migrate_entry(rej_by_person.get(person_name, {}))
+    ids = set(rej_entry["asset_ids"])
+    ids.update(asset_ids)
+    rej_entry["asset_ids"] = sorted(ids)
+    rej_by_person[person_name] = rej_entry
+    _save(REJECT_TRACKER_FILE, rejected_data)
+    logger.debug(f"Batch-reclassified {len(asset_ids)} asset(s) as rejected ({person_name})")
+
+
 def reclassify_as_rejected(asset_id: str, person_name: str | None = None) -> None:
     """Move a gate-failed asset from the uploaded flat set to rejected.
 

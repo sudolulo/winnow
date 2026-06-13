@@ -13,7 +13,7 @@ from rich import print as rprint
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from .config import Config, get_headers
-from .frigate_api import delete_frigate_person_files, get_frigate_person_files, recognize_face
+from .frigate_api import delete_frigate_person_files, get_all_frigate_person_files, get_frigate_person_files, recognize_face
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
 from .immich_api import fetch_face_data, fetch_full_image
 from .log_config import console
@@ -29,6 +29,7 @@ from .upload_tracker import (
     mark_uploaded,
     reclassify_as_rejected,
     record_frigate_file,
+    remove_and_reclassify_batch,
     remove_frigate_file,
 )
 
@@ -186,6 +187,17 @@ def execute_jobs(jobs: list[dict]) -> None:
                     # from the Immich faces API (not included in search/metadata results)
                     if mode == "face":
                         asset = _enrich_asset_with_face_data(asset, person)
+                        # Skip download if detection confidence already disqualifies
+                        # the asset — avoids fetching a large image we'll discard.
+                        conf = asset.get("face_confidence")
+                        if conf is not None and conf < Config.MIN_CONFIDENCE:
+                            progress.console.print(
+                                f"[yellow]Skipped {asset['id']}"
+                                f" (confidence {conf:.2f} < {Config.MIN_CONFIDENCE})[/yellow]"
+                            )
+                            progress.advance(job_task)
+                            progress.advance(overall_task)
+                            continue
 
                     # Use full-resolution for final output when configured
                     if use_full_res:
@@ -309,6 +321,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
     uploaded, failed, gate_total = 0, 0, 0
     max_retries = 2
 
+    # Fetch all Frigate training files once — avoids one GET /api/faces per person.
+    # Falls back to per-person calls inside the loop if this fetch fails.
+    all_frigate_files = get_all_frigate_person_files()
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -346,7 +362,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             # Snapshot live Frigate files for post-upload reconciliation diff only.
             # effective_count is sourced from the tracker (mapped files) so that
             # manually-added Frigate files don't consume winnow's managed quota.
-            _snapshot = get_frigate_person_files(name)
+            _snapshot = (
+                all_frigate_files.get(name, []) if all_frigate_files is not None
+                else get_frigate_person_files(name)
+            )
             if _snapshot is None:
                 # Frigate GET is down; fall back to the tracker's mapped filenames
                 # as the pre-upload baseline. reconciliation will still work unless
@@ -594,9 +613,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         )
                 if to_delete:
                     if delete_frigate_person_files(name, [fn for fn, _ in to_delete]):
-                        for frigate_fn, aid in to_delete:
-                            remove_frigate_file(name, frigate_fn)
-                            reclassify_as_rejected(aid, name)
+                        remove_and_reclassify_batch(name, to_delete)
                         gate_removed = len(to_delete)
                         effective_count -= gate_removed
                         gate_total += gate_removed

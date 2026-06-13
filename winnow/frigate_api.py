@@ -40,6 +40,22 @@ def get_frigate_face_counts() -> dict[str, int] | None:
     }
 
 
+def get_all_frigate_person_files() -> dict[str, list[str]] | None:
+    """Return {person_name: [filename, ...]} for every person in Frigate.
+
+    Single call used to build per-person snapshots before the upload loop,
+    avoiding one GET /api/faces per person.  Returns None if unavailable.
+    """
+    data = _get_faces_data()
+    if data is None:
+        return None
+    return {
+        name: files
+        for name, files in data.items()
+        if name != "train" and isinstance(files, list)
+    }
+
+
 def get_frigate_person_files(person_name: str) -> list[str] | None:
     """Return the list of training filenames for a person in Frigate.
 
