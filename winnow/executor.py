@@ -12,10 +12,10 @@ from rich import print as rprint
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from .config import Config, get_headers
+from .frigate_api import delete_frigate_person_files, get_frigate_person_files
 from .image_processing import process_face_mode, process_full_mode, process_object_mode
 from .immich_api import fetch_face_data, fetch_full_image
 from .log_config import console
-from .frigate_api import delete_frigate_person_files, get_frigate_person_files
 from .upload_tracker import (
     get_lowest_quality_mapped_file,
     mark_rejected,
