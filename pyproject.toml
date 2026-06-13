@@ -1,6 +1,6 @@
 [project]
 name = "winnow"
-version = "0.3.0"
+version = "0.3.1"
 description = "Selects diverse, high-quality photos from Immich as training data for Frigate face recognition and object classification."
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.13"

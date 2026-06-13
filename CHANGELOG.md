@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-13
+
+### Fixed
+
+- **Lint**: split overly long line in `quality.py` (`E501`, 146 → ≤120 chars).
+- **CI — lockfile update workflow**: added `branches: ['**']` filter to `on.push` so tag pushes no longer trigger the job; tag checkouts land in detached HEAD and the subsequent `git push` had no branch target.
+- **CI — release workflow**: split four Docker image builds into parallel jobs (`build-gpu`, `build-cpu`, `build-rocm`, `build-intel`), each with its own runner. Previously all four ran in a single job; building the GPU and CPU multi-platform images exhausted disk, causing ROCm and Intel builds to be cancelled.
+
 ## [0.3.0] - 2026-06-13
 
 ### Added
