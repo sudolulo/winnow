@@ -377,7 +377,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 _dynamic = get_min_frigate_score(name)
                 effective_threshold = max(Config.FRIGATE_SCORE_THRESHOLD, _dynamic or 0.0)
                 if _dynamic is not None and _dynamic > Config.FRIGATE_SCORE_THRESHOLD:
-                    logger.debug(f"{name}: dynamic Frigate score threshold {_dynamic:.3f}")
+                    progress.console.print(
+                        f"  [dim]{name}: quality gate floor raised to {_dynamic:.2f}"
+                        f" (min stored score, above configured {Config.FRIGATE_SCORE_THRESHOLD:.2f})[/dim]"
+                    )
                 if pre_run_count == 0:
                     progress.console.print(
                         f"  [dim]{name}: first run — quality gate will apply from the next run[/dim]"
