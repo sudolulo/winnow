@@ -118,15 +118,57 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push GPU image (latest)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=release-gpu
+          cache-to: type=gha,mode=max,scope=release-gpu
           tags: |
             ghcr.io/sudolulo/winnow:latest
             ghcr.io/sudolulo/winnow:${{ steps.tag.outputs.TAG }}
+
+      - name: Build and push CPU image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: VARIANT=cpu
+          push: true
+          cache-from: type=gha,scope=release-cpu
+          cache-to: type=gha,mode=max,scope=release-cpu
+          tags: |
+            ghcr.io/sudolulo/winnow:cpu
+            ghcr.io/sudolulo/winnow:${{ steps.tag.outputs.TAG }}-cpu
+
+      - name: Build and push ROCm image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          build-args: VARIANT=rocm
+          push: true
+          cache-from: type=gha,scope=release-rocm
+          cache-to: type=gha,mode=max,scope=release-rocm
+          tags: |
+            ghcr.io/sudolulo/winnow:rocm
+            ghcr.io/sudolulo/winnow:${{ steps.tag.outputs.TAG }}-rocm
+
+      - name: Build and push Intel image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          build-args: VARIANT=intel
+          push: true
+          cache-from: type=gha,scope=release-intel
+          cache-to: type=gha,mode=max,scope=release-intel
+          tags: |
+            ghcr.io/sudolulo/winnow:intel
+            ghcr.io/sudolulo/winnow:${{ steps.tag.outputs.TAG }}-intel

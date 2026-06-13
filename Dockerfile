@@ -1,13 +1,19 @@
 # ── Base images ───────────────────────────────────────────────────────────────
-#   amd64 + gpu:  NVIDIA CUDA 13.3 + cuDNN (GPU acceleration when available)
-#   amd64 + cpu:  Ubuntu 22.04 (CPU-only, ~2 GB smaller image)
-#   arm64:        Ubuntu 24.04 (CPU-only; no CUDA wheels on ARM)
+#   amd64 + gpu:   NVIDIA CUDA 13.3 + cuDNN (GPU acceleration via NVIDIA Container Toolkit)
+#   amd64 + rocm:  Ubuntu 22.04 (AMD GPU via ROCm — pass /dev/kfd and /dev/dri)
+#   amd64 + intel: Ubuntu 22.04 (Intel Arc / iGPU via OpenVINO — pass /dev/dri)
+#   amd64 + cpu:   Ubuntu 22.04 (CPU-only, ~2 GB smaller image)
+#   arm64:         Ubuntu 24.04 (CPU-only; no CUDA/ROCm wheels on ARM)
 
 ARG VARIANT=gpu
 
 FROM --platform=$BUILDPLATFORM nvidia/cuda:13.3.0-cudnn-runtime-ubuntu22.04 AS base-amd64-gpu
+FROM ubuntu:22.04 AS base-amd64-rocm
+FROM ubuntu:22.04 AS base-amd64-intel
 FROM ubuntu:22.04 AS base-amd64-cpu
 FROM ubuntu:24.04 AS base-arm64-gpu
+FROM ubuntu:24.04 AS base-arm64-rocm
+FROM ubuntu:24.04 AS base-arm64-intel
 FROM ubuntu:24.04 AS base-arm64-cpu
 
 # ── Build stage ───────────────────────────────────────────────────────────────
@@ -35,11 +41,15 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 
 WORKDIR /app
 
-# For cpu variant, swap in the CPU-only pyproject and lockfile before syncing.
-COPY pyproject.toml uv.lock pyproject-cpu.toml uv-cpu.lock ./
+# Swap in the variant-specific pyproject and lockfile before syncing.
+COPY pyproject.toml uv.lock pyproject-cpu.toml uv-cpu.lock \
+     pyproject-rocm.toml uv-rocm.lock pyproject-intel.toml uv-intel.lock ./
 RUN if [ "$VARIANT" = "cpu" ]; then \
-        cp pyproject-cpu.toml pyproject.toml && \
-        cp uv-cpu.lock uv.lock; \
+        cp pyproject-cpu.toml pyproject.toml && cp uv-cpu.lock uv.lock; \
+    elif [ "$VARIANT" = "rocm" ]; then \
+        cp pyproject-rocm.toml pyproject.toml && cp uv-rocm.lock uv.lock; \
+    elif [ "$VARIANT" = "intel" ]; then \
+        cp pyproject-intel.toml pyproject.toml && cp uv-intel.lock uv.lock; \
     fi && \
     uv sync --frozen --no-dev \
     && uv cache clean
@@ -72,11 +82,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=build /app /app
 COPY --from=build /usr/local/bin/uv /usr/local/bin/uv
 
-# Register every nvidia pip-package lib/ directory with ldconfig so that
-# onnxruntime-gpu and torch can find libcudnn, libcublas, libcufft, etc.
-# without a hand-maintained LD_LIBRARY_PATH. Skipped silently on cpu builds.
-RUN find /app/.venv/lib/python3.*/site-packages/nvidia -type d -name "lib" \
-        2>/dev/null > /etc/ld.so.conf.d/nvidia-pip.conf && ldconfig || true
+# NVIDIA: register pip-installed nvidia lib/ dirs with ldconfig so onnxruntime-gpu
+# and torch can find libcudnn, libcublas, etc. Skipped silently on other variants.
+RUN if [ "$VARIANT" = "gpu" ]; then \
+        find /app/.venv/lib/python3.*/site-packages/nvidia -type d -name "lib" \
+            2>/dev/null > /etc/ld.so.conf.d/nvidia-pip.conf && ldconfig || true; \
+    fi
+# Intel: install GPU compute runtime so OpenVINO EP can target Intel Arc / iGPU.
+# onnxruntime-openvino bundles OpenVINO itself; only the userspace GPU driver
+# (OpenCL ICD + Level Zero) is needed from the OS.
+# libze-intel-gpu1 / intel-level-zero-gpu aren't in Ubuntu 22.04 main, so this
+# block adds Intel's official graphics repo first, then installs.
+RUN if [ "$VARIANT" = "intel" ]; then \
+        apt-get update \
+        && apt-get install -y --no-install-recommends curl gnupg \
+        && curl -fsSL https://repositories.intel.com/graphics/intel-graphics.key \
+           | gpg --dearmor > /usr/share/keyrings/intel-graphics.gpg \
+        && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/intel-graphics.gpg] \
+https://repositories.intel.com/graphics/ubuntu jammy flex" \
+           > /etc/apt/sources.list.d/intel-graphics.list \
+        && apt-get update \
+        && apt-get install -y --no-install-recommends \
+               intel-opencl-icd intel-level-zero-gpu libze-intel-gpu1 \
+        && apt-get remove -y --autoremove curl gnupg \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 RUN groupadd -g 568 apps && useradd -u 568 -g apps -m -s /bin/bash appuser \
     && mkdir -p /models/.insightface /models/huggingface \

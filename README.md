@@ -4,27 +4,13 @@
 
 **Docs:** [Setup](https://github.com/sudolulo/winnow/wiki/Setup) · [Troubleshooting](https://github.com/sudolulo/winnow/wiki/Troubleshooting) · [FAQ](https://github.com/sudolulo/winnow/wiki/FAQ)
 
-`winnow` pulls photos of people and objects from your [Immich](https://immich.app) library, selects the most diverse and highest-quality subset using AI embeddings, and delivers them as training data for [Frigate](https://frigate.video)'s face recognition and object classification models.
+`winnow` pulls photos from your [Immich](https://immich.app) library, selects the most diverse and highest-quality subset using AI embeddings, and delivers them as training data for [Frigate](https://frigate.video)'s face recognition and object classification models.
 
-It runs fully headless in Docker, is configured entirely through environment variables, and can run on a schedule — no interactive prompts, no manual steps.
-
----
-
-## The Problem
-
-Frigate's face recognition model (ArcFace) and object classifier are only as good as the training data you give them. The instinct is to feed them as many photos as possible, but volume is not what matters — **diversity is**.
-
-If you upload 100 photos from the same week, the model learns the lighting in your living room and the jacket you wore that month. It struggles the moment anything changes. What you actually want is a spread: different years, different lighting conditions, different angles, different contexts.
-
-This is especially true for people who have never been to your property, or who visit rarely — family members, friends, anyone Frigate has never seen in person. Live detections alone will never build a reliable model for these people. Your photo library already has the data; winnow finds and delivers the right subset of it.
-
-Finding that spread manually across a library of thousands of photos is not practical. `winnow` does it automatically.
+Frigate's face recognition is only as good as its training data — and the key quality metric is **diversity**, not volume. A hundred photos from the same week teach the model one lighting condition. What you need is a spread: different years, different angles, different lighting, different contexts. Your photo library already has that data. winnow finds and delivers the right subset automatically.
 
 ---
 
 ## How It Works
-
-For each person (or object) you configure, the tool runs this pipeline:
 
 ```
 Immich library
@@ -41,71 +27,39 @@ Immich library
       ▼
 4. Quality filter — reject:
    • Blurry images (Laplacian variance)
-   • Grayscale / infrared (channel similarity check)
+   • Grayscale / infrared (channel similarity)
    • Over- or underexposed
    • Low detection confidence
    • Face crops below minimum pixel size
       │
       ▼
-5. Compute embeddings for remaining candidates
+5. Compute embeddings
    • Faces   → InsightFace (ArcFace / Buffalo_L)
    • Objects → SigLIP (Vision Transformer)
       │
       ▼
 6. Diversity selection
-   • K-Medoids clustering to find natural groupings
-   • Farthest Point Sampling (FPS) to pick maximally spread representatives
-   • Hard example weighting — unusual angles, partial occlusions,
-     and low-confidence detections are biased toward selection
-   • Auto mode: keeps selecting until marginal diversity drops off
+   • K-Medoids clustering → one representative per natural group
+   • Farthest Point Sampling → fill remaining slots with maximally spread picks
+   • Hard example weighting — unusual angles and low-confidence detections
+     are biased toward selection, since those are where models tend to fail
+   • Auto mode: stops when the next candidate is too similar to what's already chosen
       │
       ▼
-7. Crop and export
-   • Face mode: aligned 112×112 crops (ArcFace standard input),
-     uploaded directly to Frigate's face training API
+7. Crop and deliver
+   • Face mode: aligned 112×112 crops uploaded directly to Frigate's face training API
    • Object mode: YOLO-detected crops saved to disk
 ```
 
-Uploaded asset IDs are recorded so the same image is never uploaded twice, even across runs weeks apart.
-
----
-
-## Note on Crop Quality
-
-winnow works well, but no automated pipeline is perfect. Occasionally a bad crop will slip through quality filtering — a partial face, someone in the background, a blurry frame. After a run it's worth a quick review in Frigate's face management UI to remove anything that doesn't belong.
-
-Issues and feedback welcome via [GitHub Issues](https://github.com/sudolulo/winnow/issues).
+Uploaded asset IDs are persisted so the same image is never uploaded twice, even across runs weeks apart.
 
 ---
 
 ## Modes
 
-### Face Mode (default)
+**Face mode** (default) — extracts face crops using Immich's bounding box metadata, applies EXIF orientation correction, and aligns them to ArcFace's standard 112×112 format using 5-point facial landmarks. Crops are uploaded directly to Frigate's face registration API.
 
-Extracts face crops using Immich's bounding box metadata, scales them to the source image resolution, applies EXIF orientation correction, then either aligns them to the standard ArcFace 112×112 format using 5-point facial landmarks or falls back to a margin-padded bounding box crop.
-
-Crops are uploaded directly to Frigate's face registration API (`POST /api/faces/{name}/register`). After each successful upload the asset ID is marked in the tracker so future runs skip it.
-
-### Object Mode
-
-Runs each full image through YOLOv9c to detect instances of a target class (dog, cat, car, etc.), then crops each detection and saves it to the output directory. Frigate has no API for uploading object training images, so the crops are saved for you to place into your Frigate data directory manually.
-
----
-
-## Diversity Selection in Detail
-
-The core of the tool is the embedding-based selection. Rather than picking images at random or evenly across time, it computes a vector embedding for each candidate image that encodes what the face or object actually looks like — the angle, lighting, expression, background context.
-
-It then:
-
-1. **Clusters** those embeddings using K-Medoids to find natural groups (e.g. "holiday photos", "outdoor summer shots", "indoor low light")
-2. **Selects one representative** from each cluster — the most central image in each group
-3. **Fills remaining slots** using Farthest Point Sampling, iteratively picking whichever image is most different from everything already selected
-4. **Weights toward hard examples** — images with unusual angles, partial occlusions, or borderline detection confidence are more likely to be picked, because those edge cases are where models fail
-
-In **Auto mode**, there is no fixed limit. The tool keeps selecting until the most-different remaining image is already close to something already in the set — at that point adding more would be redundant. This is capped at `MAX_AUTO_IMAGES` (default 80) as a safety limit.
-
-If the embedding model is unavailable, the tool falls back to **time spread**: evenly distributing picks across the date range of your photos.
+**Object mode** — runs each image through YOLOv9c to detect instances of a target class (dog, cat, car, etc.), crops each detection, and saves it to the output directory. Frigate has no API for uploading object training data; place the crops into your Frigate data directory manually.
 
 ---
 
@@ -113,22 +67,25 @@ If the embedding model is unavailable, the tool falls back to **time spread**: e
 
 ### Image Tags
 
-| Tag | Arch | GPU | Notes |
-| :-- | :-- | :-- | :-- |
-| `:latest` | amd64 + arm64 | CUDA 13.3 (amd64) | Requires NVIDIA Container Toolkit on amd64 |
-| `:cpu` | amd64 | None | ~2 GB smaller; use if you have no NVIDIA GPU |
+| Tag | Arch | Acceleration |
+| :-- | :-- | :-- |
+| `:latest` | amd64 + arm64 | NVIDIA CUDA 13.3 (amd64) · requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) |
+| `:rocm` | amd64 | AMD ROCm · pass `/dev/kfd` + `/dev/dri` |
+| `:intel` | amd64 | Intel Arc / iGPU via OpenVINO · pass `/dev/dri`, set `OPENVINO_DEVICE=GPU` |
+| `:cpu` | amd64 + arm64 | CPU only · ~2 GB smaller · no GPU required |
 
 ### Quick Start
 
+**NVIDIA:**
 ```yaml
 services:
   winnow:
-    image: ghcr.io/sudolulo/winnow:latest   # or :cpu for CPU-only amd64
+    image: ghcr.io/sudolulo/winnow:latest
     environment:
       - IMMICH_URL=http://192.168.1.10:2283
       - API_KEY=your-immich-api-key
       - FRIGATE_URL=http://192.168.1.10:5000
-      - CRON_SCHEDULE=0 3 * * 0   # Every Sunday at 3 AM
+      - CRON_SCHEDULE=0 3 * * 0
     volumes:
       - /path/to/models:/models
       - /path/to/cache:/app/.if_cache
@@ -142,11 +99,31 @@ services:
               capabilities: [gpu]
 ```
 
-> **CPU users (`:cpu` tag):** remove the `deploy.resources` block — no NVIDIA runtime needed. Add `mem_limit: 2g` to the service to prevent an OOM restart loop on large libraries.
+**AMD (`:rocm`):** use `image: ghcr.io/sudolulo/winnow:rocm` and replace the `deploy:` block with:
+```yaml
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
+```
 
-See [compose.yml](compose.yml) for the full annotated example.
+**Intel (`:intel`):** use `image: ghcr.io/sudolulo/winnow:intel` and replace the `deploy:` block with:
+```yaml
+    devices:
+      - /dev/dri
+    group_add:
+      - render
+    environment:
+      - OPENVINO_DEVICE=GPU   # omit to run OpenVINO inference on CPU (default)
+```
 
-### Scheduling Behaviour
+**CPU (`:cpu`):** use `image: ghcr.io/sudolulo/winnow:cpu`, remove the `deploy:` block, and add `mem_limit: 2g` to prevent OOM on large libraries.
+
+See [compose.yml](compose.yml) for the full annotated example with all options.
+
+### Scheduling
 
 `CRON_SCHEDULE` controls container lifetime:
 
@@ -156,33 +133,11 @@ See [compose.yml](compose.yml) for the full annotated example.
 | *(empty string)* | Stay alive, run nothing — trigger manually with `docker exec -it winnow winnow` |
 | Cron expression | Run on startup, then repeat on schedule |
 
-In scheduled mode the process (and loaded models) stays resident between runs. In manual mode the container idles indefinitely with `sleep infinity` — useful when you want to trigger runs interactively on demand without pulling a new container each time.
-
-The first run after a fresh install downloads the embedding models (~1-2 GB). Subsequent runs use the cached models from the mounted volume and start immediately.
+In scheduled mode the process (and loaded models) stays resident between runs. The first run after a fresh install downloads the embedding models (~1–2 GB); subsequent runs use the cached models from the mounted volume.
 
 ---
 
 ## Environment Variables
-
-### Mode & Strategy
-
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `AUTO_MODE` | *(auto)* | Force non-interactive mode even in a terminal; auto-detected otherwise (no TTY = auto) |
-| `VERBOSE` | `false` | Set to `true` to enable DEBUG-level console output (the log file is always DEBUG) |
-| `TRAINING_MODE` | `face` | `face` — upload crops to Frigate API; `object` — save crops to disk |
-| `STRATEGY` | `auto` | `auto` (adaptive), `standard` (30 images), `broad` (100 images) |
-| `LIMIT` | *(unset)* | Exact image count — overrides `STRATEGY` |
-| `OBJECT_CLASS` | `dog` | Target class for object mode (any YOLO class: `dog`, `cat`, `car`, etc.) |
-
-### People Filtering
-
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `ONLY_PEOPLE` | *(unset)* | Comma-separated whitelist — only these people are processed |
-| `SKIP_PEOPLE` | *(unset)* | Comma-separated list of people to skip |
-| `MIN_FACE_COUNT` | `0` | Skip people with fewer than N tagged assets in Immich |
-| `YEARS_FILTER` | `10` | Ignore images older than N years |
 
 ### Connection
 
@@ -190,35 +145,56 @@ The first run after a fresh install downloads the embedding models (~1-2 GB). Su
 | :--- | :--- | :--- |
 | `IMMICH_URL` | *(required)* | Full URL to your Immich instance |
 | `API_KEY` | *(required)* | Immich API key |
-| `FRIGATE_URL` | *(unset)* | Frigate URL — required for face upload; omit to skip upload |
+| `FRIGATE_URL` | *(unset)* | Frigate URL — required for face upload; omit to skip |
+
+### Mode & Strategy
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `TRAINING_MODE` | `face` | `face` — upload crops to Frigate; `object` — save crops to disk |
+| `STRATEGY` | `auto` | `auto` (adaptive), `standard` (30 images), `broad` (100 images) |
+| `LIMIT` | *(unset)* | Exact image count — overrides `STRATEGY` |
+| `OBJECT_CLASS` | `dog` | Target class for object mode (any YOLO class: `dog`, `cat`, `car`, etc.) |
+| `AUTO_MODE` | *(auto)* | Force non-interactive mode in a terminal; auto-detected otherwise |
+| `VERBOSE` | `false` | Enable DEBUG-level console output (log file is always DEBUG) |
+
+### People Filtering
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `ONLY_PEOPLE` | *(unset)* | Comma-separated whitelist — process only these people |
+| `SKIP_PEOPLE` | *(unset)* | Comma-separated list — skip these people |
+| `MIN_FACE_COUNT` | `0` | Skip people with fewer than N tagged assets in Immich |
+| `YEARS_FILTER` | `10` | Ignore images older than N years |
 
 ### Image Quality
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `MIN_FACE_WIDTH` | `50` | Minimum face crop width in pixels |
-| `FACE_MARGIN` | `0.15` | Padding added around the bounding box crop (fraction of face size) |
+| `FACE_MARGIN` | `0.15` | Padding around bounding box crop (fraction of face size) |
 | `ENABLE_FACE_ALIGNMENT` | `true` | Align to ArcFace 112×112 format using facial landmarks |
 | `USE_FULL_RESOLUTION` | `true` | Download full-resolution originals rather than preview thumbnails |
 | `MIN_CONFIDENCE` | `0.7` | Minimum Immich face detection confidence |
 | `BLUR_THRESHOLD` | `100.0` | Laplacian variance threshold — lower accepts more blur |
-| `MAX_AUTO_IMAGES` | `80` | Maximum images in auto-diversity mode |
+| `MAX_AUTO_IMAGES` | `80` | Maximum images selected in auto mode |
 
-### Caching & Models
+### GPU & Models
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `FORCE_CPU` | `false` | Disable GPU — fall back to CPU for embedding computation |
+| `FORCE_CPU` | `false` | Disable GPU — fall back to CPU for all inference |
+| `OPENVINO_DEVICE` | `CPU` | Intel variant only: set `GPU` to use Arc or iGPU; default runs on CPU |
 | `ENABLE_CACHE` | `true` | Cache computed embeddings to disk (speeds up re-runs on the same library) |
 | `CACHE_DIR` | `.if_cache` | Path for embedding cache and upload tracker files |
-| `HF_HOME` | *(system)* | HuggingFace model cache location (SigLIP) |
-| `INSIGHTFACE_HOME` | *(system)* | InsightFace model cache location (Buffalo_L) |
+| `HF_HOME` | *(system)* | HuggingFace model cache path (SigLIP) |
+| `INSIGHTFACE_HOME` | *(system)* | InsightFace model cache path (Buffalo_L) |
 
 ### Tracker Overrides *(one-shot — remove after use)*
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `DRY_RUN` | `false` | Show what would be selected and uploaded without doing it |
+| `DRY_RUN` | `false` | Preview selection without downloading or uploading |
 | `RETRY_REJECTED` | `false` | Re-attempt assets previously rejected by Frigate |
 | `RESET_PERSON` | *(unset)* | Clear upload and rejection history for one person by name |
 
@@ -226,7 +202,7 @@ The first run after a fresh install downloads the embedding models (~1-2 GB). Su
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `CRON_SCHEDULE` | *(unset)* | Unset = run once and exit; empty = stay alive for manual `docker exec`; cron expression = scheduled |
+| `CRON_SCHEDULE` | *(unset)* | Unset = run once and exit; empty = stay alive; cron expression = scheduled |
 
 ---
 
@@ -239,16 +215,16 @@ uv sync
 uv run winnow
 ```
 
-Requires Python 3.13+ and [uv](https://astral.sh/uv/). An NVIDIA GPU is strongly recommended — CPU mode works but embedding computation is slower (typically tens of seconds per person vs under a second on GPU).
+Requires Python 3.13+ and [uv](https://astral.sh/uv). An NVIDIA, AMD, or Intel GPU is recommended — CPU mode works but embedding computation is slower.
 
 ---
 
 ## Requirements
 
 - **Immich** v1.106+
-- **Frigate** v0.16+ (face mode only — object mode has no Frigate API dependency)
-- **NVIDIA GPU** recommended (CUDA 12.x)
-- **Python 3.13+**
+- **Frigate** v0.16+ (face mode only — object mode has no Frigate dependency)
+- **GPU** recommended: NVIDIA (CUDA), AMD (ROCm), or Intel (Arc / iGPU via OpenVINO)
+- **Python** 3.13+
 
 ---
 
