@@ -15,11 +15,13 @@ concurrency:
 
 jobs:
   release:
-    name: Create GitHub Release & Build Image
+    name: Create GitHub Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
+    outputs:
+      tag: ${{ steps.tag.outputs.TAG }}
+      version: ${{ steps.tag.outputs.VERSION }}
     steps:
       - name: Free up disk space
         run: |
@@ -59,12 +61,6 @@ jobs:
           cp _pyproject_orig.toml pyproject.toml
           uv lock
           rm _pyproject_orig.toml
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
 
       - name: Resolve tag name
         id: tag
@@ -131,6 +127,30 @@ jobs:
               prerelease: false,
             });
 
+  build-gpu:
+    name: Build GPU image
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          echo "Disk space freed."
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -145,12 +165,43 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: VERSION=${{ steps.tag.outputs.VERSION }}
+          build-args: VERSION=${{ needs.release.outputs.version }}
           cache-from: type=gha,scope=release-gpu
           cache-to: type=gha,mode=max,scope=release-gpu
           tags: |
             ghcr.io/sudolulo/winnow:latest
-            ghcr.io/sudolulo/winnow:${{ steps.tag.outputs.TAG }}
+            ghcr.io/sudolulo/winnow:${{ needs.release.outputs.tag }}
+
+  build-cpu:
+    name: Build CPU image
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          echo "Disk space freed."
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push CPU image
         uses: docker/build-push-action@v6
@@ -161,12 +212,43 @@ jobs:
           push: true
           build-args: |
             VARIANT=cpu
-            VERSION=${{ steps.tag.outputs.VERSION }}
+            VERSION=${{ needs.release.outputs.version }}
           cache-from: type=gha,scope=release-cpu
           cache-to: type=gha,mode=max,scope=release-cpu
           tags: |
             ghcr.io/sudolulo/winnow:cpu
-            ghcr.io/sudolulo/winnow:${{ steps.tag.outputs.TAG }}-cpu
+            ghcr.io/sudolulo/winnow:${{ needs.release.outputs.tag }}-cpu
+
+  build-rocm:
+    name: Build ROCm image
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          echo "Disk space freed."
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push ROCm image
         uses: docker/build-push-action@v6
@@ -177,12 +259,43 @@ jobs:
           push: true
           build-args: |
             VARIANT=rocm
-            VERSION=${{ steps.tag.outputs.VERSION }}
+            VERSION=${{ needs.release.outputs.version }}
           cache-from: type=gha,scope=release-rocm
           cache-to: type=gha,mode=max,scope=release-rocm
           tags: |
             ghcr.io/sudolulo/winnow:rocm
-            ghcr.io/sudolulo/winnow:${{ steps.tag.outputs.TAG }}-rocm
+            ghcr.io/sudolulo/winnow:${{ needs.release.outputs.tag }}-rocm
+
+  build-intel:
+    name: Build Intel image
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          echo "Disk space freed."
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Intel image
         uses: docker/build-push-action@v6
@@ -193,9 +306,9 @@ jobs:
           push: true
           build-args: |
             VARIANT=intel
-            VERSION=${{ steps.tag.outputs.VERSION }}
+            VERSION=${{ needs.release.outputs.version }}
           cache-from: type=gha,scope=release-intel
           cache-to: type=gha,mode=max,scope=release-intel
           tags: |
             ghcr.io/sudolulo/winnow:intel
-            ghcr.io/sudolulo/winnow:${{ steps.tag.outputs.TAG }}-intel
+            ghcr.io/sudolulo/winnow:${{ needs.release.outputs.tag }}-intel

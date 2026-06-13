@@ -119,7 +119,10 @@ def assess_quality(
     blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
     checks = [
-        (blur_score >= blur_threshold, f"Blurry (laplacian={blur_score:.1f}, threshold={blur_threshold})" if blur_score < blur_threshold else ""),
+        (
+            blur_score >= blur_threshold,
+            f"Blurry (laplacian={blur_score:.1f}, threshold={blur_threshold})" if blur_score < blur_threshold else "",
+        ),
         check_grayscale(img_np),
         check_exposure(img_np),
         check_confidence(confidence, min_confidence),

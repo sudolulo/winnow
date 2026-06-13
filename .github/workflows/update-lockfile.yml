@@ -3,6 +3,8 @@ name: Update lockfiles
 
 on:
   push:
+    branches:
+      - '**'
     paths:
       - 'pyproject.toml'
       - 'pyproject-cpu.toml'
