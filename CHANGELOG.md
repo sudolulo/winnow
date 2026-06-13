@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-06-13
+
+### Fixed
+
+- **`MIN_FACE_WIDTH` default raised from 50 → 90px**: 50px crops produce 2,500–4,225 total pixels, well below Frigate's own camera capture range of 16k–50k px. 90px guarantees ≥8,100 total pixels even when face margins are fully clipped by image edges, keeping winnow training crops above the floor Frigate considers useful.
+
 ## [0.3.2] - 2026-06-13
 
 ### Added
