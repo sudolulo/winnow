@@ -38,6 +38,7 @@ services:
 
       # ── Caching & Models ──────────────────────────────────────────────────
       # - FORCE_CPU=true              # Disable GPU, fall back to CPU
+      # - OPENVINO_DEVICE=GPU         # Intel variant only: use Arc/iGPU instead of CPU (default: CPU)
       # - ENABLE_CACHE=false          # Disable embedding cache (default: true)
       - CACHE_DIR=/app/.if_cache
       - HF_HOME=/models/huggingface
@@ -63,6 +64,9 @@ services:
       - /path/to/winnow/cache:/app/.if_cache
       - /path/to/winnow/output:/app/frigate_train
     restart: unless-stopped
+
+    # ── GPU device passthrough ─────────────────────────────────────────────────
+    # NVIDIA (default — requires nvidia-container-toolkit):
     deploy:
       resources:
         reservations:
@@ -70,3 +74,18 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    #
+    # AMD ROCm — replace the deploy block above with:
+    #   devices:
+    #     - /dev/kfd
+    #     - /dev/dri
+    #   group_add:
+    #     - video
+    #     - render
+    #
+    # Intel Arc / iGPU — replace the deploy block above with:
+    #   devices:
+    #     - /dev/dri
+    #   group_add:
+    #     - render
+    #   Also set: OPENVINO_DEVICE=GPU in the environment section above.

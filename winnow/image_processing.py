@@ -144,7 +144,14 @@ def process_object_mode(
     try:
         model = get_yolo_model()
         target_class = config.get("object_class", "dog")
-        device = "cpu" if os.getenv("FORCE_CPU", "").lower() in ("true", "1", "yes") else None
+        import torch
+
+        if os.getenv("FORCE_CPU", "").lower() in ("true", "1", "yes"):
+            device = "cpu"
+        elif hasattr(torch, "xpu") and torch.xpu.is_available():
+            device = "xpu"
+        else:
+            device = None  # YOLO auto-selects (CUDA/ROCm/CPU)
 
         results = model(img, verbose=False, device=device)
 

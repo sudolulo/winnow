@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-06-13
+
+### Added
+
+- **ROCm (AMD GPU) support**: new `:rocm` image tag. InsightFace runs via `ROCmExecutionProvider`; SigLIP runs via PyTorch ROCm 6.3 (ROCm builds expose `torch.cuda.is_available() == True`, so the existing CUDA path is reused automatically). Requires `/dev/kfd` and `/dev/dri` device passthrough plus `video` and `render` group membership — see `compose.yml` for the snippet.
+- **Intel GPU support**: new `:intel` image tag. InsightFace runs via `OpenVINOExecutionProvider` from `onnxruntime-openvino`. By default OpenVINO targets CPU (no device passthrough needed); set `OPENVINO_DEVICE=GPU` to target Intel Arc discrete or integrated graphics. Intel's GPU compute runtime (Level Zero + OpenCL ICD) is installed automatically from Intel's official graphics repo in the image — no manual package installation required. SigLIP uses CPU inference for now (Intel Extension for PyTorch has no Python 3.13 wheels yet; the `torch.xpu` path is wired and will activate automatically when they ship).
+- **`OPENVINO_DEVICE` env var**: controls the OpenVINO execution provider device for the `:intel` variant. `CPU` (default) requires no device passthrough. `GPU` targets Intel Arc discrete and integrated graphics via Level Zero.
+- **AMD and Intel device passthrough snippets in `compose.yml`**: documented as commented-out alternatives to the NVIDIA `deploy:` block.
+- **`:rocm` and `:intel` CI jobs**: `docker-publish.yml` now builds and pushes `:rocm` / `:dev-rocm` and `:intel` / `:dev-intel` alongside `:latest` and `:cpu`. `release.yml` builds all four variants on tag push.
+
+### Fixed
+
+- **Interactive custom-count prompt firing for all choices**: in the no-embedding fallback path of the strategy selector, `IntPrompt.ask` was inside a dict literal and evaluated eagerly — users selecting Standard (30) or Broad (100) were still prompted to enter a custom image count. Each choice is now handled in a dedicated branch.
+
 ## [0.2.11] - 2026-06-12
 
 ### Fixed

@@ -85,14 +85,15 @@ def get_insightface_app():
         return _insightface_app
     _insightface_loaded = True
 
-    # Preload CUDA/cuDNN DLLs BEFORE any ORT InferenceSession is created
-    _preload_cuda_libs()
-
     ctx_id = -1
     insightface_home = os.environ.get("INSIGHTFACE_HOME", os.path.expanduser("~/.insightface"))
     try:
         import onnxruntime as ort
         from insightface.app import FaceAnalysis
+
+        # Preload CUDA/cuDNN DLLs before any ORT InferenceSession is created.
+        # Silently no-ops on ROCm/Intel builds where preload_dlls() is absent.
+        _preload_cuda_libs()
 
         # Disk cache check — lets the user know whether a download is coming
         buffalo_path = Path(insightface_home) / "models" / "buffalo_l"
@@ -110,18 +111,35 @@ def get_insightface_app():
             "ROCmExecutionProvider",
             "MPSExecutionProvider",
             "CoreMLExecutionProvider",
+            "OpenVINOExecutionProvider",
         }
         has_gpu_provider = bool(gpu_providers & set(providers))
         ctx_id = -1 if _is_force_cpu() else (0 if has_gpu_provider else -1)
 
+        # For OpenVINO EP, inject device_type from env var (default CPU; set GPU for Intel Arc/iGPU)
+        has_openvino = "OpenVINOExecutionProvider" in providers
+        if has_openvino:
+            openvino_device = os.getenv("OPENVINO_DEVICE", "CPU")
+            providers = [
+                ("OpenVINOExecutionProvider", {"device_type": openvino_device})
+                if p == "OpenVINOExecutionProvider" else p
+                for p in providers
+            ]
+            logger.debug(f"OpenVINO EP: device_type={openvino_device}")
+
         if not has_gpu_provider and not _is_force_cpu():
             logger.warning(
                 "No GPU execution provider found — running InsightFace on CPU. "
-                "If you have an NVIDIA GPU, ensure the NVIDIA Container Toolkit is "
-                "installed and the container has GPU access (deploy.resources in compose)."
+                "Ensure the container has GPU access and the correct variant image is used "
+                "(gpu for NVIDIA, rocm for AMD, intel for Intel Arc/iGPU)."
             )
 
-        device_str = "GPU" if ctx_id >= 0 else "CPU"
+        if ctx_id < 0:
+            device_str = "CPU"
+        elif has_openvino:
+            device_str = f"OpenVINO ({os.getenv('OPENVINO_DEVICE', 'CPU')})"
+        else:
+            device_str = "GPU"
         logger.info(f"InsightFace Buffalo_L: loading into memory on {device_str}...")
 
         t0 = time.time()
@@ -223,11 +241,14 @@ def get_siglip_model():
 
         _siglip_model.eval()
 
-        # Move to GPU if available
+        # Move to GPU if available (ROCm builds expose torch.cuda.is_available() == True)
         if not _is_force_cpu():
             if torch.cuda.is_available():
                 _siglip_model = _siglip_model.cuda()
                 device_name = "CUDA GPU"
+            elif hasattr(torch, "xpu") and torch.xpu.is_available():
+                _siglip_model = _siglip_model.to("xpu")
+                device_name = "Intel XPU"
             elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 _siglip_model = _siglip_model.to("mps")
                 device_name = "Apple MPS"

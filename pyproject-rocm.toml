@@ -16,18 +16,15 @@ classifiers = [
 dependencies = [
     "croniter>=5.0.2",
     "insightface>=0.7.3",
-    "nvidia-cudnn-cu12>=9.0.0",
     "numpy>=2.2.6",
-    "onnxruntime-gpu>=1.23.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "onnxruntime>=1.23.2; sys_platform == 'linux' and platform_machine != 'x86_64'",
-    "onnxruntime>=1.23.2; sys_platform != 'linux'",
+    "onnxruntime-rocm>=1.16.0",
     "opencv-python-headless>=4.12.0.88",
     "pillow>=12.1.0",
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
     "rich>=14.2.0",
-    "torch>=2.12.0",
-    "torchvision>=0.27.0",
+    "torch>=2.5.0",
+    "torchvision>=0.20.0",
     "transformers>=4.57.6",
     "ultralytics>=8.4.66",
 ]
@@ -39,38 +36,29 @@ winnow = "winnow.cli:main"
 Repository = "https://github.com/sudolulo/winnow"
 
 [tool.uv]
+index-strategy = "unsafe-best-match"
 conflicts = [
     [
         { package = "onnxruntime" },
         { package = "onnxruntime-gpu" },
+        { package = "onnxruntime-rocm" },
     ],
 ]
 required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "sys_platform == 'linux' and platform_machine == 'aarch64'",
 ]
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu126", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
-    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
-    { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+    { index = "pytorch-rocm63", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 torchvision = [
-    { index = "pytorch-cu126", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
-    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
-    { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+    { index = "pytorch-rocm63", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 
 [[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
+name = "pytorch-rocm63"
+url = "https://download.pytorch.org/whl/rocm6.3"
 
 [dependency-groups]
 dev = [
@@ -97,8 +85,7 @@ opencv-python-headless = "cv2"
 python-dotenv = "dotenv"
 insightface = "insightface"
 numpy = "numpy"
-nvidia-cudnn-cu12 = "nvidia.cudnn"
-onnxruntime-gpu = "onnxruntime"
+onnxruntime-rocm = "onnxruntime"
 requests = "requests"
 rich = "rich"
 torch = "torch"
@@ -106,7 +93,7 @@ transformers = "transformers"
 ultralytics = "ultralytics"
 
 [tool.deptry.per_rule_ignores]
-DEP002 = ["onnxruntime-gpu", "nvidia-cudnn-cu12"]
+DEP002 = ["onnxruntime-rocm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -114,4 +101,3 @@ testpaths = ["tests"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
