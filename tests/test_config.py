@@ -19,7 +19,7 @@ def test_config_loads_defaults(monkeypatch):
     assert cfg.YEARS_FILTER == 10
     assert cfg.MIN_FACE_WIDTH == 90
     assert cfg.MIN_FACE_COUNT == 0
-    assert cfg.BLUR_THRESHOLD == 100.0
+    assert cfg.BLUR_THRESHOLD == 120.0
     assert cfg.MIN_CONFIDENCE == 0.7
     assert cfg.MAX_AUTO_IMAGES == 80
     assert cfg.QUALITY_REPLACEMENT is True

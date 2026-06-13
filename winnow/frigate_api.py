@@ -40,6 +40,22 @@ def get_frigate_face_counts() -> dict[str, int] | None:
     }
 
 
+def get_all_frigate_person_files() -> dict[str, list[str]] | None:
+    """Return {person_name: [filename, ...]} for every person in Frigate.
+
+    Single call used to build per-person snapshots before the upload loop,
+    avoiding one GET /api/faces per person.  Returns None if unavailable.
+    """
+    data = _get_faces_data()
+    if data is None:
+        return None
+    return {
+        name: files
+        for name, files in data.items()
+        if name != "train" and isinstance(files, list)
+    }
+
+
 def get_frigate_person_files(person_name: str) -> list[str] | None:
     """Return the list of training filenames for a person in Frigate.
 
@@ -51,6 +67,38 @@ def get_frigate_person_files(person_name: str) -> list[str] | None:
         return None
     files = data.get(person_name)
     return files if isinstance(files, list) else []
+
+
+def recognize_face(file_path: str) -> tuple[str | None, float] | None:
+    """Submit an image to Frigate's recognize endpoint.
+
+    Returns (face_name, score) where face_name is the best-matching person
+    (may be "unknown" if below Frigate's confidence threshold) and score is
+    the sigmoid-mapped cosine similarity (0-1) against that person's mean
+    embedding.
+
+    Returns None if FRIGATE_URL is unset, the API is unreachable, no face is
+    detected, or face recognition is not enabled in Frigate.
+    """
+    frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
+    if not frigate_url:
+        return None
+    try:
+        with open(file_path, "rb") as f:
+            resp = requests.post(
+                f"{frigate_url}/api/faces/recognize",
+                files={"file": (os.path.basename(file_path), f, "image/jpeg")},
+                timeout=15,
+            )
+        if not resp.ok:
+            return None
+        data = resp.json()
+        if data.get("success") and "score" in data:
+            return (data.get("face_name"), round(float(data["score"]), 4))
+        return None
+    except Exception as e:
+        logger.debug(f"Frigate recognize failed for {file_path}: {e}")
+        return None
 
 
 def delete_frigate_person_files(person_name: str, filenames: list[str]) -> bool:

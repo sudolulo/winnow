@@ -218,3 +218,45 @@ def test_get_lowest_quality_exclude_all_returns_none():
     mark_uploaded("asset-a", person_name="Alice", score=0.50)
     record_frigate_file("Alice", "Alice-a.webp", "asset-a")
     assert get_lowest_quality_mapped_file("Alice", exclude={"Alice-a.webp"}) is None
+
+
+# ── get_most_redundant_mapped_file ────────────────────────────────────────────
+
+def test_get_most_redundant_none_when_no_frigate_scores():
+    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_file
+    mark_uploaded("asset-a", person_name="Alice", score=0.80)
+    record_frigate_file("Alice", "Alice-a.webp", "asset-a")
+    # blur score only, no frigate_score → no candidates
+    assert get_most_redundant_mapped_file("Alice") is None
+
+
+def test_get_most_redundant_returns_highest_frigate_score():
+    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_file
+    mark_uploaded("asset-novel", person_name="Alice", score=0.50, frigate_score=0.31)
+    mark_uploaded("asset-redundant", person_name="Alice", score=0.90, frigate_score=0.88)
+    record_frigate_file("Alice", "Alice-novel.webp", "asset-novel")
+    record_frigate_file("Alice", "Alice-redundant.webp", "asset-redundant")
+    result = get_most_redundant_mapped_file("Alice")
+    assert result is not None
+    frigate_filename, asset_id, score = result
+    assert frigate_filename == "Alice-redundant.webp"
+    assert asset_id == "asset-redundant"
+    assert score == pytest.approx(0.88, abs=0.001)
+
+
+def test_get_most_redundant_exclude_skips_file():
+    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_file
+    mark_uploaded("asset-hi", person_name="Alice", score=0.9, frigate_score=0.85)
+    mark_uploaded("asset-lo", person_name="Alice", score=0.5, frigate_score=0.40)
+    record_frigate_file("Alice", "Alice-hi.webp", "asset-hi")
+    record_frigate_file("Alice", "Alice-lo.webp", "asset-lo")
+    result = get_most_redundant_mapped_file("Alice", exclude={"Alice-hi.webp"})
+    assert result is not None
+    assert result[1] == "asset-lo"  # hi excluded; lo is next highest
+
+
+def test_get_most_redundant_exclude_all_returns_none():
+    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_file
+    mark_uploaded("asset-a", person_name="Alice", score=0.5, frigate_score=0.70)
+    record_frigate_file("Alice", "Alice-a.webp", "asset-a")
+    assert get_most_redundant_mapped_file("Alice", exclude={"Alice-a.webp"}) is None

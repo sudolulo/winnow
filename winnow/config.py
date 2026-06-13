@@ -27,10 +27,12 @@ class _Config:
 
     # Quality filtering
     MIN_FACE_WIDTH: int = 90
-    BLUR_THRESHOLD: float = 100.0
+    BLUR_THRESHOLD: float = 120.0
     MIN_CONFIDENCE: float = 0.7
     MAX_AUTO_IMAGES: int = 80
     QUALITY_REPLACEMENT: bool = True
+    FRIGATE_SCORE_CEILING: float = 0.0
+    ENABLE_FRIGATE_SCORES: bool = True
 
     # People filtering
     MIN_FACE_COUNT: int = 0
@@ -58,10 +60,12 @@ class _Config:
         self.YEARS_FILTER = int(os.getenv("YEARS_FILTER", "10"))
         self.MIN_FACE_WIDTH = int(os.getenv("MIN_FACE_WIDTH", "90"))
         self.MIN_FACE_COUNT = int(os.getenv("MIN_FACE_COUNT", "0"))
-        self.BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "100.0"))
+        self.BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "120.0"))
         self.MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.7"))
         self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "80"))
         self.QUALITY_REPLACEMENT = os.getenv("QUALITY_REPLACEMENT", "true").lower() in ("true", "1", "yes")
+        self.FRIGATE_SCORE_CEILING = float(os.getenv("FRIGATE_SCORE_CEILING", "0.0"))
+        self.ENABLE_FRIGATE_SCORES = os.getenv("ENABLE_FRIGATE_SCORES", "true").lower() in ("true", "1", "yes")
         self.FACE_MARGIN = float(os.getenv("FACE_MARGIN", "0.15"))
         self.USE_FULL_RESOLUTION = os.getenv("USE_FULL_RESOLUTION", "true").lower() in ("true", "1", "yes")
         self.ENABLE_FACE_ALIGNMENT = os.getenv("ENABLE_FACE_ALIGNMENT", "true").lower() in ("true", "1", "yes")
