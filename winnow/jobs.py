@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Strategy presets: (limit, mode_name)
 STRATEGY_PRESETS = {
-    "1": ("auto", "Auto Diversity"),
+    "1": ("auto", "Adaptive Diversity"),
     "2": (30, "Standard (30)"),
     "3": (100, "Broad (100)"),
 }
@@ -31,7 +31,7 @@ def _get_strategy_choice(has_embedding: bool, entity_type: str) -> tuple[int | s
     model_name = "InsightFace" if entity_type == "face" else "SigLIP"
 
     if has_embedding:
-        rprint("  [bold]1.[/bold] Auto (Objective Diversity) [green][Recommended][/green]")
+        rprint("  [bold]1.[/bold] Adaptive Diversity [green][Recommended][/green]")
         rprint("     [dim]• Dynamically selects images until redundancy starts[/dim]")
         rprint("  [bold]2.[/bold] Standard (30 images)")
         rprint("  [bold]3.[/bold] Broad (100 images)")
@@ -77,7 +77,8 @@ def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, st
         return int(custom_limit), "smart"
 
     strategy_map = {
-        "auto": ("auto", "smart"),
+        "adaptive": ("auto", "smart"),
+        "auto": ("auto", "smart"),  # legacy alias for adaptive
         "standard": (30, "smart"),
         "broad": (100, "smart"),
     }

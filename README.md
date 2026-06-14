@@ -53,7 +53,7 @@ Immich library
    • Farthest Point Sampling → fill remaining slots with maximally spread picks
    • Hard example weighting — low-confidence detections get a distance boost
      so unusual angles and harder looks are preferred over easy frontals
-   • Auto mode: stops when the next candidate is too similar to those already
+   • Adaptive mode: stops when the next candidate is too similar to those already
      selected (distance threshold = 20 % of median pairwise distance for
      faces, 10 % for objects)
       │
@@ -179,10 +179,10 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `TRAINING_MODE` | `face` | `face` — upload crops to Frigate; `object` — save crops to disk |
-| `STRATEGY` | `auto` | `auto` (embedding-based adaptive), `standard` (30 images), `broad` (100 images) |
+| `STRATEGY` | `adaptive` | `adaptive` — embedding-based diversity selection, stops when candidates become redundant; `standard` — fixed 30 images; `broad` — fixed 100 images |
 | `LIMIT` | *(unset)* | Exact image count — overrides `STRATEGY` |
 | `OBJECT_CLASS` | `dog` | Target class for object mode (any YOLO class: `dog`, `cat`, `car`, etc.) |
-| `AUTO_MODE` | *(auto)* | Force non-interactive mode in a terminal; auto-detected otherwise |
+| `AUTO_MODE` | *(auto)* | Skip interactive prompts and process all people unattended — auto-detected when no TTY is present (Docker, cron); set `true` to force in a terminal |
 | `VERBOSE` | `false` | Enable DEBUG-level console output (log file is always DEBUG) |
 
 ### People Filtering
@@ -255,7 +255,7 @@ uv run winnow
 
 Requires Python 3.13+ and [uv](https://astral.sh/uv). An NVIDIA, AMD, or Intel GPU is recommended — CPU mode works but embedding computation is slower.
 
-When run with a terminal attached, winnow starts an interactive session: select which people to process and choose a strategy (auto, standard, broad, or a custom count) per person. Without a TTY — Docker, cron, or `AUTO_MODE=true` — it processes all people automatically using the configured defaults.
+When run with a terminal attached, winnow starts an interactive session: select which people to process and choose a strategy (adaptive, standard, broad, or a custom count) per person. Without a TTY — Docker, cron, or `AUTO_MODE=true` — it processes all people unattended using the configured defaults.
 
 ---
 
