@@ -155,6 +155,18 @@ def execute_jobs(jobs: list[dict]) -> None:
 
     use_full_res = Config.USE_FULL_RESOLUTION
 
+    # Load InsightFace app for landmark-based crop alignment (face mode only).
+    # The model is already resident from the diversity/embedding phase, so this
+    # is just a singleton lookup — no load cost.
+    insightface_app = None
+    if any(j["config"].get("mode", "face") == "face" for j in jobs) and Config.ENABLE_FACE_ALIGNMENT:
+        try:
+            from .embeddings import get_insightface_app
+
+            insightface_app = get_insightface_app()
+        except Exception as e:
+            logger.debug(f"InsightFace unavailable for crop alignment: {e}")
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -216,7 +228,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                         progress.console.print(f"[red]Failed download {asset['id']}[/red]")
                     else:
                         saved = (
-                            process_face_mode(img, asset, person, person_dir, count)
+                            process_face_mode(img, asset, person, person_dir, count, insightface_app=insightface_app)
                             if mode == "face"
                             else process_object_mode(img, config, person_dir, count)
                             if mode == "object"
@@ -364,6 +376,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             # Snapshot live Frigate files for post-upload reconciliation diff only.
             # effective_count is sourced from the tracker (mapped files) so that
             # manually-added Frigate files don't consume winnow's managed quota.
+            # Replacement targets also come exclusively from the tracker, so manually
+            # added files are never selected for deletion — only winnow-uploaded ones.
             _snapshot = (
                 all_frigate_files.get(name, []) if all_frigate_files is not None
                 else get_frigate_person_files(name)

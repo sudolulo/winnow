@@ -45,6 +45,26 @@ def get_people() -> list[dict]:
         return []
 
 
+def merge_people(survivor_id: str, merge_ids: list[str]) -> bool:
+    """Merge duplicate people into survivor via Immich's merge endpoint.
+
+    The survivor (identified by survivor_id) absorbs all faces and assets
+    from the people in merge_ids, which are then removed from Immich.
+    """
+    try:
+        resp = requests.put(
+            f"{Config.IMMICH_URL}/api/people/{survivor_id}/merge",
+            headers={**get_headers(), "Content-Type": "application/json"},
+            json={"ids": merge_ids},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Failed to merge people into {survivor_id}: {e}")
+        return False
+
+
 def fetch_all_assets(person: dict) -> list[dict]:
     """Fetch all assets for a person with pagination."""
     name = person.get("name", "Unknown")
