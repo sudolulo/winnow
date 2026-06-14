@@ -122,19 +122,16 @@ def _perform_selection(
 
 def _build_job(
     person: dict,
-    recent_assets: list,
+    assets: list,
     limit: int | str,
     selection_mode: str,
-    retry_rejected: bool = False,
     quality_replacement: bool = False,
 ) -> dict | None:
-    """Build a job dict from pre-fetched assets and parameters. No I/O."""
-    name = person["name"]
-    new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets], retry_rejected=retry_rejected))
-    new_assets = [a for a in recent_assets if a["id"] in new_asset_ids]
-    if not new_assets:
+    """Select from pre-filtered assets and build a job dict. No terminal I/O."""
+    if not assets:
         return None
-    selected = _perform_selection(new_assets, limit, name, selection_mode, person_id=person["id"])
+    name = person["name"]
+    selected = _perform_selection(assets, limit, name, selection_mode, person_id=person["id"])
     if not selected:
         return None
     return {
@@ -150,7 +147,6 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
     name = person["name"]
     console.print(f"\nSelected: [bold green]{name}[/bold green]")
 
-    # Fetch and filter assets
     years = IntPrompt.ask("Filter images older than (years)", default=Config.YEARS_FILTER)
 
     console.print(f"Scanning for {name}...")
@@ -160,35 +156,31 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
 
     rprint(f"  Found [bold]{len(all_assets)}[/bold] total, [bold]{len(recent_assets)}[/bold] in range ({years} years).")
 
-    # Strategy selection
+    # Ask before strategy so the post-dedup count can inform the choice
+    retry_env = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
+    retry_rejected = Confirm.ask("Include previously rejected images?", default=retry_env)
+
+    before_dedup = len(recent_assets)
+    new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets], retry_rejected=retry_rejected))
+    recent_assets = [a for a in recent_assets if a["id"] in new_asset_ids]
+    skipped = before_dedup - len(recent_assets)
+    if skipped:
+        rprint(f"  [dim]Skipped {skipped} assets already uploaded to Frigate.[/dim]")
+
+    if not recent_assets:
+        rprint("  [dim]Skipping (0 new images after dedup).[/dim]")
+        return None
+
     has_embedding = is_embedding_available()
     rprint(f"\n[bold cyan]Select Training Strategy for {name}:[/bold cyan]")
-
     limit, selection_mode = _get_strategy_choice(has_embedding)
     if selection_mode == "skip":
         return None
 
-    # In interactive mode, ask about retry_rejected — use env var as default
-    retry_env = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
-    retry_rejected = Confirm.ask("Include previously rejected images?", default=retry_env)
-
-    job = _build_job(
-        person,
-        recent_assets,
-        limit,
-        selection_mode,
-        retry_rejected=retry_rejected,
-        quality_replacement=Config.QUALITY_REPLACEMENT,
-    )
+    job = _build_job(person, recent_assets, limit, selection_mode, quality_replacement=Config.QUALITY_REPLACEMENT)
     if job is None:
-        rprint("  [dim]Skipping (0 new images after dedup or selection).[/dim]")
+        rprint("  [dim]Skipping (0 images selected).[/dim]")
         return None
-
-    # Show how many were skipped (dedup info)
-    new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets], retry_rejected=retry_rejected))
-    skipped = len(recent_assets) - len(new_asset_ids)
-    if skipped:
-        rprint(f"  [dim]Skipped {skipped} assets already uploaded to Frigate.[/dim]")
 
     rprint(f"  [green]Queued {job['limit']} images for {name}.[/green]")
     return job
@@ -312,16 +304,20 @@ def auto_configure(people: list[dict]) -> list[dict]:
             continue
 
         retry_rejected = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
-        job = _build_job(
-            person,
-            recent_assets,
-            limit,
-            selection_mode,
-            retry_rejected=retry_rejected,
-            quality_replacement=quality_replacement,
-        )
+        before_dedup = len(recent_assets)
+        new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets], retry_rejected=retry_rejected))
+        recent_assets = [a for a in recent_assets if a["id"] in new_asset_ids]
+        skipped = before_dedup - len(recent_assets)
+        if skipped:
+            rprint(f"  [dim]Skipped {skipped} assets already uploaded to Frigate.[/dim]")
+
+        if not recent_assets:
+            rprint(f"  [dim]Skipping {name} (0 new images after dedup).[/dim]")
+            continue
+
+        job = _build_job(person, recent_assets, limit, selection_mode, quality_replacement=quality_replacement)
         if job is None:
-            rprint(f"  [dim]Skipping {name} (0 new images after dedup or selection).[/dim]")
+            rprint(f"  [dim]Skipping {name} (0 images selected).[/dim]")
             continue
 
         # Apply auto_cap post-selection if needed

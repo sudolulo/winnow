@@ -1,6 +1,7 @@
 """Frigate upload post-processing: reconciliation and asset enrichment."""
 
 import logging
+import time
 
 from .frigate_api import get_frigate_person_files
 from .immich_api import fetch_face_data
@@ -30,8 +31,6 @@ def reconcile_frigate_mappings(
     diffing. Until then, the external-upload guard keeps mappings correct at
     the cost of occasionally missing them when another client is active.
     """
-    import time
-
     target = len(uploaded)
     current_files: set[str] = set()
 
