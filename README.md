@@ -68,7 +68,9 @@ Immich library
       ▼
 9. Deliver
    • Face mode: upload crops to Frigate's face registration API
-     ↳ below MAX_AUTO_IMAGES — upload freely
+     ↳ below MAX_AUTO_IMAGES — upload, unless the novelty gate
+       (FRIGATE_SCORE_CEILING) determines the candidate is already
+       covered by the current training set
      ↳ at cap + QUALITY_REPLACEMENT=true — with Frigate scoring active,
        swap the most redundant tracked image (highest pre-upload recognize
        score) if the candidate is more novel (lower score); falling back to
@@ -78,7 +80,7 @@ Immich library
    • Object mode: save crops to disk → place into your Frigate data directory
 ```
 
-Uploaded and rejected asset IDs are persisted across runs. The same image is never processed twice; Frigate rejections are permanently skipped unless `RETRY_REJECTED=true`.
+Uploaded and rejected asset IDs are persisted across runs. The same image is never processed twice; rejected assets are permanently skipped unless `RETRY_REJECTED=true`.
 
 ---
 
@@ -199,16 +201,23 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
+| `MAX_AUTO_IMAGES` | `80` | Maximum training images per person in Frigate |
+| `QUALITY_REPLACEMENT` | `true` | When at cap, swap a weaker tracked image for a better candidate. With Frigate scoring active, targets the most redundant image (highest pre-upload recognize score); otherwise uses blur score. Never touches manually added Frigate files. Set `false` to skip people at cap |
+| `FRIGATE_SCORE_CEILING` | *(unset)* | Below-cap novelty gate against Frigate's live model (catches conditions covered by manually-added images too). Unset: dynamic — skips candidates whose Frigate score exceeds the most-redundant tracked file's score, auto-calibrates each run. `0`: disable entirely. Positive value (e.g. `0.85`): fixed hard ceiling. No effect on the first run or when `ENABLE_FRIGATE_SCORES=false` |
+| `ENABLE_FRIGATE_SCORES` | `true` | Call Frigate's recognize endpoint pre-upload to store diversity scores used for quality replacement. Adds ~200 ms per upload. Disable to use blur-score replacement only |
+
+#### Image Processing *(calibrated — do not adjust)*
+
+These defaults are tuned for Frigate's ArcFace requirements. If you change them and run into image quality issues, support will not be provided.
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
 | `MIN_FACE_WIDTH` | `90` | Minimum face crop width in pixels |
 | `FACE_MARGIN` | `0.15` | Padding around bounding box crop (fraction of face size) |
 | `ENABLE_FACE_ALIGNMENT` | `true` | Align to ArcFace 112×112 format using facial landmarks |
 | `USE_FULL_RESOLUTION` | `true` | Download full-resolution originals rather than preview thumbnails |
 | `MIN_CONFIDENCE` | `0.7` | Minimum Immich face detection confidence |
 | `BLUR_THRESHOLD` | `120.0` | Laplacian variance threshold — lower accepts more blur |
-| `MAX_AUTO_IMAGES` | `80` | Maximum training images per person in Frigate |
-| `QUALITY_REPLACEMENT` | `true` | When at cap, swap a weaker tracked image for a better candidate. With Frigate scoring active, targets the most redundant image (highest pre-upload recognize score); otherwise uses blur score. Never touches manually added Frigate files. Set `false` to skip people at cap |
-| `FRIGATE_SCORE_CEILING` | *(unset)* | Below-cap novelty gate against Frigate's live model (catches conditions covered by manually-added images too). Unset: dynamic — skips candidates whose Frigate score exceeds the most-redundant tracked file's score, auto-calibrates each run. `0`: disable entirely. Positive value (e.g. `0.85`): fixed hard ceiling. No effect on the first run or when `ENABLE_FRIGATE_SCORES=false` |
-| `ENABLE_FRIGATE_SCORES` | `true` | Call Frigate's recognize endpoint pre-upload to store diversity scores used for quality replacement. Adds ~200 ms per upload. Disable to use blur-score replacement only |
 
 ### GPU & Models
 
@@ -232,7 +241,7 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `DRY_RUN` | `false` | Preview selection without downloading or uploading |
-| `RETRY_REJECTED` | `false` | Re-attempt assets previously rejected by Frigate |
+| `RETRY_REJECTED` | `false` | Re-attempt all previously rejected assets (low-confidence skips, Frigate rejections, and other permanent exclusions) |
 | `RESET_PERSON` | *(unset)* | Set to a person's name to clear their upload history and delete their winnow-managed Frigate training files so the next run starts fresh. Set to `*` to reset all tracked people at once. Manually added Frigate files are never touched |
 | `TRACE_CROP_SIZE` | *(unset)* | Debug: print all tracked crops whose width or height matches this pixel value, then exit |
 
