@@ -27,7 +27,7 @@ Immich library
       │
       ▼
 2. Filter by recency (YEARS_FILTER) and skip already-uploaded
-   and rejected assets (persistent tracker in CACHE_DIR)
+   and rejected assets (persistent tracker in DATA_DIR)
       │
       ▼
 3. Quality filter — download preview thumbnails and reject:
@@ -74,7 +74,7 @@ Immich library
    ↳ at cap + QUALITY_REPLACEMENT=false — skip this person
 ```
 
-Uploaded and rejected asset IDs are persisted across runs in a SQLite database (`winnow_tracker.db` in `CACHE_DIR`). The same image is never processed twice; rejected assets are permanently skipped unless `RETRY_REJECTED=true`.
+Uploaded and rejected asset IDs are persisted across runs in a SQLite database (`winnow_tracker.db` in `DATA_DIR`). The same image is never processed twice; rejected assets are permanently skipped unless `RETRY_REJECTED=true`.
 
 ---
 
@@ -103,7 +103,7 @@ services:
       - CRON_SCHEDULE=0 3 * * 0
     volumes:
       - /path/to/models:/models    # INSIGHTFACE_HOME — persists Buffalo_L model (~300 MB)
-      - /path/to/cache:/app/.if_cache
+      - /path/to/data:/app/data
       - /path/to/output:/app/frigate_train
     deploy:
       resources:
@@ -212,7 +212,7 @@ These defaults are tuned for Frigate's ArcFace requirements. winnow will warn on
 | `FORCE_CPU` | `false` | Disable GPU — fall back to CPU for all inference |
 | `OPENVINO_DEVICE` | `CPU` | Intel variant only: set `GPU` to use Arc or iGPU; default runs on CPU |
 | `ENABLE_CACHE` | `true` | Cache computed embeddings to disk (speeds up re-runs on the same library) |
-| `CACHE_DIR` | `.if_cache` | Path for embedding cache and upload tracker database (`winnow_tracker.db`) |
+| `DATA_DIR` | `data` | Path for embedding cache and upload tracker database (`winnow_tracker.db`) |
 | `INSIGHTFACE_HOME` | *(system)* | InsightFace model cache path (Buffalo_L) |
 
 ### Output
