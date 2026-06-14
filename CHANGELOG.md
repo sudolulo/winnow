@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-06-14
+
+### Fixed
+
+- **OOM when Immich returns many pages per person**: `fetch_all_assets` now stops fetching once 5000 assets have been collected — the diversity selection pool is already capped at 3000 items, so fetching up to 1,000,000 was wasteful and could exhaust memory on large libraries. 5000 provides ample headroom for the pool cap while bounding per-person memory to ~2 MB.
+- **Non-dict items in Immich asset pages silently skipped**: a malformed or partially-null Immich response page could include `null` or non-object items in the assets array. These are now filtered at fetch time rather than causing `AttributeError` downstream.
+
 ## [0.4.5] - 2026-06-14
 
 ### Fixed
