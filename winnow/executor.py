@@ -46,7 +46,10 @@ def _safe_person_dir(output_dir: str, person_name: str) -> str:
     """
     candidate = os.path.realpath(os.path.join(output_dir, person_name))
     base = os.path.realpath(output_dir)
-    if not candidate.startswith(base + os.sep) and candidate != base:
+    # Use the base path as its own prefix when it's the filesystem root ("/"),
+    # otherwise append os.sep — avoids the false "//" double-slash when base == "/".
+    base_prefix = base if base == os.sep else base + os.sep
+    if not candidate.startswith(base_prefix) and candidate != base:
         raise ValueError(f"Person name {person_name!r} escapes output directory — skipping")
     return candidate
 
@@ -603,15 +606,16 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             progress.console.print(
                                 f"    [red]✗ {fname}: HTTP {resp.status_code} (after {max_retries} attempts)[/red]"
                             )
+                            full_body = resp.text
                             try:
-                                error_detail = resp.json().get("message", resp.text[:100])
+                                error_detail = resp.json().get("message", full_body[:100])
                             except Exception:
-                                error_detail = resp.text[:100]
+                                error_detail = full_body[:100]
                             if resp.status_code == 400:
                                 progress.console.print(f"      [dim]{error_detail}[/dim]")
                             else:
                                 logger.debug(f"{fname} HTTP {resp.status_code}: {error_detail}")
-                            if resp.status_code == 400 and "face" in error_detail.lower():
+                            if resp.status_code == 400 and "face" in full_body.lower():
                                 asset_id = asset_map.get(fname)
                                 if asset_id:
                                     mark_rejected(asset_id, person_name=name)
