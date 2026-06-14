@@ -1,6 +1,6 @@
 """Persistent tracker for Immich asset IDs uploaded/rejected by Frigate.
 
-Uses a local SQLite database (frigate_tracker.db) in CACHE_DIR.
+Uses a local SQLite database (frigate_tracker.db) in DATA_DIR.
 
 Schema
 ------
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS person_metadata (
 );
 """
 
-# Module-level connection state — re-opened when CACHE_DIR changes (test isolation)
+# Module-level connection state — re-opened when DATA_DIR changes (test isolation)
 _conn: sqlite3.Connection | None = None
 _conn_path: str | None = None
 
@@ -61,15 +61,15 @@ _conn_path: str | None = None
 def _get_conn() -> sqlite3.Connection:
     """Return (or create) the module-level SQLite connection.
 
-    Re-opens the connection when Config.CACHE_DIR has changed — this provides
+    Re-opens the connection when Config.DATA_DIR has changed — this provides
     test isolation when the isolated_cache fixture sets a new tmp directory and
     calls _Config.reset().
     """
     global _conn, _conn_path
 
     from .config import Config
-    cache_dir = Config.CACHE_DIR
-    db_path = str(Path(cache_dir) / _DB_NAME)
+    data_dir = Config.DATA_DIR
+    db_path = str(Path(data_dir) / _DB_NAME)
 
     if _conn is not None and _conn_path != db_path:
         try:
@@ -79,7 +79,7 @@ def _get_conn() -> sqlite3.Connection:
         _conn = None
 
     if _conn is None:
-        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        Path(data_dir).mkdir(parents=True, exist_ok=True)
         _conn = sqlite3.connect(db_path, check_same_thread=False)
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
@@ -87,7 +87,7 @@ def _get_conn() -> sqlite3.Connection:
         _conn.executescript(_DDL)
         _conn.commit()
         _conn_path = db_path
-        _maybe_migrate(cache_dir, _conn)
+        _maybe_migrate(data_dir, _conn)
 
     return _conn
 
@@ -96,9 +96,9 @@ def _get_conn() -> sqlite3.Connection:
 # JSON → SQLite migration
 # ---------------------------------------------------------------------------
 
-def _maybe_migrate(cache_dir: str, conn: sqlite3.Connection) -> None:
+def _maybe_migrate(data_dir: str, conn: sqlite3.Connection) -> None:
     """If the old JSON files exist and DB is empty, migrate and rename them."""
-    base = Path(cache_dir)
+    base = Path(data_dir)
     upload_json = base / _UPLOAD_JSON
     reject_json = base / _REJECT_JSON
 
@@ -110,7 +110,7 @@ def _maybe_migrate(cache_dir: str, conn: sqlite3.Connection) -> None:
     # (e.g. a PermissionError on the second rename would have left the first file's
     # data committed but the second file un-renamed and un-migrated).
 
-    logger.info("Migrating JSON tracker files to SQLite in %s", cache_dir)
+    logger.info("Migrating JSON tracker files to SQLite in %s", data_dir)
 
     try:
         with conn:

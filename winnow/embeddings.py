@@ -214,7 +214,7 @@ def get_embedding(
     from .config import Config
 
     use_cache = Config.ENABLE_CACHE and asset_id is not None
-    cache = get_cache(Config.CACHE_DIR) if use_cache else None
+    cache = get_cache(Config.DATA_DIR) if use_cache else None
 
     if cache:
         cached = cache.get(asset_id, "insightface")

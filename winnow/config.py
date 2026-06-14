@@ -47,7 +47,7 @@ class _Config:
     ENABLE_FACE_ALIGNMENT: bool
 
     ENABLE_CACHE: bool
-    CACHE_DIR: str
+    DATA_DIR: str
 
     def __new__(cls) -> "_Config":
         if cls._instance is None:
@@ -99,7 +99,17 @@ class _Config:
         self.USE_FULL_RESOLUTION = os.getenv("USE_FULL_RESOLUTION", "true").lower() in ("true", "1", "yes")
         self.ENABLE_FACE_ALIGNMENT = os.getenv("ENABLE_FACE_ALIGNMENT", "true").lower() in ("true", "1", "yes")
         self.ENABLE_CACHE = os.getenv("ENABLE_CACHE", "true").lower() in ("true", "1", "yes")
-        self.CACHE_DIR = os.getenv("CACHE_DIR", ".if_cache")
+        _data_dir = os.getenv("DATA_DIR")
+        _cache_dir_legacy = os.getenv("CACHE_DIR")
+        if _data_dir:
+            self.DATA_DIR = _data_dir
+        elif _cache_dir_legacy:
+            logging.warning(
+                "CACHE_DIR is deprecated — rename it to DATA_DIR in your .env or compose.yml"
+            )
+            self.DATA_DIR = _cache_dir_legacy
+        else:
+            self.DATA_DIR = "data"
 
         # Fall back to config file only when the env var is genuinely absent (None).
         # An explicitly empty env var (IMMICH_URL="") takes priority over the file.
