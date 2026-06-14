@@ -231,6 +231,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                                 f"[yellow]Skipped {asset['id']}"
                                 f" (detection confidence {conf:.2f} < {Config.MIN_CONFIDENCE})[/yellow]"
                             )
+                            mark_rejected(asset["id"], person_name=name)
                             progress.advance(job_task)
                             progress.advance(overall_task)
                             continue
