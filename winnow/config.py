@@ -93,7 +93,14 @@ class _Config:
         self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "20"))
         self.QUALITY_REPLACEMENT = os.getenv("QUALITY_REPLACEMENT", "true").lower() in ("true", "1", "yes")
         _ceiling_env = os.getenv("FRIGATE_SCORE_CEILING", "").strip()
-        self.FRIGATE_SCORE_CEILING = float(_ceiling_env) if _ceiling_env else None
+        if _ceiling_env:
+            try:
+                self.FRIGATE_SCORE_CEILING = float(_ceiling_env)
+            except ValueError:
+                logging.warning("FRIGATE_SCORE_CEILING=%r is not a valid float — ignoring", _ceiling_env)
+                self.FRIGATE_SCORE_CEILING = None
+        else:
+            self.FRIGATE_SCORE_CEILING = None
         self.ENABLE_FRIGATE_SCORES = os.getenv("ENABLE_FRIGATE_SCORES", "true").lower() in ("true", "1", "yes")
         self.FACE_MARGIN = float(os.getenv("FACE_MARGIN", "0.15"))
         self.USE_FULL_RESOLUTION = os.getenv("USE_FULL_RESOLUTION", "true").lower() in ("true", "1", "yes")
@@ -116,6 +123,13 @@ class _Config:
         # Prefer DATA_DIR/.immich_config.json (volume-safe in Docker) and fall back
         # to the legacy CWD path so existing installations continue to work.
         _data_cfg = Path(self.DATA_DIR) / ".immich_config.json"
+        if _data_cfg.exists() and _LEGACY_CONFIG_FILE.exists():
+            logging.warning(
+                "Two config files found: %s and %s — using %s. Remove the legacy file to silence this.",
+                _data_cfg,
+                _LEGACY_CONFIG_FILE,
+                _data_cfg,
+            )
         config_file = _data_cfg if _data_cfg.exists() else _LEGACY_CONFIG_FILE
         if config_file.exists():
             try:

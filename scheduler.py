@@ -31,7 +31,10 @@ def _run_scheduler() -> None:
         print("Error: CRON_SCHEDULE environment variable is required.", flush=True)
         sys.exit(1)
 
-    Path("/tmp/winnow.pid").write_text(str(os.getpid()))
+    try:
+        Path("/tmp/winnow.pid").write_text(str(os.getpid()))
+    except OSError as e:
+        print(f"Warning: could not write PID file: {e}", flush=True)
 
     now = time.time()
     cron = croniter(schedule, now)
@@ -53,7 +56,7 @@ def _run_scheduler() -> None:
                 print(f"winnow run failed: {e}", flush=True)
             next_run = cron.get_next(float)
             print(f"Next run: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_run))}", flush=True)
-        time.sleep(max(1, next_run - time.time()))
+        time.sleep(min(60, max(1, next_run - time.time())))
 
 
 if __name__ == "__main__":
