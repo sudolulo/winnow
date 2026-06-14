@@ -29,7 +29,7 @@ class _Config:
     MIN_FACE_WIDTH: int = 90
     BLUR_THRESHOLD: float = 120.0
     MIN_CONFIDENCE: float = 0.7
-    MAX_AUTO_IMAGES: int = 80
+    MAX_AUTO_IMAGES: int = 20
     QUALITY_REPLACEMENT: bool = True
     FRIGATE_SCORE_CEILING: float | None = None
     ENABLE_FRIGATE_SCORES: bool = True
@@ -64,7 +64,7 @@ class _Config:
         self.MERGE_DUPLICATE_PEOPLE = os.getenv("MERGE_DUPLICATE_PEOPLE", "false").lower() in ("true", "1", "yes")
         self.BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "120.0"))
         self.MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.7"))
-        self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "80"))
+        self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "20"))
         self.QUALITY_REPLACEMENT = os.getenv("QUALITY_REPLACEMENT", "true").lower() in ("true", "1", "yes")
         _ceiling_env = os.getenv("FRIGATE_SCORE_CEILING", "").strip()
         self.FRIGATE_SCORE_CEILING = float(_ceiling_env) if _ceiling_env else None
