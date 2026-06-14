@@ -173,11 +173,11 @@ def execute_jobs(jobs: list[dict]) -> None:
 
     use_full_res = Config.USE_FULL_RESOLUTION
 
-    # Load InsightFace app for landmark-based crop alignment (face mode only).
+    # Load InsightFace app for landmark-based crop alignment.
     # The model is already resident from the diversity/embedding phase, so this
     # is just a singleton lookup — no load cost.
     insightface_app = None
-    if any(j["config"].get("mode", "face") == "face" for j in jobs) and Config.ENABLE_FACE_ALIGNMENT:
+    if Config.ENABLE_FACE_ALIGNMENT:
         try:
             from .embeddings import get_insightface_app
 
@@ -196,8 +196,8 @@ def execute_jobs(jobs: list[dict]) -> None:
         overall_task = progress.add_task("[green]Overall Progress", total=grand_total)
 
         for job in jobs:
-            person, assets, config = job["person"], job["assets"], job["config"]
-            name, mode = person["name"], config.get("mode", "face")
+            person, assets = job["person"], job["assets"]
+            name = person["name"]
 
             job_task = progress.add_task(f"Processing {name}...", total=len(assets))
             try:
@@ -206,8 +206,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                 logger.error(str(e))
                 continue
             # Face crops are transient (uploaded then discarded); wipe before each run.
-            # Object crops are the deliverable; preserve them across runs.
-            if mode == "face" and os.path.isdir(person_dir):
+            if os.path.isdir(person_dir):
                 shutil.rmtree(person_dir)
             os.makedirs(person_dir, exist_ok=True)
 
@@ -219,22 +218,21 @@ def execute_jobs(jobs: list[dict]) -> None:
             count = 0
             for asset in assets:
                 try:
-                    # For face mode, enrich the asset with face bounding box data
-                    # from the Immich faces API (not included in search/metadata results)
-                    if mode == "face":
-                        asset = _enrich_asset_with_face_data(asset, person)
-                        # Skip download if detection confidence already disqualifies
-                        # the asset — avoids fetching a large image we'll discard.
-                        conf = asset.get("face_confidence")
-                        if conf is not None and conf < Config.MIN_CONFIDENCE:
-                            progress.console.print(
-                                f"[yellow]Skipped {asset['id']}"
-                                f" (detection confidence {conf:.2f} < {Config.MIN_CONFIDENCE})[/yellow]"
-                            )
-                            mark_rejected(asset["id"], person_name=name)
-                            progress.advance(job_task)
-                            progress.advance(overall_task)
-                            continue
+                    # Enrich the asset with face bounding box data from the Immich
+                    # faces API (not included in search/metadata results).
+                    asset = _enrich_asset_with_face_data(asset, person)
+                    # Skip download if detection confidence already disqualifies
+                    # the asset — avoids fetching a large image we'll discard.
+                    conf = asset.get("face_confidence")
+                    if conf is not None and conf < Config.MIN_CONFIDENCE:
+                        progress.console.print(
+                            f"[yellow]Skipped {asset['id']}"
+                            f" (detection confidence {conf:.2f} < {Config.MIN_CONFIDENCE})[/yellow]"
+                        )
+                        mark_rejected(asset["id"], person_name=name)
+                        progress.advance(job_task)
+                        progress.advance(overall_task)
+                        continue
 
                     # Use full-resolution for final output when configured
                     if use_full_res:

@@ -13,13 +13,9 @@ services:
       # Set AUTO_MODE=true to force auto mode in an interactive terminal.
       # To run interactively: docker exec -it winnow winnow
       # - VERBOSE=true                # Enable DEBUG-level console output
-      # TRAINING_MODE: face = upload to Frigate face recognition API
-      #                object = save crops to output dir for manual Frigate placement
-      - TRAINING_MODE=face
       # STRATEGY: auto = objective diversity (recommended), standard = 30 imgs, broad = 100 imgs
       - STRATEGY=auto
       # - LIMIT=50                    # Custom image count; overrides STRATEGY preset
-      # - OBJECT_CLASS=dog            # Object label for object mode (e.g. dog, cat, car)
 
       # ── People Filtering ──────────────────────────────────────────────────
       # - ONLY_PEOPLE=John,Jane       # Comma-separated; process only these people
@@ -35,14 +31,13 @@ services:
       # - USE_FULL_RESOLUTION=true    # Use full-res images vs thumbnails (default: true)
       # - MIN_CONFIDENCE=0.7          # Minimum face detection confidence (default: 0.7)
       # - BLUR_THRESHOLD=100.0        # Laplacian blur threshold; lower = accept more blur (default: 100.0)
-      # - MAX_AUTO_IMAGES=80          # Hard cap on auto-diversity selection (default: 80)
+      # - MAX_AUTO_IMAGES=80          # Hard cap on auto-diversity selection (default: 20)
 
       # ── Caching & Models ──────────────────────────────────────────────────
       # - FORCE_CPU=true              # Disable GPU, fall back to CPU
       # - OPENVINO_DEVICE=GPU         # Intel variant only: use Arc/iGPU instead of CPU (default: CPU)
       # - ENABLE_CACHE=false          # Disable embedding cache (default: true)
       - CACHE_DIR=/app/.if_cache
-      - HF_HOME=/models/huggingface
       - INSIGHTFACE_HOME=/models/.insightface
 
       # ── Tracker overrides (one-shot, remove after use) ────────────────────

@@ -125,7 +125,7 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
     name = person["name"]
     console.print(f"\nSelected: [bold green]{name}[/bold green]")
 
-    config = {"name": name, "mode": "face", "quality_replacement": Config.QUALITY_REPLACEMENT}
+    config = {"name": name, "quality_replacement": Config.QUALITY_REPLACEMENT}
 
     # Fetch and filter assets
     years = IntPrompt.ask("Filter images older than (years)", default=Config.YEARS_FILTER)
@@ -240,7 +240,7 @@ def auto_configure(people: list[dict]) -> list[dict]:
     jobs = []
     for person in valid_people:
         name = person["name"]
-        config = {"name": name, "mode": "face"}
+        config = {"name": name}
 
         all_assets = fetch_all_assets(person)
         recent_assets = filter_recent_assets(all_assets, years=Config.YEARS_FILTER)

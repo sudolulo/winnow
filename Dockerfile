@@ -67,7 +67,7 @@ FROM base-${TARGETARCH}-${VARIANT} AS runtime
 ARG VARIANT=gpu
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="winnow" \
-      org.opencontainers.image.description="Selects diverse, high-quality photos from Immich as training data for Frigate face recognition and object classification." \
+      org.opencontainers.image.description="Selects diverse, high-quality photos from Immich as training data for Frigate face recognition." \
       org.opencontainers.image.source="https://github.com/sudolulo/winnow" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.version="${VERSION}"
@@ -116,7 +116,7 @@ https://repositories.intel.com/graphics/ubuntu jammy flex" \
     fi
 
 RUN groupadd -g 568 apps && useradd -u 568 -g apps -m -s /bin/bash appuser \
-    && mkdir -p /models/.insightface /models/huggingface \
+    && mkdir -p /models/.insightface \
     && chown -R appuser:apps /app /models
 
 WORKDIR /app
@@ -124,7 +124,7 @@ USER appuser
 # PYTHONPATH=/app makes the winnow package importable from the entry point script.
 # uv sync builds the wheel before winnow/ is COPY'd, so site-packages has only
 # the dist-info. Explicitly adding /app lets Python find winnow/__init__.py there.
-ENV HF_HOME=/models/huggingface INSIGHTFACE_HOME=/models/.insightface PYTHONPATH=/app
+ENV INSIGHTFACE_HOME=/models/.insightface PYTHONPATH=/app
 
 HEALTHCHECK CMD test -f /app/entrypoint.sh || exit 1
 ENTRYPOINT ["tini", "--", "/app/entrypoint.sh"]
