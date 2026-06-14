@@ -101,17 +101,18 @@ class EmbeddingCache:
 
 # Singleton instance
 _cache: EmbeddingCache | None = None
+_cache_dir: str | None = None
 
 
 def get_cache(cache_dir: str = ".if_cache") -> EmbeddingCache:
     """Get or create the singleton cache instance.
 
-    Note: The ``cache_dir`` parameter is only used when creating the
-    singleton for the first time. Subsequent calls return the existing
-    instance regardless of ``cache_dir``. If you need a cache with a
-    different directory, instantiate ``EmbeddingCache`` directly.
+    Re-creates the instance when ``cache_dir`` changes so that test
+    isolation (which resets Config.DATA_DIR via _Config.reset()) always
+    writes to the correct directory rather than a stale one.
     """
-    global _cache
-    if _cache is None:
+    global _cache, _cache_dir
+    if _cache is None or _cache_dir != cache_dir:
         _cache = EmbeddingCache(cache_dir)
+        _cache_dir = cache_dir
     return _cache
