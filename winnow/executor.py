@@ -464,7 +464,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         remove_frigate_file(name, target_frigate_file)
                         person_has_fscores = has_frigate_scores(name)
                         effective_count -= 1
-                        min_quality_score_for_slot = None if using_fscore else candidate_score
+                        min_quality_score_for_slot = None if using_fscore else target_score
                     else:
                         logger.warning("Failed to delete %s for %s, skipping replacement", target_frigate_file, name)
                         failed_deletes.add(target_frigate_file)
