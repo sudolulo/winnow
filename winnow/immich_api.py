@@ -108,7 +108,7 @@ def fetch_all_assets(person: dict) -> list[dict]:
 
 
 def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | None:
-    """Fetch pre-computed face data (embedding, bbox, confidence) from Immich.
+    """Fetch pre-computed face data (bbox, confidence) from Immich.
 
     Queries GET /api/faces?id={asset_id} to retrieve face detection results
     that Immich already computed using InsightFace Buffalo_L.
