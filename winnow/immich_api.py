@@ -86,7 +86,10 @@ def merge_people(survivor_id: str, merge_ids: list[str]) -> bool:
 def fetch_all_assets(person: dict) -> list[dict]:
     """Fetch all assets for a person with pagination."""
     name = person.get("name", "Unknown")
-    person_id = person["id"]
+    person_id = person.get("id")
+    if not person_id:
+        logger.error("Person dict missing 'id' field for %s — skipping asset fetch", name)
+        return []
     url = f"{Config.IMMICH_URL}/api/search/metadata"
     page_size = 1000
 
@@ -120,7 +123,7 @@ def fetch_all_assets(person: dict) -> list[dict]:
                 break
 
         except (requests.RequestException, ValueError) as e:
-            logger.error("Exception fetching assets for %s: %s", name, e)
+            logger.error("Exception fetching assets for %s (page %s): %s", name, page, e)
             break
 
     return assets
@@ -152,18 +155,20 @@ def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | N
             return None
 
         faces = resp.json()
-        if not faces:
+        if not isinstance(faces, list) or not faces:
             return None
 
         # Match the target person if specified
         face = None
         if person_id:
             face = next(
-                (f for f in faces if (f.get("person") or {}).get("id") == person_id),
+                (f for f in faces if isinstance(f, dict) and (f.get("person") or {}).get("id") == person_id),
                 None,
             )
         if face is None:
-            face = faces[0]  # Fall back to first/largest face
+            face = faces[0] if isinstance(faces[0], dict) else None
+        if face is None:
+            return None
 
         bbox = (
             face.get("boundingBoxX1", 0),

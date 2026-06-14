@@ -137,7 +137,14 @@ def execute_jobs(jobs: list[dict]) -> None:
                             headers=get_headers(),
                             timeout=30,
                         )
-                        img = Image.open(BytesIO(resp.content)) if resp.ok else None
+                        if resp.ok:
+                            try:
+                                img = Image.open(BytesIO(resp.content))
+                            except Exception:
+                                logger.warning("Invalid image data for asset %s", asset["id"])
+                                img = None
+                        else:
+                            img = None
 
                     if img is None:
                         progress.console.print(f"[red]Failed download {asset['id']}[/red]")
@@ -208,7 +215,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
     _frigate_version = get_frigate_version()
     if _frigate_version is not None:
         try:
-            parts = [int(x) for x in _frigate_version.split("-")[0].split(".") if x.isdigit()]
+            parts = [int(x) for x in _frigate_version.lstrip("v").split("-")[0].split(".") if x.isdigit()]
             if len(parts) >= 2 and (parts[0], parts[1]) < (0, 16):
                 rprint(
                     f"  [yellow]⚠  Frigate {_frigate_version} detected — "
