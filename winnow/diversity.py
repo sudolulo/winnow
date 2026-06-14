@@ -304,7 +304,7 @@ def _select_by_embedding(
 # Near-Duplicate Removal
 # =============================================================================
 
-_DEDUP_THRESHOLD = 0.10  # cosine distance — burst shots are ~0.01-0.05 apart
+_DEDUP_THRESHOLD = 0.20  # cosine distance — burst shots ~0.01-0.05, same-event similar shots ~0.10-0.20
 
 
 def _dedup_embeddings(
