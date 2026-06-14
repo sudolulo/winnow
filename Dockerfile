@@ -1,14 +1,14 @@
 # ── Base images ───────────────────────────────────────────────────────────────
-#   amd64 + gpu:   NVIDIA CUDA 12.8 + cuDNN (GPU acceleration via NVIDIA Container Toolkit)
+#   amd64 + gpu:   NVIDIA CUDA 12.8 + cuDNN on Ubuntu 24.04 (highest Ubuntu NVIDIA publishes)
 #   amd64 + rocm:  Ubuntu 26.04 (AMD GPU via ROCm — pass /dev/kfd and /dev/dri)
 #   amd64 + intel: Ubuntu 22.04 (Intel Arc / iGPU via OpenVINO — pass /dev/dri)
-#                  Note: intel stays on 22.04 until Intel's GPU repo ships 26.04 packages
+#                  Note: intel stays on 22.04 — Intel's GPU repo only publishes for jammy
 #   amd64 + cpu:   Ubuntu 26.04 (CPU-only, ~2 GB smaller image)
 #   arm64:         Ubuntu 24.04 (CPU-only; no CUDA/ROCm wheels on ARM)
 
 ARG VARIANT=gpu
 
-FROM --platform=$BUILDPLATFORM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04 AS base-amd64-gpu
+FROM --platform=$BUILDPLATFORM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04 AS base-amd64-gpu
 FROM ubuntu:26.04 AS base-amd64-rocm
 FROM ubuntu:22.04 AS base-amd64-intel
 FROM ubuntu:26.04 AS base-amd64-cpu
