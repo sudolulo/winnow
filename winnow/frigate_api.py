@@ -86,7 +86,10 @@ def get_frigate_person_files(person_name: str) -> list[str] | None:
     if data is None:
         return None
     files = data.get(person_name)
-    return files if isinstance(files, list) else []
+    if files is not None and not isinstance(files, list):
+        logger.debug("Frigate API: unexpected type for %r — got %s, not list", person_name, type(files).__name__)
+        return []
+    return files if files is not None else []
 
 
 def recognize_face(file_path: str) -> tuple[str | None, float] | None:

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-06-14
+
+### Fixed
+
+- **`LIMIT` env var crash**: non-integer values (e.g. `"30.5"`, `"all"`) now log a warning and fall back to the default instead of raising `ValueError` at startup.
+
+- **Symlink guard on person output dir**: `shutil.rmtree` is now skipped if `person_dir` resolves to a symlink, preventing traversal out of `OUTPUT_DIR` on a shared volume.
+
+- **`person["id"]` KeyError**: malformed Immich API responses missing the `id` field now log an error and skip that person instead of crashing the job.
+
+- **Face data response type validation**: `fetch_face_data` now validates that the `/api/faces` response is a list before indexing, guarding against null or non-list API responses.
+
+- **Pagination error log includes page number**: the exception log in `fetch_all_assets` now includes the page number that failed.
+
+- **`Image.open()` wrapped for non-image responses**: PIL parse errors on thumbnail fetches (e.g. reverse-proxy HTML error page returning 200) are now caught and logged instead of propagating.
+
+- **Frigate version `v`-prefix handling**: `v0.16.0`-style version strings are now correctly parsed; the leading `v` was previously misread, causing the too-old warning to never fire.
+
+- **`FRIGATE_SCORE_CEILING` parse guard**: a non-float value in `.env` now logs a warning and disables the ceiling instead of crashing at startup.
+
+- **Dual config file warning**: a log warning is emitted when both `DATA_DIR/.immich_config.json` and the legacy CWD config file exist simultaneously.
+
+- **PID file write guard**: `OSError` on `/tmp/winnow.pid` write is now caught and logged instead of crashing the scheduler.
+
+- **Scheduler sleep clamped to 60 s**: bounds recovery time after an NTP clock step.
+
+- **`get_frigate_person_files` non-list debug log**: consistent with `get_all_frigate_person_files`.
+
 ## [0.5.2] - 2026-06-14
 
 ### Fixed
