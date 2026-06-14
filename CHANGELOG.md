@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-06-14
+
+### Removed
+
+- **Object mode pipeline fully removed**: YOLO object detection, SigLIP image classification, `TRAINING_MODE`, and `OBJECT_CLASS` env vars are gone. Frigate has no training API for objects; the ~2 GB model stack (torch, torchvision, transformers, ultralytics) was dead weight.
+- **Dead Immich embedding path removed**: `FaceData.embedding` field and the `immich_embedding` parameter to `get_embedding()` were never consumed by any caller. Both removed along with the NumPy import in `immich_api.py` that existed solely for that path.
+- **Dead `mode` config key removed**: `"mode": "face"` was written into job config dicts in `jobs.py` but never read after object mode removal.
+
+### Fixed
+
+- **InsightFace `FutureWarning` suppressed in crop-alignment path**: the `insightface_app.get()` call in `image_processing.py` now wraps the same `warnings.catch_warnings()` suppressor already present in `embeddings.py`, preventing scikit-image deprecation noise in logs.
+
+### Changed
+
+- **Variant pyproject files synced to current state**: `pyproject-rocm.toml`, `pyproject-cpu.toml`, `pyproject-intel.toml` were at v0.2.13 and still listed torch/transformers/ultralytics. Updated to v0.4.11 and cleaned to face-only deps. Note: corresponding lockfiles (uv-rocm.lock, uv-cpu.lock, uv-intel.lock) need regeneration in their respective platform environments.
+- **`MERGE_DUPLICATE_PEOPLE` documented**: README and wiki now explain the default warn-and-skip behaviour vs. setting `true` for a permanent Immich merge, with irreversibility callout.
+- **Wiki fully updated**: all five wiki pages rewritten to remove object mode references, correct model size (~300 MB InsightFace vs former ~1–2 GB HuggingFace+InsightFace), fix default values (`MAX_AUTO_IMAGES` 80→20, `MIN_FACE_COUNT` 0→3), add `MERGE_DUPLICATE_PEOPLE` coverage, and update GPU verification commands for current ONNX provider API.
+
 ## [0.4.10] - 2026-06-14
 
 ### Changed

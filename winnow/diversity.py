@@ -5,7 +5,7 @@ Selection pipeline:
 1. Concurrent thumbnail download
 2. Quality filtering (blur, IR, exposure, confidence, face size)
 3. Face crop extraction (embed person's face, not full image)
-4. Embedding computation (InsightFace or SigLIP)
+4. Embedding computation (InsightFace)
 5. Cluster-aware selection (K-Medoids + FPS with hard example weighting)
 """
 
@@ -28,7 +28,6 @@ def select_diverse_assets(
     limit: int | str,
     entity_name: str,
     selection_mode: str = "smart",
-    entity_type: str = "face",
     person_id: str | None = None,
     progress_callback=None,
 ) -> list:
@@ -38,9 +37,8 @@ def select_diverse_assets(
     Args:
         assets: List of asset dicts from Immich API
         limit: Number to select, or "auto" for dynamic selection
-        entity_name: Name of the person/object for logging
+        entity_name: Name of the person for logging
         selection_mode: 'smart' (embedding-based) or 'time' (time spread)
-        entity_type: 'face' or 'object' - determines embedding model
         progress_callback: Optional callback(current, total) for progress
 
     Returns:
@@ -53,14 +51,13 @@ def select_diverse_assets(
     # Sort by creation time
     assets = sorted(assets, key=lambda x: x.get("fileCreatedAt", ""))
 
-    if selection_mode != "smart" or not is_embedding_available(entity_type):
+    if selection_mode != "smart" or not is_embedding_available():
         if selection_mode == "smart":
-            model_name = "InsightFace" if entity_type == "face" else "SigLIP"
-            logger.warning(f"{model_name} unavailable. Falling back to time spread.")
+            logger.warning("InsightFace unavailable. Falling back to time spread.")
         return _select_time_spread(assets, limit)
 
     try:
-        return _select_by_embedding(assets, limit, entity_type, person_id, progress_callback)
+        return _select_by_embedding(assets, limit, person_id, progress_callback)
     except Exception as e:
         logger.error(f"Smart Diversity failed: {e}. Falling back to time spread.")
         return _select_time_spread(assets, limit)
@@ -179,7 +176,6 @@ def _crop_face_from_thumbnail(
 def _select_by_embedding(
     assets: list,
     limit: int | str,
-    entity_type: str,
     person_id: str | None = None,
     progress_callback=None,
 ) -> list:
@@ -188,7 +184,7 @@ def _select_by_embedding(
     Pipeline:
     1. Concurrent thumbnail download
     2. Quality filtering
-    3. Face crop extraction (face mode only)
+    3. Face crop extraction
     4. Embedding computation
     5. Cluster-aware selection with hard example weighting
     """
@@ -243,28 +239,25 @@ def _select_by_embedding(
 
             confidence = _get_face_confidence(asset, person_id=person_id)
 
-            if entity_type == "face":
-                face_bbox = _get_face_bbox(asset, person_id=person_id)
-                quality = assess_quality(
-                    img,
-                    face_bbox=face_bbox,
-                    confidence=confidence,
-                    blur_threshold=Config.BLUR_THRESHOLD,
-                    min_face_px=Config.MIN_FACE_WIDTH,
-                    min_confidence=Config.MIN_CONFIDENCE,
-                )
-                if not quality.passed:
-                    quality_filtered += 1
-                    logger.debug(f"Quality filtered {asset['id']}: {quality.reason}")
-                    continue
+            face_bbox = _get_face_bbox(asset, person_id=person_id)
+            quality = assess_quality(
+                img,
+                face_bbox=face_bbox,
+                confidence=confidence,
+                blur_threshold=Config.BLUR_THRESHOLD,
+                min_face_px=Config.MIN_FACE_WIDTH,
+                min_confidence=Config.MIN_CONFIDENCE,
+            )
+            if not quality.passed:
+                quality_filtered += 1
+                logger.debug(f"Quality filtered {asset['id']}: {quality.reason}")
+                continue
 
-                asset["quality_score"] = quality.blur_score
-                face_crop = _crop_face_from_thumbnail(img, asset, person_id=person_id)
-                embed_img = face_crop if face_crop is not None else img
-            else:
-                embed_img = img
+            asset["quality_score"] = quality.blur_score
+            face_crop = _crop_face_from_thumbnail(img, asset, person_id=person_id)
+            embed_img = face_crop if face_crop is not None else img
 
-            emb = get_embedding(embed_img, entity_type, asset_id=asset["id"])
+            emb = get_embedding(embed_img, asset_id=asset["id"])
             if emb is not None:
                 embeddings.append(emb)
                 valid_candidates.append(asset)
@@ -300,7 +293,6 @@ def _select_by_embedding(
         embeddings,
         valid_candidates,
         limit,
-        entity_type=entity_type,
         confidence_scores=confidence_scores,
     )
 
@@ -429,11 +421,11 @@ def _kmedoids(dist_matrix: np.ndarray, k: int, max_iter: int = 50) -> tuple[list
 # =============================================================================
 
 
-def _compute_adaptive_threshold(emb_normed: np.ndarray, entity_type: str) -> float:
+def _compute_adaptive_threshold(emb_normed: np.ndarray) -> float:
     """Compute adaptive FPS stop threshold based on actual embedding distribution.
 
     Instead of a hardcoded threshold, samples pairwise distances and sets
-    the threshold as a fraction of the median pairwise distance.
+    the threshold as 20% of the median pairwise distance.
     """
     n = len(emb_normed)
     sample_size = min(200, n)
@@ -441,22 +433,14 @@ def _compute_adaptive_threshold(emb_normed: np.ndarray, entity_type: str) -> flo
     indices = rng.choice(n, sample_size, replace=False) if n > sample_size else np.arange(n)
     sample = emb_normed[indices]
 
-    # Compute pairwise cosine distances for the sample
     pairwise = 1 - sample @ sample.T
     upper_tri = pairwise[np.triu_indices(len(sample), k=1)]
     if len(upper_tri) == 0:
         return 0.05
     median_dist = float(np.median(upper_tri))
+    threshold = max(0.05, median_dist * 0.20)
 
-    # Faces: 20% of median (tighter — want fewer, more distinct images)
-    # Objects: 10% of median (wider — want more diversity)
-    fraction = 0.20 if entity_type == "face" else 0.10
-    threshold = max(0.05, median_dist * fraction)
-
-    logger.debug(
-        f"Adaptive threshold: {threshold:.4f} "
-        f"(median_dist={median_dist:.4f}, fraction={fraction}, type={entity_type})"
-    )
+    logger.debug(f"Adaptive threshold: {threshold:.4f} (median_dist={median_dist:.4f})")
     return threshold
 
 
@@ -464,7 +448,6 @@ def _cluster_aware_selection(
     embeddings: list,
     candidates: list,
     limit: int | str,
-    entity_type: str = "face",
     confidence_scores: list | None = None,
 ) -> list:
     """Two-stage selection: K-Medoids clustering → FPS with hard example weighting.
@@ -484,13 +467,13 @@ def _cluster_aware_selection(
 
     # Build confidence weight array for hard example boosting
     conf_array = np.ones(n)
-    if confidence_scores and entity_type == "face":
+    if confidence_scores:
         for i, c in enumerate(confidence_scores):
             if c is not None:
                 conf_array[i] = c
 
     # Compute adaptive threshold for auto mode
-    auto_threshold = _compute_adaptive_threshold(emb_normed, entity_type) if limit == "auto" else 0.0
+    auto_threshold = _compute_adaptive_threshold(emb_normed) if limit == "auto" else 0.0
     target = Config.MAX_AUTO_IMAGES if limit == "auto" else limit
 
     # --- Stage 1: K-Medoids clustering ---
@@ -542,15 +525,9 @@ def _cluster_aware_selection(
         min_dists = np.minimum(min_dists, dists_to_new)
         min_dists[best_idx] = -np.inf
 
-    # Log hard example stats
-    if entity_type == "face":
-        selected_conf = [conf_array[i] for i in selected if conf_array[i] < 1.0]
-        hard_count = sum(1 for c in selected_conf if c < 0.85)
-        logger.info(
-            f"Selection complete: {len(selected)} images " f"({hard_count} hard examples with confidence < 0.85)."
-        )
-    else:
-        logger.info(f"Selection complete: {len(selected)} diverse images.")
+    selected_conf = [conf_array[i] for i in selected if conf_array[i] < 1.0]
+    hard_count = sum(1 for c in selected_conf if c < 0.85)
+    logger.info(f"Selection complete: {len(selected)} images ({hard_count} hard examples with confidence < 0.85).")
 
     return [candidates[i] for i in selected]
 

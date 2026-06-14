@@ -1,7 +1,8 @@
-"""Image processing functions for cropping faces and objects."""
+"""Image processing functions for cropping faces."""
 
 import logging
 import os
+import warnings
 
 import numpy as np
 from PIL import Image
@@ -10,25 +11,11 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 
-# Lazy singleton
-_yolo_model = None
-
 
 def _save_jpeg(img: Image.Image, path: str) -> None:
     if img.mode != "RGB":
         img = img.convert("RGB")
     img.save(path, format="JPEG")
-
-
-def get_yolo_model():
-    """Singleton for YOLO model."""
-    global _yolo_model
-    if _yolo_model is None:
-        from ultralytics import YOLO
-
-        logger.info("Loading YOLOv9c model...")
-        _yolo_model = YOLO("yolov9c.pt")
-    return _yolo_model
 
 
 def align_face(img: Image.Image, landmarks: list[list[float]] | np.ndarray) -> Image.Image | None:
@@ -127,7 +114,9 @@ def process_face_mode(
                 min(img_h, y2 + pad_y),
             )
             search_crop = img.crop(search_box)
-            detected = insightface_app.get(np.asarray(search_crop))
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*estimate.*is deprecated", category=FutureWarning)
+                detected = insightface_app.get(np.asarray(search_crop))
             if detected:
                 cx, cy = search_crop.width / 2, search_crop.height / 2
                 best = min(
@@ -170,49 +159,4 @@ def process_face_mode(
     return face_crop.size
 
 
-def process_object_mode(
-    img: Image.Image,
-    config: dict,
-    output_dir: str,
-    count: int,
-) -> bool:
-    """Detect and crop objects using YOLO."""
-    try:
-        model = get_yolo_model()
-        target_class = config.get("object_class", "dog")
-        import torch
-
-        if os.getenv("FORCE_CPU", "").lower() in ("true", "1", "yes"):
-            device = "cpu"
-        elif hasattr(torch, "xpu") and torch.xpu.is_available():
-            device = "xpu"
-        else:
-            device = None  # YOLO auto-selects (CUDA/ROCm/CPU)
-
-        results = model(img, verbose=False, device=device)
-
-        found = False
-        class_idx = 0  # Sequential counter per target class (Issue #10)
-        for box in (box for r in results for box in r.boxes):
-            cls_id = int(box.cls[0])
-            conf = float(box.conf[0])
-            if 0 <= cls_id < len(model.names) and model.names[cls_id] == target_class and conf > 0.5:
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                _save_jpeg(
-                    img.crop((x1, y1, x2, y2)),
-                    os.path.join(output_dir, f"{count}_{class_idx}.jpg"),
-                )
-                class_idx += 1
-                found = True
-
-        return found
-    except Exception as e:
-        logger.error(f"YOLO processing failed: {e}")
-        return False
-
-
-def process_full_mode(img: Image.Image, output_dir: str, count: int) -> bool:
-    """Save full image."""
-    _save_jpeg(img, os.path.join(output_dir, f"{count}.jpg"))
-    return True
 

@@ -2,8 +2,8 @@
 """
 winnow inference benchmark: GPU vs CPU throughput.
 
-Measures InsightFace (face mode) and SigLIP (object mode) latency and
-throughput. Run with FORCE_CPU=true for CPU-only baseline.
+Measures InsightFace (ArcFace) latency and throughput.
+Run with FORCE_CPU=true for CPU-only baseline.
 
 Usage inside container:
     # GPU mode:
@@ -45,11 +45,6 @@ def make_face_image(size: int = 640) -> Image.Image:
     # Mouth
     draw.arc([cx - 20, cy + 25, cx + 20, cy + 45], start=0, end=180, fill=(160, 80, 80), width=3)
     return img
-
-
-def make_random_image(width: int = 224, height: int = 224) -> Image.Image:
-    rng = np.random.default_rng(42)
-    return Image.fromarray(rng.integers(0, 256, (height, width, 3), dtype=np.uint8), "RGB")
 
 
 def _stats(times_s: list[float]) -> dict:
@@ -119,61 +114,6 @@ def bench_insightface(n_warmup: int = 5, n_runs: int = 30) -> None:
     print(f"  320×320 median  : {s2['median_ms']:.1f} ms  ({s2['ips']:.1f} img/s)")
 
 
-def bench_siglip(
-    n_warmup: int = 3,
-    n_runs: int = 20,
-    batch_sizes: tuple = (1, 4, 8, 16, 32),
-) -> None:
-    import torch
-
-    import winnow.embeddings as emb_mod
-    emb_mod._siglip_model = None
-    emb_mod._siglip_processor = None
-    emb_mod._siglip_loaded = False
-
-    print("  Loading model...")
-    t_load = time.perf_counter()
-    model, processor = emb_mod.get_siglip_model()
-    load_s = time.perf_counter() - t_load
-
-    if model is None:
-        print("  SKIP: SigLIP failed to load")
-        return
-
-    device = next(model.parameters()).device
-    print(f"  Model load time : {load_s:.2f} s  (device: {device})")
-
-    print(f"  {'Batch':>5}  {'ms/batch':>10}  {'ms/img':>8}  {'img/s':>8}  {'p95/img':>9}")
-    for bs in batch_sizes:
-        imgs = [make_random_image(224, 224) for _ in range(bs)]
-        inputs = processor(images=imgs, return_tensors="pt")
-        inputs = {k: v.to(device) for k, v in inputs.items()}
-
-        # Warmup
-        for _ in range(n_warmup):
-            with torch.no_grad():
-                model(**inputs)
-        if str(device) != "cpu":
-            torch.cuda.synchronize()
-
-        times: list[float] = []
-        for _ in range(n_runs):
-            if str(device) != "cpu":
-                torch.cuda.synchronize()
-            t0 = time.perf_counter()
-            with torch.no_grad():
-                model(**inputs)
-            if str(device) != "cpu":
-                torch.cuda.synchronize()
-            times.append(time.perf_counter() - t0)
-
-        s = _stats(times)
-        print(
-            f"  {bs:>5}  {s['median_ms']:>10.1f}  {s['median_ms']/bs:>8.2f}"
-            f"  {bs * 1000 / s['median_ms']:>8.1f}  {s['p95_ms']/bs:>9.2f}"
-        )
-
-
 def main() -> None:
     print("=" * 56)
     print("  winnow inference benchmark")
@@ -183,10 +123,6 @@ def main() -> None:
 
     print("── InsightFace Buffalo_L  (face detection + ArcFace) ──")
     bench_insightface()
-    print()
-
-    print("── SigLIP google/siglip-base-patch16-224  (objects) ───")
-    bench_siglip()
     print()
 
 

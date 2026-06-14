@@ -1,8 +1,7 @@
 """
-Unified embedding interface for faces and objects.
+Embedding interface for face diversity selection.
 
 - Faces: InsightFace (ArcFace/Buffalo_L) — or reuse from Immich
-- Objects: SigLIP (Vision Transformer via transformers)
 - Caching: Disk-based cache avoids recomputation on reruns
 """
 
@@ -42,12 +41,9 @@ def _suppress_output():
         os.close(saved_err)
 
 
-# Lazy-loaded singletons
+# Lazy-loaded singleton
 _insightface_app = None
 _insightface_loaded = False
-_siglip_model = None
-_siglip_processor = None
-_siglip_loaded = False
 
 
 def _is_force_cpu() -> bool:
@@ -202,169 +198,33 @@ def get_face_embedding(img_pil: Image.Image) -> np.ndarray | None:
 
 
 # =============================================================================
-# SigLIP (Objects)
-# =============================================================================
-
-
-def get_siglip_model():
-    """Singleton for SigLIP model and processor with GPU auto-detection."""
-    global _siglip_model, _siglip_processor, _siglip_loaded
-    if _siglip_loaded:
-        return _siglip_model, _siglip_processor
-    _siglip_loaded = True
-
-    try:
-        import warnings
-
-        import torch
-        from transformers import AutoImageProcessor, SiglipVisionModel
-
-        model_name = "google/siglip-base-patch16-224"
-
-        # Disk cache check — path derived from model_name using HuggingFace's slug convention
-        hf_home = os.environ.get("HF_HOME", os.path.join(os.path.expanduser("~"), ".cache", "huggingface"))
-        cache_slug = "models--" + model_name.replace("/", "--")
-        model_cache = Path(hf_home) / "hub" / cache_slug
-        if model_cache.exists() and any(model_cache.iterdir()):
-            logger.info(f"SigLIP {model_name}: found in model cache")
-        else:
-            logger.info(f"SigLIP {model_name}: not cached — downloading now (~380 MB)")
-
-        logger.info(f"SigLIP {model_name}: loading into memory...")
-        t0 = time.time()
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            warnings.filterwarnings("ignore", message=".*use_fast.*")
-            _siglip_processor = AutoImageProcessor.from_pretrained(model_name, use_fast=True)
-            _siglip_model = SiglipVisionModel.from_pretrained(model_name)
-
-        _siglip_model.eval()
-
-        # Move to GPU if available (ROCm builds expose torch.cuda.is_available() == True)
-        if not _is_force_cpu():
-            if torch.cuda.is_available():
-                _siglip_model = _siglip_model.cuda()
-                device_name = "CUDA GPU"
-            elif hasattr(torch, "xpu") and torch.xpu.is_available():
-                _siglip_model = _siglip_model.to("xpu")
-                device_name = "Intel XPU"
-            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                _siglip_model = _siglip_model.to("mps")
-                device_name = "Apple MPS"
-            else:
-                device_name = "CPU"
-        else:
-            device_name = "CPU (FORCE_CPU)"
-
-        logger.info(f"SigLIP {model_name}: ready on {device_name} ({time.time() - t0:.1f}s)")
-        return _siglip_model, _siglip_processor
-
-    except ImportError as e:
-        logger.error(f"transformers/torch not installed: {e}")
-        return None, None
-    except Exception as e:
-        logger.error(f"Failed to load SigLIP: {e}")
-        return None, None
-
-
-def get_object_embedding(img_pil: Image.Image) -> np.ndarray | None:
-    """Get 768-dim SigLIP embedding for an image."""
-    model, processor = get_siglip_model()
-    if model is None:
-        return None
-
-    try:
-        import torch
-
-        inputs = processor(images=img_pil, return_tensors="pt")
-        device = next(model.parameters()).device
-        inputs = {k: v.to(device) for k, v in inputs.items()}
-
-        with torch.no_grad():
-            outputs = model(**inputs)
-            return outputs.pooler_output.squeeze().cpu().numpy()
-    except Exception as e:
-        logger.error(f"Error getting object embedding: {e}")
-        return None
-
-
-def get_object_embeddings_batch(images: list[Image.Image]) -> list[np.ndarray | None]:
-    """Get SigLIP embeddings for a batch of images (GPU-efficient)."""
-    model, processor = get_siglip_model()
-    if model is None:
-        return [None] * len(images)
-
-    try:
-        import torch
-
-        inputs = processor(images=images, return_tensors="pt", padding=True)
-        device = next(model.parameters()).device
-        inputs = {k: v.to(device) for k, v in inputs.items()}
-
-        with torch.no_grad():
-            outputs = model(**inputs)
-            embeddings = outputs.pooler_output.cpu().numpy()
-            return [embeddings[i] for i in range(len(embeddings))]
-    except Exception as e:
-        logger.error(f"Error in batch embedding: {e}")
-        # Fall back to individual computation
-        return [get_object_embedding(img) for img in images]
-
-
-# =============================================================================
-# Unified Interface with Caching
+# Embedding Interface with Caching
 # =============================================================================
 
 
 def get_embedding(
     img_pil: Image.Image,
-    entity_type: str = "face",
     asset_id: str | None = None,
-    immich_embedding: np.ndarray | None = None,
 ) -> np.ndarray | None:
-    """Get embedding for an image based on entity type.
+    """Get embedding for a face image.
 
-    Priority:
-    1. Pre-fetched Immich embedding (if provided)
-    2. Disk cache (if enabled and asset_id provided)
-    3. Local model computation (InsightFace or SigLIP)
-
-    Args:
-        img_pil: The image to embed
-        entity_type: 'face' or 'object'
-        asset_id: Optional asset ID for cache lookup
-        immich_embedding: Optional pre-fetched embedding from Immich API
+    Checks disk cache first (if enabled and asset_id provided),
+    then falls back to local InsightFace computation.
     """
     from .config import Config
 
     use_cache = Config.ENABLE_CACHE and asset_id is not None
     cache = get_cache(Config.CACHE_DIR) if use_cache else None
-    # Use a single consistent cache key per model so lookups and stores always match.
-    # "immich" was previously used as the face key on the lookup path but "insightface"
-    # on the store path — meaning the cache was never hit for locally-computed embeddings.
-    cache_key = "insightface" if entity_type == "face" else "siglip"
 
-    # 1. Use Immich embedding if provided
-    if immich_embedding is not None:
-        if cache:
-            cache.put(asset_id, immich_embedding, cache_key)
-        return immich_embedding
-
-    # 2. Check disk cache
     if cache:
-        cached = cache.get(asset_id, cache_key)
+        cached = cache.get(asset_id, "insightface")
         if cached is not None:
             return cached
 
-    # 3. Compute locally
-    if entity_type == "face":
-        emb = get_face_embedding(img_pil)
-    else:
-        emb = get_object_embedding(img_pil)
+    emb = get_face_embedding(img_pil)
 
     if emb is not None and cache:
-        cache.put(asset_id, emb, cache_key)
+        cache.put(asset_id, emb, "insightface")
 
     return emb
 
@@ -378,36 +238,18 @@ def _is_module_available(module_name: str) -> bool:
         return False
 
 
-def is_embedding_available(entity_type: str = "face", *, load: bool = False) -> bool:
-    """Check if embedding model is available for the given entity type.
+def is_embedding_available(*, load: bool = False) -> bool:
+    """Check if InsightFace is available.
 
     By default this performs a lightweight import-check only (no model loading).
-    Pass ``load=True`` to actually load the model (expensive, hundreds of MB).
-
-    Args:
-        entity_type: 'face' or 'object'
-        load: If True, fully load the model to verify. If False (default),
-              only check that the required packages are importable.
+    Pass ``load=True`` to actually load the model (expensive, ~300 MB).
     """
     if load:
-        if entity_type == "face":
-            return get_insightface_app() is not None
-        model, _ = get_siglip_model()
-        return model is not None
-
-    # Lightweight check: just verify the packages are importable
-    if entity_type == "face":
-        return _is_module_available("insightface") and _is_module_available("onnxruntime")
-    return _is_module_available("transformers") and _is_module_available("torch")
-
-
-def load_embedding_model(entity_type: str = "face") -> bool:
-    """Explicitly load the embedding model for the given entity type.
-
-    Returns True if the model loaded successfully.
-    """
-    if entity_type == "face":
         return get_insightface_app() is not None
-    model, _ = get_siglip_model()
-    return model is not None
+    return _is_module_available("insightface") and _is_module_available("onnxruntime")
+
+
+def load_embedding_model() -> bool:
+    """Explicitly load InsightFace. Returns True if the model loaded successfully."""
+    return get_insightface_app() is not None
 
