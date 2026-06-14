@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-06-14
+
+### Fixed
+
+- **Quality replacement slot floor used wrong score**: when a blur-score replacement deleted a low-quality Frigate file but the subsequent upload failed, `min_quality_score_for_slot` was set to the failed candidate's score rather than the deleted file's score. This caused subsequent candidates that were better than the deleted file (but worse than the failed upload) to be skipped, leaving the freed slot unfilled for the rest of that run. Fixed by using `target_score` (deleted file's score) as the floor, matching the documented intent in the surrounding comment.
+
 ## [0.5.3] - 2026-06-14
 
 ### Fixed
