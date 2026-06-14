@@ -53,8 +53,7 @@ Immich library
    • Hard example weighting — low-confidence detections get a distance boost
      so unusual angles and harder looks are preferred over easy frontals
    • Adaptive mode: stops when the next candidate is too similar to those already
-     selected (distance threshold = 20 % of median pairwise distance for
-     faces, 10 % for objects)
+     selected (distance threshold = 20 % of median pairwise distance)
       │
       ▼
 7. Download full-resolution originals from Immich
@@ -85,7 +84,7 @@ Uploaded and rejected asset IDs are persisted across runs in a SQLite database (
 
 | Tag | Arch | Acceleration |
 | :-- | :-- | :-- |
-| `:latest` | amd64 + arm64 | NVIDIA CUDA 12.8 (amd64) · requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) |
+| `:latest` | amd64 | NVIDIA CUDA 12.8 · requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) |
 | `:rocm` | amd64 | AMD ROCm · pass `/dev/kfd` + `/dev/dri` |
 | `:intel` | amd64 | Intel Arc / iGPU via OpenVINO · pass `/dev/dri`, set `OPENVINO_DEVICE=GPU` |
 | `:cpu` | amd64 + arm64 | CPU only · ~2 GB smaller · no GPU required |
