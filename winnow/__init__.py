@@ -1,8 +1,7 @@
 """Immich to Frigate training set curator.
 
 AI-powered tool to extract high-quality, diverse training images from your
-Immich library for Frigate's Face Recognition (ArcFace) and Object/State
-Classification models.
+Immich library for Frigate's face recognition (ArcFace/Buffalo_L).
 """
 
 from importlib.metadata import PackageNotFoundError, version
