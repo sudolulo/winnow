@@ -10,6 +10,7 @@ Selection pipeline:
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 
 import numpy as np
@@ -30,6 +31,7 @@ def select_diverse_assets(
     selection_mode: str = "smart",
     person_id: str | None = None,
     progress_callback=None,
+    fetch_fn=None,
 ) -> list:
     """
     Select diverse assets using cluster-aware FPS or time spread.
@@ -40,6 +42,8 @@ def select_diverse_assets(
         entity_name: Name of the person for logging
         selection_mode: 'smart' (embedding-based) or 'time' (time spread)
         progress_callback: Optional callback(current, total) for progress
+        fetch_fn: Optional callable(asset_id) -> Image | None; defaults to
+                  _fetch_thumbnail. Injected for testability.
 
     Returns:
         List of selected assets
@@ -57,9 +61,9 @@ def select_diverse_assets(
         return _select_time_spread(assets, limit)
 
     try:
-        return _select_by_embedding(assets, limit, person_id, progress_callback)
+        return _select_by_embedding(assets, limit, person_id, progress_callback, fetch_fn=fetch_fn)
     except Exception as e:
-        logger.error(f"Smart Diversity failed: {e}. Falling back to time spread.")
+        logger.error("Smart Diversity failed: %s. Falling back to time spread.", e)
         return _select_time_spread(assets, limit)
 
 
@@ -178,6 +182,7 @@ def _select_by_embedding(
     limit: int | str,
     person_id: str | None = None,
     progress_callback=None,
+    fetch_fn=None,
 ) -> list:
     """Select assets using embedding-based cluster-aware FPS.
 
@@ -210,8 +215,7 @@ def _select_by_embedding(
     # representative in practice, but heavy JPEG compression on a preview could
     # produce a subtly different embedding than the full-res version. For most
     # libraries this is negligible; it matters if Immich preview quality is low.
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
+    _fetch = fetch_fn or _fetch_thumbnail
     _BATCH = 32
     embeddings, valid_candidates, confidence_scores = [], [], []
     quality_filtered = 0
@@ -223,7 +227,7 @@ def _select_by_embedding(
         # Download this batch concurrently
         batch_images: dict[str, Image.Image] = {}
         with ThreadPoolExecutor(max_workers=min(8, len(batch))) as pool:
-            futures = {pool.submit(_fetch_thumbnail, a["id"]): a for a in batch}
+            futures = {pool.submit(_fetch, a["id"]): a for a in batch}
             for future in as_completed(futures):
                 asset = futures[future]
                 try:
@@ -231,7 +235,7 @@ def _select_by_embedding(
                     if img is not None:
                         batch_images[asset["id"]] = img
                 except Exception as e:
-                    logger.debug(f"Failed to fetch thumbnail for {asset['id']}: {e}")
+                    logger.debug("Failed to fetch thumbnail for %s: %s", asset["id"], e)
                     continue
 
         # Process each image; batch_images goes out of scope after this loop,
@@ -257,7 +261,7 @@ def _select_by_embedding(
             )
             if not quality.passed:
                 quality_filtered += 1
-                logger.debug(f"Quality filtered {asset['id']}: {quality.reason}")
+                logger.debug("Quality filtered %s: %s", asset["id"], quality.reason)
                 continue
 
             asset["quality_score"] = quality.blur_score
@@ -271,14 +275,14 @@ def _select_by_embedding(
                 confidence_scores.append(confidence)
 
     if quality_filtered > 0:
-        logger.info(f"Quality filtering removed {quality_filtered} images.")
+        logger.info("Quality filtering removed %s images.", quality_filtered)
 
     if not embeddings:
         logger.warning("No valid embeddings found. Falling back to time spread.")
         return _select_time_spread(assets, limit)
 
     if limit != "auto" and len(valid_candidates) < limit:
-        logger.warning(f"Only {len(valid_candidates)} valid embeddings. Returning all.")
+        logger.warning("Only %s valid embeddings. Returning all.", len(valid_candidates))
         return valid_candidates
 
     # --- Phase 5: Near-duplicate removal ---
@@ -292,7 +296,7 @@ def _select_by_embedding(
 
     # Re-check after dedup: pool may have shrunk below limit
     if limit != "auto" and len(valid_candidates) < limit:
-        logger.warning(f"Only {len(valid_candidates)} embeddings after near-duplicate removal. Returning all.")
+        logger.warning("Only %s embeddings after near-duplicate removal. Returning all.", len(valid_candidates))
         return valid_candidates
 
     # --- Phase 6: Cluster-aware selection ---
@@ -352,7 +356,7 @@ def _dedup_embeddings(
 
     dropped = len(embeddings) - len(kept_indices)
     if dropped:
-        logger.info(f"Near-duplicate removal dropped {dropped} images (threshold {_DEDUP_THRESHOLD}).")
+        logger.info("Near-duplicate removal dropped %s images (threshold %s).", dropped, _DEDUP_THRESHOLD)
 
     return (
         [embeddings[i] for i in kept_indices],
@@ -447,7 +451,7 @@ def _compute_adaptive_threshold(emb_normed: np.ndarray) -> float:
     median_dist = float(np.median(upper_tri))
     threshold = max(0.05, median_dist * 0.20)
 
-    logger.debug(f"Adaptive threshold: {threshold:.4f} (median_dist={median_dist:.4f})")
+    logger.debug("Adaptive threshold: %.4f (median_dist=%.4f)", threshold, median_dist)
     return threshold
 
 
@@ -485,7 +489,7 @@ def _cluster_aware_selection(
 
     # --- Stage 1: K-Medoids clustering ---
     k = min(max(5, target // 4), max(1, n // 3), n)  # e.g., 1-20 clusters
-    logger.debug(f"Clustering {n} embeddings into {k} groups (K-Medoids)...")
+    logger.debug("Clustering %s embeddings into %s groups (K-Medoids)...", n, k)
 
     # Compute full cosine distance matrix
     dist_matrix = 1 - emb_normed @ emb_normed.T
@@ -494,7 +498,7 @@ def _cluster_aware_selection(
     selected = list(medoid_indices)
     selected_set = set(selected)
 
-    logger.debug(f"Selected {len(selected)} cluster medoids as initial picks.")
+    logger.debug("Selected %s cluster medoids as initial picks.", len(selected))
 
     # --- Stage 2: FPS with hard example weighting ---
     min_dists = np.full(n, np.inf)
@@ -534,7 +538,7 @@ def _cluster_aware_selection(
 
     selected_conf = [conf_array[i] for i in selected if conf_array[i] < 1.0]
     hard_count = sum(1 for c in selected_conf if c < 0.85)
-    logger.info(f"Selection complete: {len(selected)} images ({hard_count} hard examples with confidence < 0.85).")
+    logger.info("Selection complete: %s images (%s hard examples with confidence < 0.85).", len(selected), hard_count)
 
     return [candidates[i] for i in selected]
 
@@ -549,7 +553,7 @@ def _select_time_spread(assets: list, limit: int | str) -> list:
     if limit == "auto":
         limit = 30
 
-    logger.info(f"Selecting {limit} images using time spread.")
+    logger.info("Selecting %s images using time spread.", limit)
 
     if len(assets) <= limit:
         return assets
