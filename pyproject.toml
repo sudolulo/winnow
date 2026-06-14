@@ -26,9 +26,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gpu   = ["onnxruntime-gpu>=1.23.2", "nvidia-cudnn-cu12>=9.0.0"]
-rocm  = ["onnxruntime-rocm>=1.16.0"]
-intel = ["onnxruntime-openvino>=1.20.0"]
+gpu   = [
+    "onnxruntime-gpu>=1.23.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-cudnn-cu12>=9.0.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+rocm  = ["onnxruntime-rocm>=1.16.0; sys_platform == 'linux' and platform_machine == 'x86_64'"]
+intel = ["onnxruntime-openvino>=1.20.0; sys_platform == 'linux' and platform_machine == 'x86_64'"]
 cpu   = ["onnxruntime>=1.23.2"]
 
 [project.scripts]
