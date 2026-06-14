@@ -373,6 +373,8 @@ def _compute_adaptive_threshold(emb_normed: np.ndarray, entity_type: str) -> flo
     # Compute pairwise cosine distances for the sample
     pairwise = 1 - sample @ sample.T
     upper_tri = pairwise[np.triu_indices(len(sample), k=1)]
+    if len(upper_tri) == 0:
+        return 0.05
     median_dist = float(np.median(upper_tri))
 
     # Faces: 20% of median (tighter — want fewer, more distinct images)
@@ -421,7 +423,7 @@ def _cluster_aware_selection(
     target = Config.MAX_AUTO_IMAGES if limit == "auto" else limit
 
     # --- Stage 1: K-Medoids clustering ---
-    k = min(max(5, target // 4), n // 3, n)  # e.g., 5-20 clusters
+    k = min(max(5, target // 4), max(1, n // 3), n)  # e.g., 1-20 clusters
     logger.debug(f"Clustering {n} embeddings into {k} groups (K-Medoids)...")
 
     # Compute full cosine distance matrix

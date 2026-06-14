@@ -580,10 +580,12 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             )
                             try:
                                 error_detail = resp.json().get("message", resp.text[:100])
-                                progress.console.print(f"      [dim]{error_detail}[/dim]")
                             except Exception:
                                 error_detail = resp.text[:100]
+                            if resp.status_code == 400:
                                 progress.console.print(f"      [dim]{error_detail}[/dim]")
+                            else:
+                                logger.debug(f"{fname} HTTP {resp.status_code}: {error_detail}")
                             if resp.status_code == 400 and "face" in error_detail.lower():
                                 asset_id = asset_map.get(fname)
                                 if asset_id:
