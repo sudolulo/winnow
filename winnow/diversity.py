@@ -290,6 +290,11 @@ def _select_by_embedding(
         embeddings, valid_candidates, confidence_scores
     )
 
+    # Re-check after dedup: pool may have shrunk below limit
+    if limit != "auto" and len(valid_candidates) < limit:
+        logger.warning(f"Only {len(valid_candidates)} embeddings after near-duplicate removal. Returning all.")
+        return valid_candidates
+
     # --- Phase 6: Cluster-aware selection ---
     return _cluster_aware_selection(
         embeddings,
@@ -326,21 +331,22 @@ def _dedup_embeddings(
     norms = np.linalg.norm(emb_matrix, axis=1, keepdims=True)
     emb_normed = emb_matrix / np.maximum(norms, 1e-8)
 
-    # Sort by quality descending so the best image in each near-duplicate group wins
-    quality_scores = [c.get("quality_score") or 0.0 for c in candidates]
+    # Sort by quality descending so the best image in each near-duplicate group wins.
+    # Use explicit None check so a legitimate quality_score=0.0 isn't treated as missing.
+    quality_scores = [qs if (qs := c.get("quality_score")) is not None else 0.0 for c in candidates]
     order = sorted(range(len(candidates)), key=lambda i: quality_scores[i], reverse=True)
 
     kept_indices = []
-    kept_normed = []
+    kept_stack: np.ndarray | None = None  # rebuilt only when a new item is kept (not every iteration)
 
     for i in order:
-        if kept_normed:
-            kept_stack = np.vstack(kept_normed)
+        if kept_stack is not None:
             sims = emb_normed[i] @ kept_stack.T
             if np.any(sims > 1 - _DEDUP_THRESHOLD):
                 continue
         kept_indices.append(i)
-        kept_normed.append(emb_normed[i])
+        row = emb_normed[i : i + 1]
+        kept_stack = row if kept_stack is None else np.vstack([kept_stack, row])
 
     dropped = len(embeddings) - len(kept_indices)
     if dropped:

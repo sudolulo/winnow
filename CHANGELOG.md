@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-06-14
+
+### Fixed
+
+- **Near-duplicate dedup O(N²) allocation**: `np.vstack(kept_normed)` was rebuilt on every loop iteration even for candidates that would be dropped; the stack is now rebuilt only when a new item is kept, reducing memory pressure significantly for large pools.
+- **`quality_score` falsy-zero in dedup sort**: the sort key used `c.get("quality_score") or 0.0`, which treated a legitimate `quality_score=0.0` identically to a missing key. Changed to an explicit `None` check so zero is preserved as-is, and object-mode candidates (which have no `quality_score`) continue to sort stably to the back.
+- **Post-dedup pool not re-checked against limit**: after near-duplicate removal the pool could silently shrink below the requested limit with no warning. A second `len < limit` guard now fires after dedup and emits the same "Only N embeddings" warning that the pre-dedup guard does.
+- **`mark_rejected` could miss plain-text 400 bodies longer than 100 bytes**: `error_detail = resp.text[:100]` was being searched for the keyword `"face"` to gate `mark_rejected()`, so a response body with `"face"` after byte 100 would never mark the asset rejected and it would be retried on every future run. The `"face"` check now uses the full response body; truncation is kept only for the displayed snippet.
+- **`_safe_person_dir` raised ValueError for all person names when `output_dir` resolved to `/`**: `base + os.sep` produced `"//"` when base was `"/"`, and valid paths like `/alice` don't start with `"//"`. Fixed by using `base` directly as the prefix when `base == os.sep`.
+
 ## [0.4.4] - 2026-06-14
 
 ### Added
