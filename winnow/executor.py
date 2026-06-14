@@ -38,6 +38,19 @@ from .upload_tracker import (
 logger = logging.getLogger(__name__)
 
 
+def _safe_person_dir(output_dir: str, person_name: str) -> str:
+    """Return the output subdirectory for a person, raising ValueError on path traversal.
+
+    os.path.join silently discards output_dir when person_name is absolute,
+    and '../..' sequences resolve outside the tree. Both are rejected here.
+    """
+    candidate = os.path.realpath(os.path.join(output_dir, person_name))
+    base = os.path.realpath(output_dir)
+    if not candidate.startswith(base + os.sep) and candidate != base:
+        raise ValueError(f"Person name {person_name!r} escapes output directory — skipping")
+    return candidate
+
+
 def _reconcile_frigate_mappings(
     person_name: str,
     known_files_before: set[str],
@@ -182,7 +195,11 @@ def execute_jobs(jobs: list[dict]) -> None:
             name, mode = person["name"], config.get("mode", "face")
 
             job_task = progress.add_task(f"Processing {name}...", total=len(assets))
-            person_dir = os.path.join(Config.OUTPUT_DIR, name)
+            try:
+                person_dir = _safe_person_dir(Config.OUTPUT_DIR, name)
+            except ValueError as e:
+                logger.error(str(e))
+                continue
             # Face crops are transient (uploaded then discarded); wipe before each run.
             # Object crops are the deliverable; preserve them across runs.
             if mode == "face" and os.path.isdir(person_dir):
@@ -305,7 +322,11 @@ def upload_to_frigate(jobs: list[dict]) -> None:
     object_jobs = [j for j in jobs if j["config"].get("mode") == "object"]
     for job in object_jobs:
         name = job["person"]["name"]
-        person_dir = os.path.join(Config.OUTPUT_DIR, name)
+        try:
+            person_dir = _safe_person_dir(Config.OUTPUT_DIR, name)
+        except ValueError as e:
+            logger.error(str(e))
+            continue
         rprint(f"  [dim]📁 {name} (object): crops saved to {person_dir} — copy to Frigate manually[/dim]")
 
     frigate_url = os.environ.get("FRIGATE_URL", "")
@@ -355,7 +376,11 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             if " " in name:
                 progress.console.print(f"  ℹ️  URL-encoded name for Frigate API: '{name}' → '{encoded_name}'")
 
-            person_dir = os.path.join(Config.OUTPUT_DIR, name)
+            try:
+                person_dir = _safe_person_dir(Config.OUTPUT_DIR, name)
+            except ValueError as e:
+                logger.error(str(e))
+                continue
             if not os.path.isdir(person_dir):
                 progress.console.print(f"  [dim]⏭️  {name}: no output directory, skipping[/dim]")
                 continue
