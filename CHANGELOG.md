@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-06-14
+
+### Changed
+
+- **Tracker write-through cache**: `upload_tracker` now keeps an in-memory copy of each JSON file keyed by its resolved path. All reads after the first hit the cache instead of disk; writes go to both disk and cache atomically. Cuts per-person disk I/O in the upload loop from ~90 reads to ~1, with no API or behaviour changes.
+
 ## [0.4.7] - 2026-06-14
 
 ### Changed

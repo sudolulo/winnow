@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 UPLOAD_TRACKER_FILE = "frigate_uploaded_ids.json"
 REJECT_TRACKER_FILE = "frigate_rejected_ids.json"
 
+# Write-through in-memory cache keyed by the resolved file path.
+# Reduces per-call JSON reads from O(calls) to O(1) after the first load.
+# Keyed by full path so tests with isolated tmp dirs never share entries.
+_cache: dict[str, dict] = {}
+
 
 def _tracker_path(filename: str) -> Path:
     try:
@@ -50,18 +55,23 @@ def _tracker_path(filename: str) -> Path:
 
 def _load(filename: str) -> dict:
     path = _tracker_path(filename)
-    if not path.exists():
-        return {}
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"Could not load tracker {filename}: {e}")
-        return {}
+    key = str(path)
+    if key in _cache:
+        return _cache[key]
+    data: dict = {}
+    if path.exists():
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Could not load tracker {filename}: {e}")
+    _cache[key] = data
+    return data
 
 
 def _save(filename: str, data: dict) -> None:
     path = _tracker_path(filename)
+    _cache[str(path)] = data  # keep cache consistent with what we write
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
