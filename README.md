@@ -2,6 +2,8 @@
 
 [![Docker](https://github.com/sudolulo/winnow/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/docker-publish.yml) [![Test](https://github.com/sudolulo/winnow/actions/workflows/test.yml/badge.svg)](https://github.com/sudolulo/winnow/actions/workflows/test.yml) [![GitHub release](https://img.shields.io/github/v/release/sudolulo/winnow)](https://github.com/sudolulo/winnow/releases/latest) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE) [![Immich](https://img.shields.io/badge/Immich-v1.106%2B-blueviolet)](https://immich.app) [![Frigate](https://img.shields.io/badge/Frigate-Ready-brightgreen)](https://frigate.video)
 
+> **Note:** winnow's approach to training Frigate face recognition is not an officially documented workflow — results may vary.
+
 > **Early Development — Use With Caution**
 > winnow is functional but still maturing. Features that modify your Frigate training data — quality replacement, stale mapping cleanup — can remove images from your dataset and are not yet battle-tested at scale. Review the logs after each run and keep backups of your Frigate face training directory until you are confident in the results.
 
