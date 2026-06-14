@@ -205,24 +205,16 @@ def get_face_embedding(img_pil: Image.Image) -> np.ndarray | None:
 def get_embedding(
     img_pil: Image.Image,
     asset_id: str | None = None,
-    immich_embedding: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """Get embedding for a face image.
 
-    Priority:
-    1. Pre-fetched Immich embedding (if provided)
-    2. Disk cache (if enabled and asset_id provided)
-    3. Local InsightFace computation
+    Checks disk cache first (if enabled and asset_id provided),
+    then falls back to local InsightFace computation.
     """
     from .config import Config
 
     use_cache = Config.ENABLE_CACHE and asset_id is not None
     cache = get_cache(Config.CACHE_DIR) if use_cache else None
-
-    if immich_embedding is not None:
-        if cache:
-            cache.put(asset_id, immich_embedding, "insightface")
-        return immich_embedding
 
     if cache:
         cached = cache.get(asset_id, "insightface")

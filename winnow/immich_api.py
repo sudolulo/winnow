@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
-import numpy as np
 import requests
 from PIL import Image, ImageOps
 
@@ -21,7 +20,6 @@ _MAX_ASSETS_PER_PERSON = 5000  # Stop fetching after this many — diversity poo
 class FaceData:
     """Pre-computed face data from Immich."""
 
-    embedding: np.ndarray | None
     bbox: tuple[float, float, float, float]  # (x1, y1, x2, y2)
     confidence: float | None
     image_width: int
@@ -120,7 +118,7 @@ def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | N
         person_id: Optional person ID to match the specific face
 
     Returns:
-        FaceData with embedding, bbox, and confidence, or None if unavailable
+        FaceData with bbox and confidence, or None if unavailable
     """
     try:
         resp = requests.get(
@@ -148,12 +146,6 @@ def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | N
         if face is None:
             face = faces[0]  # Fall back to first/largest face
 
-        # Extract embedding if available
-        embedding = None
-        if "embedding" in face:
-            embedding = np.array(face["embedding"], dtype=np.float32)
-
-        # Extract bounding box
         bbox = (
             face.get("boundingBoxX1", 0),
             face.get("boundingBoxY1", 0),
@@ -163,7 +155,6 @@ def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | N
 
         score = face.get("score")
         return FaceData(
-            embedding=embedding,
             bbox=bbox,
             confidence=score if score is not None else face.get("confidence"),
             image_width=face.get("imageWidth", 0),

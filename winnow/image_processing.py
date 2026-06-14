@@ -2,6 +2,7 @@
 
 import logging
 import os
+import warnings
 
 import numpy as np
 from PIL import Image
@@ -113,7 +114,9 @@ def process_face_mode(
                 min(img_h, y2 + pad_y),
             )
             search_crop = img.crop(search_box)
-            detected = insightface_app.get(np.asarray(search_crop))
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*estimate.*is deprecated", category=FutureWarning)
+                detected = insightface_app.get(np.asarray(search_crop))
             if detected:
                 cx, cy = search_crop.width / 2, search_crop.height / 2
                 best = min(

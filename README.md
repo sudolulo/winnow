@@ -9,7 +9,7 @@
 
 **Docs:** [Setup](https://github.com/sudolulo/winnow/wiki/Setup) · [Troubleshooting](https://github.com/sudolulo/winnow/wiki/Troubleshooting) · [FAQ](https://github.com/sudolulo/winnow/wiki/FAQ)
 
-`winnow` pulls photos from your [Immich](https://immich.app) library, selects the most diverse and highest-quality subset using AI embeddings, and delivers them as training data for [Frigate](https://frigate.video)'s face recognition and object classification models.
+`winnow` pulls photos from your [Immich](https://immich.app) library, selects the most diverse and highest-quality subset using AI embeddings, and delivers them as training data for [Frigate](https://frigate.video)'s face recognition.
 
 The best Frigate training data is images you curate manually — photos taken specifically for recognition, in controlled conditions, uploaded directly through Frigate's UI. For people you can do that for, do it. winnow is for everyone else: people in your library you want Frigate to recognise but don't have dedicated training photos for. It mines your existing Immich library for the most diverse spread of real-world appearances and fills the gap.
 
@@ -257,7 +257,7 @@ When run with a terminal attached, winnow starts an interactive session: select 
 ## Requirements
 
 - **Immich** v1.106+
-- **Frigate** v0.16+ (face mode only — object mode has no Frigate dependency)
+- **Frigate** v0.16+
 - **GPU** recommended: NVIDIA (CUDA), AMD (ROCm), or Intel (Arc / iGPU via OpenVINO)
 - **Python** 3.13+
 
