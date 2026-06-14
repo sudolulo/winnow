@@ -68,11 +68,22 @@ def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, st
     custom_limit = os.environ.get("LIMIT", "").strip()
 
     if not has_embedding:
-        limit = int(custom_limit) if custom_limit else 30
+        if custom_limit:
+            try:
+                limit = int(custom_limit)
+            except ValueError:
+                logger.warning("LIMIT=%r is not a valid integer — using default 30", custom_limit)
+                limit = 30
+        else:
+            limit = 30
         return limit, "time"
 
     if custom_limit:
-        return int(custom_limit), "smart"
+        try:
+            return int(custom_limit), "smart"
+        except ValueError:
+            logger.warning("LIMIT=%r is not a valid integer — using adaptive strategy", custom_limit)
+            # fall through to strategy_map
 
     strategy_map = {
         "adaptive": ("auto", "smart"),

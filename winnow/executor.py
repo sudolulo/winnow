@@ -100,6 +100,9 @@ def execute_jobs(jobs: list[dict]) -> None:
                 logger.error(str(e))
                 continue
             # Face crops are transient (uploaded then discarded); wipe before each run.
+            if os.path.islink(person_dir):
+                logger.error("person_dir %s is a symlink — refusing to remove", person_dir)
+                continue
             if os.path.isdir(person_dir):
                 shutil.rmtree(person_dir)
             os.makedirs(person_dir, exist_ok=True)
