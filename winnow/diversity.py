@@ -281,13 +281,75 @@ def _select_by_embedding(
         logger.warning(f"Only {len(valid_candidates)} valid embeddings. Returning all.")
         return valid_candidates
 
-    # --- Phase 5: Cluster-aware selection ---
+    # --- Phase 5: Near-duplicate removal ---
+    # Burst shots and repeated near-identical photos produce embeddings that are
+    # close but not identical, so FPS doesn't filter them out on its own.
+    # Greedily drop any candidate within DEDUP_THRESHOLD cosine distance of a
+    # higher-quality image already in the kept set.
+    embeddings, valid_candidates, confidence_scores = _dedup_embeddings(
+        embeddings, valid_candidates, confidence_scores
+    )
+
+    # --- Phase 6: Cluster-aware selection ---
     return _cluster_aware_selection(
         embeddings,
         valid_candidates,
         limit,
         entity_type=entity_type,
         confidence_scores=confidence_scores,
+    )
+
+
+# =============================================================================
+# Near-Duplicate Removal
+# =============================================================================
+
+_DEDUP_THRESHOLD = 0.20  # cosine distance — burst shots ~0.01-0.05, same-event similar shots ~0.10-0.20
+
+
+def _dedup_embeddings(
+    embeddings: list,
+    candidates: list,
+    confidence_scores: list,
+) -> tuple[list, list, list]:
+    """Greedy near-duplicate removal before clustering.
+
+    Sorts by quality score descending (best first), then for each candidate
+    drops it if any already-kept embedding is within _DEDUP_THRESHOLD cosine
+    distance. This eliminates burst-shot near-duplicates while preserving the
+    highest-quality representative from each near-identical group.
+    """
+    if len(embeddings) < 2:
+        return embeddings, candidates, confidence_scores
+
+    emb_matrix = np.vstack(embeddings)
+    norms = np.linalg.norm(emb_matrix, axis=1, keepdims=True)
+    emb_normed = emb_matrix / np.maximum(norms, 1e-8)
+
+    # Sort by quality descending so the best image in each near-duplicate group wins
+    quality_scores = [c.get("quality_score") or 0.0 for c in candidates]
+    order = sorted(range(len(candidates)), key=lambda i: quality_scores[i], reverse=True)
+
+    kept_indices = []
+    kept_normed = []
+
+    for i in order:
+        if kept_normed:
+            kept_stack = np.vstack(kept_normed)
+            sims = emb_normed[i] @ kept_stack.T
+            if np.any(sims > 1 - _DEDUP_THRESHOLD):
+                continue
+        kept_indices.append(i)
+        kept_normed.append(emb_normed[i])
+
+    dropped = len(embeddings) - len(kept_indices)
+    if dropped:
+        logger.info(f"Near-duplicate removal dropped {dropped} images (threshold {_DEDUP_THRESHOLD}).")
+
+    return (
+        [embeddings[i] for i in kept_indices],
+        [candidates[i] for i in kept_indices],
+        [confidence_scores[i] for i in kept_indices],
     )
 
 
@@ -373,6 +435,8 @@ def _compute_adaptive_threshold(emb_normed: np.ndarray, entity_type: str) -> flo
     # Compute pairwise cosine distances for the sample
     pairwise = 1 - sample @ sample.T
     upper_tri = pairwise[np.triu_indices(len(sample), k=1)]
+    if len(upper_tri) == 0:
+        return 0.05
     median_dist = float(np.median(upper_tri))
 
     # Faces: 20% of median (tighter — want fewer, more distinct images)
@@ -421,7 +485,7 @@ def _cluster_aware_selection(
     target = Config.MAX_AUTO_IMAGES if limit == "auto" else limit
 
     # --- Stage 1: K-Medoids clustering ---
-    k = min(max(5, target // 4), n // 3, n)  # e.g., 5-20 clusters
+    k = min(max(5, target // 4), max(1, n // 3), n)  # e.g., 1-20 clusters
     logger.debug(f"Clustering {n} embeddings into {k} groups (K-Medoids)...")
 
     # Compute full cosine distance matrix

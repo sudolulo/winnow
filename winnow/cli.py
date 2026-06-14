@@ -156,11 +156,27 @@ def main() -> None:
         rprint(f"Server: [dim]{Config.IMMICH_URL}[/dim]")
         rprint(f"Output: [dim]{Config.OUTPUT_DIR}[/dim]")
 
-        # Handle RESET_PERSON before anything else
+        # Handle RESET_PERSON before anything else.
+        # RESET_PERSON=* resets every tracked person; any other value resets
+        # that specific person by name.
         reset_person_name = os.environ.get("RESET_PERSON", "").strip()
         if reset_person_name:
-            reset_person(reset_person_name)
-            rprint(f"[bold yellow]Reset tracking data for: {reset_person_name}[/bold yellow]")
+            if reset_person_name == "*":
+                names = list(get_person_summary().keys())
+                if "*" in names:
+                    rprint(
+                        "[yellow]Note: a person literally named '*' exists in the tracker "
+                        "and will be reset along with everyone else.[/yellow]"
+                    )
+                if names:
+                    for name in names:
+                        reset_person(name)
+                    rprint(f"[bold yellow]Reset tracking data for all {len(names)} people.[/bold yellow]")
+                else:
+                    rprint("[dim]No tracking data to reset.[/dim]")
+            else:
+                reset_person(reset_person_name)
+                rprint(f"[bold yellow]Reset tracking data for: {reset_person_name}[/bold yellow]")
 
         # Show per-person tracker summary if data exists
         summary = get_person_summary()
