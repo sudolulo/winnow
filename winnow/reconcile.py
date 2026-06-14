@@ -45,8 +45,11 @@ def reconcile_frigate_mappings(
             )
             return
         current_files = set(fresh)
-        if len(current_files - known_files_before) == target:
+        new_count = len(current_files - known_files_before)
+        if new_count == target:
             break
+        if new_count > target:
+            break  # external upload already visible — no point polling further
 
     new_files = current_files - known_files_before
 

@@ -105,10 +105,10 @@ def _maybe_migrate(cache_dir: str, conn: sqlite3.Connection) -> None:
     if not upload_json.exists() and not reject_json.exists():
         return
 
-    # Check if tables are already populated
-    row = conn.execute("SELECT COUNT(*) FROM tracked_assets").fetchone()
-    if row[0] > 0:
-        return  # already migrated
+    # No row-count guard here: INSERT OR IGNORE makes migration idempotent, so it
+    # is safe to re-run if a previous attempt renamed one file but not the other
+    # (e.g. a PermissionError on the second rename would have left the first file's
+    # data committed but the second file un-renamed and un-migrated).
 
     logger.info("Migrating JSON tracker files to SQLite in %s", cache_dir)
 
@@ -122,11 +122,14 @@ def _maybe_migrate(cache_dir: str, conn: sqlite3.Connection) -> None:
         logger.warning("JSON migration failed, will retry next run: %s", exc)
         return
 
-    # Rename only after successful commit so a failed run retries cleanly next start.
-    if upload_json.exists():
-        upload_json.rename(upload_json.with_suffix(".json.bak"))
-    if reject_json.exists():
-        reject_json.rename(reject_json.with_suffix(".json.bak"))
+    # Rename each file independently so a failure on one does not prevent the
+    # other from being marked complete on this run.
+    for json_path in (upload_json, reject_json):
+        if json_path.exists():
+            try:
+                json_path.rename(json_path.with_suffix(".json.bak"))
+            except OSError as exc:
+                logger.warning("Could not rename %s after migration: %s", json_path, exc)
 
     logger.info("JSON → SQLite migration complete")
 
