@@ -207,7 +207,7 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | `BLUR_THRESHOLD` | `120.0` | Laplacian variance threshold — lower accepts more blur |
 | `MAX_AUTO_IMAGES` | `80` | Maximum training images per person in Frigate |
 | `QUALITY_REPLACEMENT` | `true` | When at cap, swap a weaker tracked image for a better candidate. With Frigate scoring active, targets the most redundant image (highest pre-upload recognize score); otherwise uses blur score. Never touches manually added Frigate files. Set `false` to skip people at cap |
-| `FRIGATE_SCORE_CEILING` | `0.0` | Skip uploads whose pre-upload Frigate recognize score exceeds this value — they are already well-covered. `0` disables; requires at least one prior run to have scores |
+| `FRIGATE_SCORE_CEILING` | *(unset)* | Below-cap novelty gate against Frigate's live model (catches conditions covered by manually-added images too). Unset: dynamic — skips candidates whose Frigate score exceeds the most-redundant tracked file's score, auto-calibrates each run. `0`: disable entirely. Positive value (e.g. `0.85`): fixed hard ceiling. No effect on the first run or when `ENABLE_FRIGATE_SCORES=false` |
 | `ENABLE_FRIGATE_SCORES` | `true` | Call Frigate's recognize endpoint pre-upload to store diversity scores used for quality replacement. Adds ~200 ms per upload. Disable to use blur-score replacement only |
 
 ### GPU & Models

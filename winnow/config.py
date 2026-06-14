@@ -31,7 +31,7 @@ class _Config:
     MIN_CONFIDENCE: float = 0.7
     MAX_AUTO_IMAGES: int = 80
     QUALITY_REPLACEMENT: bool = True
-    FRIGATE_SCORE_CEILING: float = 0.0
+    FRIGATE_SCORE_CEILING: float | None = None
     ENABLE_FRIGATE_SCORES: bool = True
 
     # People filtering
@@ -66,7 +66,8 @@ class _Config:
         self.MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.7"))
         self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "80"))
         self.QUALITY_REPLACEMENT = os.getenv("QUALITY_REPLACEMENT", "true").lower() in ("true", "1", "yes")
-        self.FRIGATE_SCORE_CEILING = float(os.getenv("FRIGATE_SCORE_CEILING", "0.0"))
+        _ceiling_env = os.getenv("FRIGATE_SCORE_CEILING", "").strip()
+        self.FRIGATE_SCORE_CEILING = float(_ceiling_env) if _ceiling_env else None
         self.ENABLE_FRIGATE_SCORES = os.getenv("ENABLE_FRIGATE_SCORES", "true").lower() in ("true", "1", "yes")
         self.FACE_MARGIN = float(os.getenv("FACE_MARGIN", "0.15"))
         self.USE_FULL_RESOLUTION = os.getenv("USE_FULL_RESOLUTION", "true").lower() in ("true", "1", "yes")
