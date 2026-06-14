@@ -36,7 +36,7 @@ def _get_faces_data() -> dict | None:
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
-        logger.warning(f"Could not query Frigate faces API: {e}")
+        logger.warning("Could not query Frigate faces API: %s", e)
         return None
 
 
@@ -125,7 +125,7 @@ def recognize_face(file_path: str) -> tuple[str | None, float] | None:
             return (data.get("face_name"), round(float(data["score"]), 4))
         return None
     except Exception as e:
-        logger.debug(f"Frigate recognize failed for {file_path}: {e}")
+        logger.debug("Frigate recognize failed for %s: %s", file_path, e)
         return None
 
 
@@ -147,15 +147,15 @@ def delete_frigate_person_files(person_name: str, filenames: list[str]) -> bool:
             timeout=10,
         )
         if resp.ok:
-            logger.debug(f"Deleted {len(filenames)} Frigate file(s) for {person_name}")
+            logger.debug("Deleted %s Frigate file(s) for %s", len(filenames), person_name)
             return True
         if resp.status_code == 404:
             # File already absent — stale tracker entry. Return True so the caller
             # removes it from the tracker and frees the slot cleanly.
-            logger.warning(f"Frigate file(s) not found for {person_name} (stale tracker entry?): {filenames}")
+            logger.warning("Frigate file(s) not found for %s (stale tracker entry?): %s", person_name, filenames)
             return True
-        logger.warning(f"Frigate delete returned {resp.status_code} for {person_name}")
+        logger.warning("Frigate delete returned %s for %s", resp.status_code, person_name)
         return False
     except Exception as e:
-        logger.warning(f"Failed to delete Frigate files for {person_name}: {e}")
+        logger.warning("Failed to delete Frigate files for %s: %s", person_name, e)
         return False

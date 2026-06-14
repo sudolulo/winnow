@@ -15,42 +15,69 @@ CONFIG_FILE = Path(".immich_config.json")
 
 
 class _Config:
-    """Singleton configuration with uppercase attribute access for backward compatibility."""
+    """Singleton configuration with lazy loading via __getattr__.
+
+    Class-level attributes are annotations only (no defaults), so attribute
+    access on an un-loaded instance falls through to __getattr__, which
+    triggers _load() exactly once.
+    """
 
     _instance: ClassVar["_Config | None"] = None
 
-    # Configuration values
-    IMMICH_URL: str | None = None
-    API_KEY: str | None = None
-    OUTPUT_DIR: str = "./frigate_train"
-    YEARS_FILTER: int = 10
+    # Annotations only — no class-level defaults so __getattr__ fires on first access
+    IMMICH_URL: str | None
+    API_KEY: str | None
+    OUTPUT_DIR: str
+    YEARS_FILTER: int
 
     # Quality filtering
-    MIN_FACE_WIDTH: int = 90
-    BLUR_THRESHOLD: float = 120.0
-    MIN_CONFIDENCE: float = 0.7
-    MAX_AUTO_IMAGES: int = 20
-    QUALITY_REPLACEMENT: bool = True
-    FRIGATE_SCORE_CEILING: float | None = None
-    ENABLE_FRIGATE_SCORES: bool = True
+    MIN_FACE_WIDTH: int
+    BLUR_THRESHOLD: float
+    MIN_CONFIDENCE: float
+    MAX_AUTO_IMAGES: int
+    QUALITY_REPLACEMENT: bool
+    FRIGATE_SCORE_CEILING: float | None
+    ENABLE_FRIGATE_SCORES: bool
 
     # People filtering
-    MIN_FACE_COUNT: int = 3
-    MERGE_DUPLICATE_PEOPLE: bool = False
+    MIN_FACE_COUNT: int
+    MERGE_DUPLICATE_PEOPLE: bool
 
     # Output quality
-    FACE_MARGIN: float = 0.15
-    USE_FULL_RESOLUTION: bool = True
-    ENABLE_FACE_ALIGNMENT: bool = True
+    FACE_MARGIN: float
+    USE_FULL_RESOLUTION: bool
+    ENABLE_FACE_ALIGNMENT: bool
 
-    ENABLE_CACHE: bool = True
-    CACHE_DIR: str = ".if_cache"
+    ENABLE_CACHE: bool
+    CACHE_DIR: str
 
     def __new__(cls) -> "_Config":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._load()
+            # Do NOT call _load() here — keep __new__ I/O-free so that import
+            # time does not trigger env/file reads.
         return cls._instance
+
+    def __getattr__(self, name: str):
+        """Called only when the attribute is not found on the instance.
+
+        On first access to any config attribute, load all values from env/file
+        and return the requested one.  Re-registers self as _instance so that
+        a subsequent reset() correctly finds and clears this object's attrs.
+        """
+        if name.startswith("_"):
+            raise AttributeError(name)
+        self._load()
+        # Re-register self as the singleton so reset() can clear our __dict__.
+        # This handles the case where __getattr__ is called on the module-level
+        # Config object after a reset() set _instance to None.
+        _Config._instance = self
+        # _load() sets the attribute as an instance attr; retrieve it directly
+        # to avoid infinite recursion through __getattr__.
+        try:
+            return self.__dict__[name]
+        except KeyError:
+            raise AttributeError(f"_Config has no attribute {name!r}")
 
     def _load(self) -> None:
         """Load configuration from environment and config file."""
@@ -83,11 +110,13 @@ class _Config:
                 if not os.getenv("OUTPUT_DIR"):
                     self.OUTPUT_DIR = data.get("OUTPUT_DIR", self.OUTPUT_DIR)
             except (json.JSONDecodeError, OSError) as e:
-                logging.warning(f"Failed to load config file: {e}")
+                logging.warning("Failed to load config file: %s", e)
 
     @classmethod
     def reset(cls) -> None:
         """Reset the singleton — mainly useful for testing or delayed env setup."""
+        if cls._instance is not None:
+            cls._instance.__dict__.clear()
         cls._instance = None
 
     def save(self) -> None:
@@ -106,9 +135,9 @@ class _Config:
                     indent=2,
                 )
             )
-            logging.info(f"Configuration saved to {CONFIG_FILE}")
+            logging.info("Configuration saved to %s", CONFIG_FILE)
         except OSError as e:
-            logging.error(f"Failed to save config: {e}")
+            logging.error("Failed to save config: %s", e)
 
     def interactive_setup(self) -> None:
         """Prompt user for missing configuration."""
@@ -132,52 +161,10 @@ class _Config:
             raise ValueError("Missing Immich URL or API Key.")
 
 
-# Singleton instance — use a lazy property pattern to avoid import-time side effects
-# when env vars aren't yet set. Call Config.instance() or just access attributes on
-# the module-level `Config` (which delegates to the singleton).
-class _ConfigAccessor:
-    """Lazy accessor that defers singleton creation until first attribute access.
-
-    This avoids reading .env and config files at import time, so environment
-    variables set after importing the module are properly picked up.
-    """
-
-    def __getattr__(self, name: str):
-        return getattr(_Config(), name)
-
-    def __setattr__(self, name: str, value):
-        if name.startswith("_"):
-            super().__setattr__(name, value)
-        else:
-            setattr(_Config(), name, value)
-
-    def reset(self) -> None:
-        """Reset the underlying singleton."""
-        _Config.reset()
-
-    def interactive_setup(self) -> None:
-        """Delegate to the singleton."""
-        _Config().interactive_setup()
-
-    def validate(self) -> None:
-        """Delegate to the singleton."""
-        _Config().validate()
-
-    def save(self) -> None:
-        """Delegate to the singleton."""
-        _Config().save()
-
-
-Config = _ConfigAccessor()
-
-
-class ConfigManager:
-    @staticmethod
-    def get() -> _Config:
-        return _Config()
+# Module-level singleton — lazy: no I/O until first attribute access.
+Config = _Config()
 
 
 def get_headers() -> dict[str, str]:
     """Return HTTP headers for Immich API requests."""
     return {"x-api-key": Config.API_KEY or "", "Accept": "application/json"}
-

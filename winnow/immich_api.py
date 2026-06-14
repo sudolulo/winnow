@@ -59,7 +59,7 @@ def get_people() -> list[dict]:
         resp.raise_for_status()
         return resp.json().get("people", [])
     except (requests.RequestException, ValueError) as e:
-        logger.error(f"Failed to fetch people from Immich: {e}")
+        logger.error("Failed to fetch people from Immich: %s", e)
         return []
 
 
@@ -79,7 +79,7 @@ def merge_people(survivor_id: str, merge_ids: list[str]) -> bool:
         resp.raise_for_status()
         return True
     except requests.RequestException as e:
-        logger.error(f"Failed to merge people into {survivor_id}: {e}")
+        logger.error("Failed to merge people into %s: %s", survivor_id, e)
         return False
 
 
@@ -90,7 +90,7 @@ def fetch_all_assets(person: dict) -> list[dict]:
     url = f"{Config.IMMICH_URL}/api/search/metadata"
     page_size = 1000
 
-    logger.debug(f"Fetching assets for {name}...")
+    logger.debug("Fetching assets for %s...", name)
 
     assets = []
     for page in range(1, MAX_PAGES + 1):
@@ -103,7 +103,7 @@ def fetch_all_assets(person: dict) -> list[dict]:
             )
 
             if not resp.ok:
-                logger.error(f"Error fetching assets for {name} (page {page}): {resp.status_code}")
+                logger.error("Error fetching assets for %s (page %s): %s", name, page, resp.status_code)
                 break
 
             page_assets = resp.json().get("assets", [])
@@ -114,13 +114,13 @@ def fetch_all_assets(person: dict) -> list[dict]:
                 break
 
             assets.extend(a for a in page_assets if isinstance(a, dict))
-            logger.debug(f"Fetched page {page}, total: {len(assets)}")
+            logger.debug("Fetched page %s, total: %s", page, len(assets))
 
             if len(page_assets) < page_size or len(assets) >= _MAX_ASSETS_PER_PERSON:
                 break
 
         except (requests.RequestException, ValueError) as e:
-            logger.error(f"Exception fetching assets for {name}: {e}")
+            logger.error("Exception fetching assets for %s: %s", name, e)
             break
 
     return assets
@@ -148,7 +148,7 @@ def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | N
         )
 
         if not resp.ok:
-            logger.debug(f"Face data endpoint returned {resp.status_code} for {asset_id}")
+            logger.debug("Face data endpoint returned %s for %s", resp.status_code, asset_id)
             return None
 
         faces = resp.json()
@@ -181,10 +181,10 @@ def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | N
         )
 
     except requests.RequestException as e:
-        logger.debug(f"Failed to fetch face data for {asset_id}: {e}")
+        logger.debug("Failed to fetch face data for %s: %s", asset_id, e)
         return None
     except (AttributeError, KeyError, TypeError, ValueError) as e:
-        logger.debug(f"Failed to parse face data for {asset_id}: {e}")
+        logger.debug("Failed to parse face data for %s: %s", asset_id, e)
         return None
 
 
@@ -205,9 +205,9 @@ def fetch_full_image(asset_id: str, timeout: int = 60) -> Image.Image | None:
             try:
                 return ImageOps.exif_transpose(Image.open(BytesIO(resp.content)))
             except Exception:
-                logger.debug(f"PIL can't open original for {asset_id}, falling back to preview")
+                logger.debug("PIL can't open original for %s, falling back to preview", asset_id)
     except requests.RequestException:
-        logger.debug(f"Original request failed for {asset_id}, falling back to preview")
+        logger.debug("Original request failed for %s, falling back to preview", asset_id)
 
     # Fall back to preview thumbnail (always JPEG)
     try:
@@ -219,7 +219,7 @@ def fetch_full_image(asset_id: str, timeout: int = 60) -> Image.Image | None:
         if resp.ok:
             return ImageOps.exif_transpose(Image.open(BytesIO(resp.content)))
     except Exception as e:
-        logger.error(f"Failed to fetch image {asset_id}: {e}")
+        logger.error("Failed to fetch image %s: %s", asset_id, e)
 
     return None
 
@@ -229,7 +229,7 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
     years = years or Config.YEARS_FILTER
     cutoff = datetime.now(timezone.utc) - timedelta(days=365 * years)
 
-    logger.debug(f"Filtering assets older than {years} years ({cutoff})")
+    logger.debug("Filtering assets older than %s years (%s)", years, cutoff)
 
     recent, skipped = [], 0
     for asset in assets:
@@ -247,6 +247,6 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
         except ValueError:
             continue
 
-    logger.debug(f"Retained {len(recent)} assets (filtered {skipped} old assets).")
+    logger.debug("Retained %s assets (filtered %s old assets).", len(recent), skipped)
     return recent
 

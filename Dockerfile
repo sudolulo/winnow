@@ -41,18 +41,17 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 
 WORKDIR /app
 
-# Swap in the variant-specific pyproject and lockfile before syncing.
-COPY pyproject.toml uv.lock pyproject-cpu.toml uv-cpu.lock \
-     pyproject-rocm.toml uv-rocm.lock pyproject-intel.toml uv-intel.lock ./
+COPY pyproject.toml uv.lock ./
 RUN if [ "$VARIANT" = "cpu" ]; then \
-        cp pyproject-cpu.toml pyproject.toml && cp uv-cpu.lock uv.lock; \
+        uv sync --frozen --no-dev --extra cpu; \
     elif [ "$VARIANT" = "rocm" ]; then \
-        cp pyproject-rocm.toml pyproject.toml && cp uv-rocm.lock uv.lock; \
+        uv sync --frozen --no-dev --extra rocm; \
     elif [ "$VARIANT" = "intel" ]; then \
-        cp pyproject-intel.toml pyproject.toml && cp uv-intel.lock uv.lock; \
+        uv sync --frozen --no-dev --extra intel; \
+    else \
+        uv sync --frozen --no-dev --extra gpu; \
     fi && \
-    uv sync --frozen --no-dev \
-    && uv cache clean
+    uv cache clean
 
 COPY winnow/ winnow/
 COPY entrypoint.sh scheduler.py ./

@@ -85,7 +85,7 @@ class EmbeddingCache:
         try:
             np.save(self._path(asset_id, model), embedding)
         except Exception as e:
-            logger.debug(f"Cache write failed for {asset_id}: {e}")
+            logger.debug("Cache write failed for %s: %s", asset_id, e)
 
     def clear(self) -> None:
         """Delete all cached embeddings."""
@@ -96,7 +96,7 @@ class EmbeddingCache:
             if f.endswith(".npy"):
                 os.remove(os.path.join(self.cache_dir, f))
                 count += 1
-        logger.info(f"Cleared {count} cached embeddings.")
+        logger.info("Cleared %s cached embeddings.", count)
 
 
 # Singleton instance

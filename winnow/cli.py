@@ -7,7 +7,7 @@ import sys
 from rich import print as rprint
 from rich.prompt import Confirm
 
-from .config import Config, ConfigManager
+from .config import Config
 from .executor import execute_jobs, upload_to_frigate
 from .immich_api import get_immich_version, get_people, merge_people
 from .jobs import _show_preview, auto_configure, interactive_configure
@@ -168,7 +168,7 @@ def main() -> None:
                 "Image quality issues caused by non-default values will not be investigated.[/dim]\n"
             )
 
-        ConfigManager.get().interactive_setup()
+        Config.interactive_setup()
 
         try:
             Config.validate()
