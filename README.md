@@ -11,7 +11,7 @@
 
 `winnow` pulls photos from your [Immich](https://immich.app) library, selects the most diverse and highest-quality subset using AI embeddings, and delivers them as training data for [Frigate](https://frigate.video)'s face recognition and object classification models.
 
-The best Frigate training data is images you curate manually — photos taken specifically for recognition, in controlled conditions, uploaded directly through Frigate's UI. For people you can do that for, do it. winnow is for everyone else: people in your library you want Frigate to recognise but don't have dedicated training photos for. It mines your existing Immich library for the most diverse spread of real-world appearances and fills the gap.
+The best Frigate training data is images you curate manually — photos taken specifically for recognition, in controlled conditions, uploaded directly through Frigate's UI. Winnow is meant to people in your library, not replace manual training. In some cases one has people they would like to recognize that do not occur in detections enough to train a diverse dataset. This is meant to fill that gap.
 
 > **winnow only touches files it uploaded.** Faces added to Frigate manually through its UI are never deleted, replaced, or modified — not by quality replacement, not by `RESET_PERSON`, not by stale cleanup. Your manually curated images are always the primary dataset; winnow only adds to it.
 
