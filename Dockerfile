@@ -1,16 +1,17 @@
 # ── Base images ───────────────────────────────────────────────────────────────
-#   amd64 + gpu:   NVIDIA CUDA 12.8 + cuDNN (GPU acceleration via NVIDIA Container Toolkit)
-#   amd64 + rocm:  Ubuntu 22.04 (AMD GPU via ROCm — pass /dev/kfd and /dev/dri)
+#   amd64 + gpu:   NVIDIA CUDA 12.8 + cuDNN on Ubuntu 24.04 (highest Ubuntu NVIDIA publishes)
+#   amd64 + rocm:  Ubuntu 26.04 (AMD GPU via ROCm — pass /dev/kfd and /dev/dri)
 #   amd64 + intel: Ubuntu 22.04 (Intel Arc / iGPU via OpenVINO — pass /dev/dri)
-#   amd64 + cpu:   Ubuntu 22.04 (CPU-only, ~2 GB smaller image)
+#                  Note: intel stays on 22.04 — Intel's GPU repo only publishes for jammy
+#   amd64 + cpu:   Ubuntu 26.04 (CPU-only, ~2 GB smaller image)
 #   arm64:         Ubuntu 24.04 (CPU-only; no CUDA/ROCm wheels on ARM)
 
 ARG VARIANT=gpu
 
-FROM --platform=$BUILDPLATFORM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04 AS base-amd64-gpu
-FROM ubuntu:22.04 AS base-amd64-rocm
+FROM --platform=$BUILDPLATFORM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04 AS base-amd64-gpu
+FROM ubuntu:26.04 AS base-amd64-rocm
 FROM ubuntu:22.04 AS base-amd64-intel
-FROM ubuntu:22.04 AS base-amd64-cpu
+FROM ubuntu:26.04 AS base-amd64-cpu
 FROM ubuntu:24.04 AS base-arm64-gpu
 FROM ubuntu:24.04 AS base-arm64-rocm
 FROM ubuntu:24.04 AS base-arm64-intel
@@ -24,8 +25,9 @@ FROM base-${TARGETARCH}-${VARIANT} AS build
 ARG VARIANT=gpu
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Both Ubuntu 22.04 and 24.04 get Python 3.13 from the deadsnakes PPA.
-# GNUPGHOME is isolated so gpg never contacts an agent socket under QEMU.
+# All base images get Python 3.13 from the deadsnakes PPA (26.04 ships 3.14 natively;
+# 3.13 is used to keep dependencies tested and aligned). GNUPGHOME is isolated
+# so gpg never contacts an agent socket under QEMU.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl gnupg software-properties-common \
     && GNUPGHOME=$(mktemp -d) add-apt-repository ppa:deadsnakes/ppa -y \
@@ -41,18 +43,20 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 
 WORKDIR /app
 
-# Swap in the variant-specific pyproject and lockfile before syncing.
-COPY pyproject.toml uv.lock pyproject-cpu.toml uv-cpu.lock \
-     pyproject-rocm.toml uv-rocm.lock pyproject-intel.toml uv-intel.lock ./
+COPY pyproject.toml uv.lock ./
 RUN if [ "$VARIANT" = "cpu" ]; then \
-        cp pyproject-cpu.toml pyproject.toml && cp uv-cpu.lock uv.lock; \
+        uv sync --frozen --no-dev --extra cpu; \
     elif [ "$VARIANT" = "rocm" ]; then \
-        cp pyproject-rocm.toml pyproject.toml && cp uv-rocm.lock uv.lock; \
+        uv sync --frozen --no-dev --extra rocm; \
     elif [ "$VARIANT" = "intel" ]; then \
-        cp pyproject-intel.toml pyproject.toml && cp uv-intel.lock uv.lock; \
+        uv sync --frozen --no-dev --extra intel; \
+    elif [ "$VARIANT" = "gpu" ]; then \
+        uv sync --frozen --no-dev --extra gpu; \
+    else \
+        echo "Unknown VARIANT: '$VARIANT'. Must be one of: cpu, rocm, intel, gpu" >&2; \
+        exit 1; \
     fi && \
-    uv sync --frozen --no-dev \
-    && uv cache clean
+    uv cache clean
 
 COPY winnow/ winnow/
 COPY entrypoint.sh scheduler.py ./

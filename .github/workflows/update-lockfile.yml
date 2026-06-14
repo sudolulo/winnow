@@ -1,5 +1,5 @@
 # .github/workflows/update-lockfile.yml
-name: Update lockfiles
+name: Update lockfile
 
 on:
   push:
@@ -7,9 +7,6 @@ on:
       - '**'
     paths:
       - 'pyproject.toml'
-      - 'pyproject-cpu.toml'
-      - 'pyproject-rocm.toml'
-      - 'pyproject-intel.toml'
   workflow_dispatch:
 
 jobs:
@@ -18,14 +15,6 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Free up disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          echo "Disk space freed."
-
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -35,32 +24,23 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
-      - name: Regenerate all lockfiles
-        run: |
-          cp pyproject.toml _pyproject_orig.toml
-          for variant in cpu rocm intel; do
-            cp pyproject-${variant}.toml pyproject.toml
-            uv lock
-            cp uv.lock uv-${variant}.lock
-          done
-          cp _pyproject_orig.toml pyproject.toml
-          uv lock
-          rm _pyproject_orig.toml
+      - name: Regenerate lockfile
+        run: uv lock
 
       - name: Check for changes
         id: diff
         run: |
-          if git diff --quiet uv.lock uv-cpu.lock uv-rocm.lock uv-intel.lock; then
+          if git diff --quiet uv.lock; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Commit and push updated lockfiles
+      - name: Commit and push updated lockfile
         if: steps.diff.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add uv.lock uv-cpu.lock uv-rocm.lock uv-intel.lock
-          git commit -m "chore: update lockfiles"
+          git add uv.lock
+          git commit -m "chore: update lockfile"
           git push

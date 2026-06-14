@@ -7,9 +7,9 @@ import sys
 from rich import print as rprint
 from rich.prompt import Confirm
 
-from .config import Config, ConfigManager
+from .config import Config
 from .executor import execute_jobs, upload_to_frigate
-from .immich_api import get_people, merge_people
+from .immich_api import get_immich_version, get_people, merge_people
 from .jobs import _show_preview, auto_configure, interactive_configure
 from .log_config import console, setup_logging
 from .upload_tracker import find_by_crop_dimension, get_person_summary, reset_person
@@ -168,7 +168,7 @@ def main() -> None:
                 "Image quality issues caused by non-default values will not be investigated.[/dim]\n"
             )
 
-        ConfigManager.get().interactive_setup()
+        Config.interactive_setup()
 
         try:
             Config.validate()
@@ -215,6 +215,13 @@ def main() -> None:
                     f"  [dim]{person_name}: {counts['uploaded']} uploaded,"
                     f" {counts['rejected']} rejected{frigate_part}[/dim]"
                 )
+
+        _immich_version = get_immich_version()
+        if _immich_version is not None and _immich_version < (1, 106, 0):
+            rprint(
+                f"  [yellow]⚠  Immich {'.'.join(str(x) for x in _immich_version)} detected — "
+                "winnow requires v1.106+. Some features may not work.[/yellow]"
+            )
 
         people = get_people()
         if not people:

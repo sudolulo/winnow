@@ -3,7 +3,6 @@
 import logging
 import os
 import shutil
-import time
 from io import BytesIO
 from urllib.parse import quote
 
@@ -17,12 +16,14 @@ from .frigate_api import (
     delete_frigate_person_files,
     get_all_frigate_person_files,
     get_frigate_person_files,
+    get_frigate_version,
     recognize_face,
 )
 from .image_processing import process_face_mode
-from .immich_api import fetch_face_data, fetch_full_image
+from .immich_api import fetch_full_image
 from .log_config import console
 from .quality import assess_quality
+from .reconcile import enrich_asset_with_face_data, reconcile_frigate_mappings
 from .upload_tracker import (
     get_lowest_quality_mapped_file,
     get_most_redundant_mapped_file,
@@ -31,7 +32,6 @@ from .upload_tracker import (
     has_frigate_scores,
     mark_rejected,
     mark_uploaded,
-    record_frigate_files_batch,
     remove_frigate_file,
 )
 
@@ -52,112 +52,6 @@ def _safe_person_dir(output_dir: str, person_name: str) -> str:
     if not candidate.startswith(base_prefix) and candidate != base:
         raise ValueError(f"Person name {person_name!r} escapes output directory — skipping")
     return candidate
-
-
-def _reconcile_frigate_mappings(
-    person_name: str,
-    known_files_before: set[str],
-    uploaded: list[tuple[str, str | None]],
-) -> None:
-    """Map Frigate filenames to asset IDs after a batch of uploads.
-
-    Polls until all expected new files appear in the Frigate API, then maps
-    them to asset IDs by filename timestamp order (Frigate processes the
-    upload queue in FIFO order, so earlier uploads get earlier timestamps).
-
-    KNOWN LIMITATION — race condition with external uploads:
-    If another client uploads a face file for this person concurrently, the
-    count of new files will exceed `len(uploaded)` and we bail out entirely
-    (the "> target" branch). That's safe — we never record a wrong mapping —
-    but those uploads become permanently unmapped (they won't be eligible for
-    quality replacement). The right fix is a Frigate API that returns the
-    filename in the upload response, removing the need for any post-upload
-    diffing. Until then, the external-upload guard keeps mappings correct at
-    the cost of occasionally missing them when another client is active.
-    """
-    target = len(uploaded)
-    current_files: set[str] = set()
-
-    for delay in (1, 2, 4, 8):
-        time.sleep(delay)
-        fresh = get_frigate_person_files(person_name)
-        if fresh is None:
-            logger.warning(
-                f"{person_name}: Frigate API unreachable during mapping reconciliation"
-                " — quality replacement won't target these files"
-            )
-            return
-        current_files = set(fresh)
-        if len(current_files - known_files_before) >= target:
-            break
-
-    new_files = current_files - known_files_before
-
-    if len(new_files) == target:
-        def _ts(fname: str) -> float:
-            try:
-                return float(fname.rsplit("_", 1)[-1].replace(".webp", ""))
-            except (ValueError, IndexError):
-                return 0.0
-
-        mappings = {
-            frigate_file: asset_id
-            for (_, asset_id), frigate_file in zip(uploaded, sorted(new_files, key=_ts))
-            if asset_id
-        }
-        record_frigate_files_batch(person_name, mappings)
-    elif len(new_files) > target:
-        logger.info(
-            f"{person_name}: {len(new_files)} new Frigate files for {target} uploads"
-            " (external upload detected) — skipping file mapping"
-        )
-    else:
-        logger.warning(
-            f"{person_name}: only {len(new_files)} of {target} expected Frigate files"
-            " appeared after reconciliation — mapping skipped"
-        )
-
-
-def _enrich_asset_with_face_data(asset: dict, person: dict) -> dict:
-    """Enrich an asset dict with face bounding box data from the Immich faces API.
-
-    The search/metadata endpoint does not include face bounding box data,
-    so we fetch it from GET /api/faces?id={asset_id} and inject it into
-    the asset's "people" field so process_face_mode can find it.
-
-    Returns the enriched asset dict (modifies in place and returns it).
-    """
-    person_id = person["id"]
-    face_data = fetch_face_data(asset["id"], person_id=person_id)
-
-    if face_data is None:
-        logger.debug(f"No face data returned for {person.get('name')} in asset {asset.get('id')}")
-        # Clean any None entries from the people list (can come from Immich API)
-        if "people" in asset:
-            asset["people"] = [p for p in asset["people"] if p is not None]
-        return asset
-
-    # Skip zero-area bounding boxes (face detection failed or no face found)
-    if face_data.bbox == (0, 0, 0, 0):
-        logger.debug(f"Zero-area bounding box for {person.get('name')} in asset {asset.get('id')}")
-        # Clean any None entries from the people list (can come from Immich API)
-        if "people" in asset:
-            asset["people"] = [p for p in asset["people"] if p is not None]
-        return asset
-
-    face_info = {
-        "boundingBoxX1": face_data.bbox[0],
-        "boundingBoxY1": face_data.bbox[1],
-        "boundingBoxX2": face_data.bbox[2],
-        "boundingBoxY2": face_data.bbox[3],
-        "imageWidth": face_data.image_width,
-        "imageHeight": face_data.image_height,
-    }
-
-    # Inject into asset so process_face_mode can find it via asset["people"]
-    asset["people"] = [{"id": person_id, "faces": [face_info]}]
-    asset["face_confidence"] = face_data.confidence
-    return asset
 
 
 def execute_jobs(jobs: list[dict]) -> None:
@@ -183,7 +77,7 @@ def execute_jobs(jobs: list[dict]) -> None:
 
             insightface_app = get_insightface_app()
         except Exception as e:
-            logger.debug(f"InsightFace unavailable for crop alignment: {e}")
+            logger.debug("InsightFace unavailable for crop alignment: %s", e)
 
     with Progress(
         SpinnerColumn(),
@@ -220,7 +114,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                 try:
                     # Enrich the asset with face bounding box data from the Immich
                     # faces API (not included in search/metadata results).
-                    asset = _enrich_asset_with_face_data(asset, person)
+                    asset = enrich_asset_with_face_data(asset, person)
                     # Skip download if detection confidence already disqualifies
                     # the asset — avoids fetching a large image we'll discard.
                     conf = asset.get("face_confidence")
@@ -270,7 +164,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                                         score_img.thumbnail((1440, 1440), Image.LANCZOS)
                                     score_map[filename] = assess_quality(score_img).blur_score
                                 except Exception as exc:
-                                    logger.debug(f"Quality score fallback for {asset['id']}: {exc}")
+                                    logger.debug("Quality score fallback for %s: %s", asset["id"], exc)
                                     score_map[filename] = 0.0  # unknown quality — treat as lowest
 
                             count += 1
@@ -279,7 +173,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                                 f"[yellow]Skipped {asset['id']} (no usable face data)[/yellow]"
                             )
                 except Exception as e:
-                    logger.error(f"Failed to process asset {asset['id']}: {e}")
+                    logger.error("Failed to process asset %s: %s", asset["id"], e)
 
                 progress.advance(job_task)
                 progress.advance(overall_task)
@@ -293,7 +187,7 @@ def execute_jobs(jobs: list[dict]) -> None:
 
             # Log how many images were actually saved vs selected
             if count < len(assets):
-                logger.info(f"{name}: saved {count}/{len(assets)} selected images")
+                logger.info("%s: saved %s/%s selected images", name, count, len(assets))
 
 
 def upload_to_frigate(jobs: list[dict]) -> None:
@@ -310,6 +204,18 @@ def upload_to_frigate(jobs: list[dict]) -> None:
     if not frigate_url:
         rprint("[yellow]⚠️  FRIGATE_URL not set, skipping upload.[/yellow]")
         return
+
+    _frigate_version = get_frigate_version()
+    if _frigate_version is not None:
+        try:
+            parts = [int(x) for x in _frigate_version.split("-")[0].split(".") if x.isdigit()]
+            if len(parts) >= 2 and (parts[0], parts[1]) < (0, 16):
+                rprint(
+                    f"  [yellow]⚠  Frigate {_frigate_version} detected — "
+                    "face training API requires v0.16+. Uploads may fail.[/yellow]"
+                )
+        except Exception:
+            pass
 
     rprint("\n[bold cyan]📤 Uploading to Frigate[/bold cyan]")
     rprint(f"  Target: [dim]{frigate_url}[/dim]")
@@ -380,21 +286,34 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             # manually-added Frigate files don't consume winnow's managed quota.
             # Replacement targets also come exclusively from the tracker, so manually
             # added files are never selected for deletion — only winnow-uploaded ones.
+            # LIMITATION — manual files are invisible to diversity decisions: winnow
+            # can observe their effect on the Frigate score (indirectly, via recognize)
+            # but cannot measure their embedding distribution directly. If a user has
+            # 20 manually-added frontals and winnow has room for 20 more, winnow may
+            # add more frontals because it can't see that frontals are already covered.
+            # TODO(frigate-api): if Frigate exposes per-file embeddings, compute
+            # diversity against the full training set (tracked + manual) rather than
+            # relying solely on the Frigate score as a proxy signal.
             _snapshot = (
                 all_frigate_files.get(name, []) if all_frigate_files is not None
                 else get_frigate_person_files(name)
             )
             if _snapshot is None:
-                # Frigate GET is down; fall back to the tracker's mapped filenames
-                # as the pre-upload baseline. reconciliation will still work unless
-                # there are concurrent manual uploads (handled by >target guard).
+                # Frigate GET is down. The tracker only knows files winnow mapped
+                # previously — it is blind to manually-added Frigate files. Using
+                # the tracker as the baseline would make those unmapped files look
+                # like new uploads in reconcile, triggering the >target guard and
+                # silently dropping all mappings. Skip reconciliation entirely when
+                # we can't get a reliable live snapshot.
                 logger.warning(
-                    f"{name}: Frigate API unreachable at upload start"
-                    " — using tracker baseline for post-upload reconciliation"
+                    "%s: Frigate API unreachable at upload start"
+                    " — file mapping will be skipped for this batch", name
                 )
-                known_frigate_files_at_start: set[str] = get_tracked_frigate_filenames(name)
+                known_frigate_files_at_start: set[str] = set()
+                _skip_reconcile = True
             else:
                 known_frigate_files_at_start: set[str] = set(_snapshot)
+                _skip_reconcile = False
                 # Remove tracker mappings for files that no longer exist in Frigate
                 # (manually deleted, or cleaned up outside winnow). This corrects the
                 # effective_count so those slots are available for new uploads.
@@ -447,6 +366,14 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 # Frigate rebuilds its model asynchronously after any delete (clear + background
                 # thread), so the first recognize call after a deletion returns None — our code
                 # handles this conservatively by skipping that candidate until the next run.
+                # LIMITATION — async rebuild during multi-replacement runs: each deletion in a
+                # single run triggers a background model rebuild in Frigate. Subsequent recognize
+                # calls in the same run may get None (rebuild in progress), causing later
+                # candidates to fall back to blur-score replacement or be skipped entirely.
+                # The more replacements that happen in one run, the worse the scoring gets.
+                # TODO(frigate-api): if Frigate exposes a model generation counter or a
+                # rebuild-complete signal, poll it between recognize calls during replacement
+                # sequences rather than accepting stale/None scores.
                 pre_fscore: float | None = None
                 if Config.ENABLE_FRIGATE_SCORES and pre_run_count > 0:
                     if not at_cap or person_has_fscores:
@@ -529,7 +456,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         effective_count -= 1
                         min_quality_score_for_slot = None if using_fscore else candidate_score
                     else:
-                        logger.warning(f"Failed to delete {target_frigate_file} for {name}, skipping replacement")
+                        logger.warning("Failed to delete %s for %s, skipping replacement", target_frigate_file, name)
                         failed_deletes.add(target_frigate_file)
                         progress.advance(upload_task)
                         continue
@@ -582,7 +509,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             if resp.status_code == 400:
                                 progress.console.print(f"      [dim]{error_detail}[/dim]")
                             else:
-                                logger.debug(f"{fname} HTTP {resp.status_code}: {error_detail}")
+                                logger.debug("%s HTTP %s: %s", fname, resp.status_code, error_detail)
                             if resp.status_code == 400 and "face" in full_body.lower():
                                 asset_id = asset_map.get(fname)
                                 if asset_id:
@@ -626,8 +553,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 )
 
             # Batch-map Frigate filenames to asset IDs now that all uploads are done.
-            if actually_uploaded:
-                _reconcile_frigate_mappings(name, known_frigate_files_at_start, actually_uploaded)
+            if actually_uploaded and not _skip_reconcile:
+                reconcile_frigate_mappings(name, known_frigate_files_at_start, actually_uploaded)
 
             # Per-person summary
             if person_failed == 0:

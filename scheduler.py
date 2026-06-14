@@ -30,6 +30,7 @@ def check_models() -> None:
 NOW = time.time()
 cron = croniter(SCHEDULE, NOW)
 next_run = cron.get_next(float)
+print(f"Next run: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_run))}", flush=True)
 
 while True:
     now = time.time()
@@ -42,7 +43,8 @@ while True:
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            logger.error(f"winnow run failed: {e}", exc_info=True)
+            logger.error("winnow run failed: %s", e, exc_info=True)
             print(f"winnow run failed: {e}", flush=True)
         next_run = cron.get_next(float)
+        print(f"Next run: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_run))}", flush=True)
     time.sleep(max(1, next_run - time.time()))

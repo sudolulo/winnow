@@ -66,7 +66,7 @@ def _preload_cuda_libs() -> None:
         else:
             logger.debug("onnxruntime.preload_dlls() not available (ORT < 1.21)")
     except Exception as e:
-        logger.warning(f"Failed to preload CUDA/cuDNN DLLs: {e}")
+        logger.warning("Failed to preload CUDA/cuDNN DLLs: %s", e)
 
 
 # =============================================================================
@@ -100,7 +100,7 @@ def get_insightface_app():
 
         # Get providers, excluding TensorRT to avoid noisy errors
         providers = [p for p in ort.get_available_providers() if p != "TensorrtExecutionProvider"]
-        logger.debug(f"ONNX providers available: {providers}")
+        logger.debug("ONNX providers available: %s", providers)
 
         gpu_providers = {
             "CUDAExecutionProvider",
@@ -121,7 +121,7 @@ def get_insightface_app():
                 if p == "OpenVINOExecutionProvider" else p
                 for p in providers
             ]
-            logger.debug(f"OpenVINO EP: device_type={openvino_device}")
+            logger.debug("OpenVINO EP: device_type=%s", openvino_device)
 
         if not has_gpu_provider and not _is_force_cpu():
             logger.warning(
@@ -136,21 +136,21 @@ def get_insightface_app():
             device_str = f"OpenVINO ({os.getenv('OPENVINO_DEVICE', 'CPU')})"
         else:
             device_str = "GPU"
-        logger.info(f"InsightFace Buffalo_L: loading into memory on {device_str}...")
+        logger.info("InsightFace Buffalo_L: loading into memory on %s...", device_str)
 
         t0 = time.time()
         with _suppress_output():
             _insightface_app = FaceAnalysis(name="buffalo_l", root=insightface_home, providers=providers)
             _insightface_app.prepare(ctx_id=ctx_id, det_size=(640, 640))
 
-        logger.info(f"InsightFace Buffalo_L: ready on {device_str} ({time.time() - t0:.1f}s)")
+        logger.info("InsightFace Buffalo_L: ready on %s (%.1fs)", device_str, time.time() - t0)
         return _insightface_app
 
     except ImportError:
         logger.error("InsightFace not installed!")
         return None
     except Exception as e:
-        logger.error(f"Failed to load InsightFace: {e}")
+        logger.error("Failed to load InsightFace: %s", e)
         if ctx_id == 0:
             logger.warning("InsightFace GPU load failed — retrying on CPU...")
             try:
@@ -164,10 +164,10 @@ def get_insightface_app():
                         providers=["CPUExecutionProvider"],
                     )
                     _insightface_app.prepare(ctx_id=-1, det_size=(640, 640))
-                logger.info(f"InsightFace Buffalo_L: ready on CPU (fallback, {time.time() - t0:.1f}s)")
+                logger.info("InsightFace Buffalo_L: ready on CPU (fallback, %.1fs)", time.time() - t0)
                 return _insightface_app
             except Exception as ex:
-                logger.error(f"InsightFace CPU fallback failed: {ex}")
+                logger.error("InsightFace CPU fallback failed: %s", ex)
         return None
 
 
@@ -193,7 +193,7 @@ def get_face_embedding(img_pil: Image.Image) -> np.ndarray | None:
         largest = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
         return largest.embedding
     except Exception as e:
-        logger.error(f"Error getting face embedding: {e}")
+        logger.error("Error getting face embedding: %s", e)
         return None
 
 

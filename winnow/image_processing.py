@@ -37,7 +37,7 @@ def align_face(img: Image.Image, landmarks: list[list[float]] | np.ndarray) -> I
         img_np = np.asarray(img)
         lm = np.array(landmarks, dtype=np.float32)
         if lm.shape != (5, 2):
-            logger.debug(f"Invalid landmark shape: {lm.shape}, expected (5, 2)")
+            logger.debug("Invalid landmark shape: %s, expected (5, 2)", lm.shape)
             return None
         aligned = norm_crop(img_np, lm)
         return Image.fromarray(aligned)
@@ -45,7 +45,7 @@ def align_face(img: Image.Image, landmarks: list[list[float]] | np.ndarray) -> I
         logger.debug("InsightFace not available for face alignment")
         return None
     except Exception as e:
-        logger.debug(f"Face alignment failed: {e}")
+        logger.debug("Face alignment failed: %s", e)
         return None
 
 
@@ -79,7 +79,7 @@ def process_face_mode(
             break
 
     if not face_info:
-        logger.debug(f"No face info for {person.get('name')} in asset {asset.get('id')}")
+        logger.debug("No face info for %s in asset %s", person.get("name"), asset.get("id"))
         return None
 
     img_w, img_h = img.size
@@ -95,7 +95,7 @@ def process_face_mode(
 
     face_w, face_h = x2 - x1, y2 - y1
     if face_w < min_width or face_h < min_width:
-        logger.debug(f"Face too small ({face_w:.1f}x{face_h:.1f})")
+        logger.debug("Face too small (%.1fx%.1f)", face_w, face_h)
         return None
 
     # Re-detect face with InsightFace for landmark-based alignment.
@@ -131,7 +131,7 @@ def process_face_mode(
                         _save_jpeg(aligned, os.path.join(output_dir, f"{count}.jpg"))
                         return aligned.size
         except Exception as e:
-            logger.debug(f"InsightFace re-detection failed for {asset.get('id')}: {e}")
+            logger.debug("InsightFace re-detection failed for %s: %s", asset.get("id"), e)
 
     # Landmark alignment from Immich metadata (Immich does not currently
     # expose landmarks, so this path is a future-proofing fallback)

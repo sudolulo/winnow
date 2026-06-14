@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-14
+
+### Changed
+
+- **SQLite upload tracker**: `upload_tracker.py` is fully rewritten on top of SQLite (stdlib `sqlite3`). The JSON pair (`frigate_uploaded_ids.json` / `frigate_rejected_ids.json`) is replaced by a single `winnow_tracker.db` (WAL journal, `check_same_thread=False`). Existing JSON files are migrated atomically on first run and renamed to `.json.bak`. No user action required; the tracker API (`mark_uploaded`, `mark_rejected`, `filter_already_uploaded`, `get_person_summary`, etc.) is unchanged.
+
+- **Config lazy singleton**: `_Config` now uses `__getattr__` to defer all I/O until the first attribute access. `load_dotenv()` no longer runs at module import time — it runs on the first access to any `Config` attribute. Empty-string env vars (`IMMICH_URL=`, `OUTPUT_DIR=`) are now correctly distinguished from unset ones so a `.env` file value never silently overrides an explicit `""` set in the environment. `Config.reset()` clears the loaded state for clean test isolation.
+
+- **Reconcile module extracted**: `reconcile_frigate_mappings` and `enrich_asset_with_face_data` are extracted from `executor.py` into a new `winnow/reconcile.py` module. No behaviour change; reduces `executor.py` length and clarifies responsibility boundaries.
+
+- **Single lockfile**: `pyproject-gpu.toml`, `pyproject-cpu.toml`, `pyproject-rocm.toml`, `pyproject-intel.toml` and their separate lockfiles are removed. GPU/ROCm/Intel/CPU variant deps are now declared as `[project.optional-dependencies]` extras in `pyproject.toml` with `[tool.uv] conflicts` for mutual exclusion. A single `uv.lock` covers all variants. The Dockerfile selects the correct extra via `uv sync --extra $VARIANT`.
+
+- **Ubuntu base bumped**: amd64 GPU base updated from `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04` to `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04`. amd64 ROCm and CPU bases updated from Ubuntu 22.04 to Ubuntu 26.04. arm64 bases remain Ubuntu 24.04.
+
+### Fixed
+
+- **Frigate API unreachable at upload start no longer crashes reconciliation**: when the Frigate `GET /api/faces` call fails at upload start, reconciliation is now skipped entirely for that batch (`_skip_reconcile = True`). Previously, falling back to the tracker's known filenames as the pre-upload baseline caused the `> target` guard to fire on unmapped manual files, silently dropping all mappings.
+
+- **Polling `== target` guards against wrong-file mapping**: the reconcile poll loop now breaks on `len(new_files) == target` and sets an "external upload detected" flag when `> target`. The old `>= target` break would have proceeded with an incorrect file set when a concurrent external upload was present, causing wrong asset-ID mappings. The poll loop now also exits early on `> target` rather than exhausting all four retry intervals (up to 15 s wasted per person with a concurrent external uploader).
+
+- **`auto_cap` post-selection truncation removed**: the diversity selector now receives the correct upper bound (`capacity` or `min(limit, capacity)`) directly instead of selecting up to `MAX_AUTO_IMAGES` and then silently truncating the result list. The old approach produced a selection biased toward the first `capacity` items in embedding space rather than the globally optimal diverse subset.
+
+- **Dockerfile unknown VARIANT now fails loudly**: added an explicit `elif [ "$VARIANT" = "gpu" ]` branch and an `else … exit 1` for unrecognised values. Previously, any unknown variant silently fell through to the `cpu` branch.
+
+- **JSON migration partial-rename data loss**: if the rename of one of the two JSON files failed (e.g. a `PermissionError`), the other file's data was committed to SQLite but the `COUNT(*) > 0` guard on the next run would skip re-migration of the remaining file, permanently losing its data. The guard is removed (idempotent `INSERT OR IGNORE` makes re-running safe). Each rename is now wrapped in its own `try/except OSError` so a failure on one file is logged and does not prevent the other from completing.
+
+- **SQL column allowlist in `_pick_mapped_file`**: the `score_col` f-string interpolation into SQL is now guarded by a `frozenset` allowlist at the function boundary, raising `ValueError` on any value outside `{"blur_score", "frigate_score"}`.
+
+- **`load_dotenv` no longer runs at import time**: moving `load_dotenv()` to the first line of `_load()` prevents side-effects during module import (which could interfere with test environment setup) and makes the load order deterministic relative to `os.environ` overrides.
+
+- **Empty-string env var priority fix**: `if self.IMMICH_URL or …` treated `IMMICH_URL=""` as falsy and silently fell through to the config file. Changed to `if self.IMMICH_URL is None` so an empty-string explicit env var is respected.
+
+### Added
+
+- **Diversity test suite expanded** (PR #11): 33 new tests covering k-medoids clustering, farthest-point sampling, adaptive threshold computation, near-duplicate deduplication, and time-spread selection. Total: 93 tests (was 60).
+
+- **Known-limitation annotations** (PR #12): `TODO(frigate-api)` comments placed at each FIFO-ordering assumption, manual-file-invisibility note, and async-rebuild limitation in `executor.py` and `reconcile.py`. These mark spots where a richer Frigate API would allow a deeper fix.
+
 ## [0.4.11] - 2026-06-14
 
 ### Removed
