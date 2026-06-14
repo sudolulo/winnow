@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-06-14
+
+### Changed
+
+- **`MAX_AUTO_IMAGES` default lowered from `80` to `20`**: 20 diverse images is sufficient for Frigate's face recognition model; the previous default led to diminishing returns and longer runs.
+
 ## [0.4.9] - 2026-06-14
 
 ### Changed
