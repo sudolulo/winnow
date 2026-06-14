@@ -231,6 +231,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                                 f"[yellow]Skipped {asset['id']}"
                                 f" (detection confidence {conf:.2f} < {Config.MIN_CONFIDENCE})[/yellow]"
                             )
+                            mark_rejected(asset["id"], person_name=name)
                             progress.advance(job_task)
                             progress.advance(overall_task)
                             continue
@@ -482,14 +483,28 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         if _result is not None and (_result[0] or "").casefold() == name.casefold():
                             pre_fscore = _result[1]
 
-                # Ceiling check: skip if the existing training set already covers this
-                # face condition well. Applies below cap only — at cap, replacement logic
-                # drives the decision.
-                if not at_cap and Config.FRIGATE_SCORE_CEILING > 0 and pre_run_count > 0:
-                    if pre_fscore is not None and pre_fscore > Config.FRIGATE_SCORE_CEILING:
+                # Below-cap novelty gate: skip candidates already covered by the Frigate model,
+                # including conditions learned from manually-added images winnow can't track.
+                # pre_fscore is None on the first run (pre_run_count == 0 skips recognize_face
+                # above), so this block never fires on the first run without an extra guard.
+                if not at_cap and pre_fscore is not None:
+                    _ceiling = Config.FRIGATE_SCORE_CEILING
+                    if _ceiling is None:
+                        # Dynamic default: bar = most-redundant tracked file's Frigate score.
+                        # Falls back to uploading freely when no tracked scores exist yet.
+                        _bar = get_most_redundant_mapped_file(name)
+                        _skip = _bar is not None and pre_fscore > _bar[2]
+                        _bar_str = f"most redundant tracked {_bar[2]:.2f}" if _bar else ""
+                    elif _ceiling == 0.0:
+                        _skip = False  # explicitly disabled
+                        _bar_str = ""
+                    else:
+                        _skip = pre_fscore > _ceiling
+                        _bar_str = f"ceiling {_ceiling:.2f}"
+                    if _skip:
                         progress.console.print(
                             f"    [dim]⏭  {fname}: Frigate score {pre_fscore:.2f}"
-                            f" > ceiling {Config.FRIGATE_SCORE_CEILING:.2f}, already covered[/dim]"
+                            f" > {_bar_str}, already covered[/dim]"
                         )
                         progress.advance(upload_task)
                         continue
@@ -503,70 +518,50 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     using_fscore = person_has_fscores and Config.ENABLE_FRIGATE_SCORES
                     if using_fscore:
                         candidate_score = pre_fscore
-                        if candidate_score is None:
-                            progress.console.print(
-                                f"    [dim]⏭  {fname}: Frigate recognize unavailable, skipping replacement[/dim]"
-                            )
-                            progress.advance(upload_task)
-                            continue
-                        # Low score = more novel than the most redundant mapped file = replace
-                        target = get_most_redundant_mapped_file(name, exclude=failed_deletes)
-                        if target is None or candidate_score >= target[2]:
-                            target_score_str = f"{target[2]:.3f}" if target is not None else "N/A"
-                            progress.console.print(
-                                f"    [dim]⏭  {fname}: frigate {candidate_score:.3f} ≥ most redundant"
-                                f" {target_score_str}, not more novel[/dim]"
-                            )
-                            progress.advance(upload_task)
-                            continue
-                        target_frigate_file, _target_asset_id, target_score = target
-                        progress.console.print(
-                            f"    🔄 {fname}: frigate {candidate_score:.3f} < {target_score:.3f},"
-                            f" replacing {target_frigate_file} (more novel)"
-                        )
-                        if delete_frigate_person_files(name, [target_frigate_file]):
-                            remove_frigate_file(name, target_frigate_file)
-                            person_has_fscores = has_frigate_scores(name)
-                            effective_count -= 1
-                            # clear any blur-mode slot floor — Frigate uses a different score metric
-                            min_quality_score_for_slot = None
-                        else:
-                            logger.warning(f"Failed to delete {target_frigate_file} for {name}, skipping replacement")
-                            failed_deletes.add(target_frigate_file)
-                            progress.advance(upload_task)
-                            continue
+                        get_target = get_most_redundant_mapped_file
+                        score_label, better_note = "frigate", " (more novel)"
+                        no_score_msg = "Frigate recognize unavailable, skipping replacement"
                     else:
                         candidate_score = score_map.get(fname)
-                        if candidate_score is None:
-                            progress.console.print(
-                                f"    [dim]⏭  {fname}: no quality score, skipping replacement[/dim]"
-                            )
-                            progress.advance(upload_task)
-                            continue
-                        target = get_lowest_quality_mapped_file(name, exclude=failed_deletes)
-                        if target is None or candidate_score <= target[2]:
-                            target_score_str = f"{target[2]:.3f}" if target is not None else "N/A"
-                            progress.console.print(
-                                f"    [dim]⏭  {fname}: blur {candidate_score:.3f} ≤ worst"
-                                f" {target_score_str}, skipping[/dim]"
-                            )
-                            progress.advance(upload_task)
-                            continue
-                        target_frigate_file, _target_asset_id, target_score = target
+                        get_target = get_lowest_quality_mapped_file
+                        score_label, better_note = "blur", ""
+                        no_score_msg = "no quality score, skipping replacement"
+
+                    if candidate_score is None:
+                        progress.console.print(f"    [dim]⏭  {fname}: {no_score_msg}[/dim]")
+                        progress.advance(upload_task)
+                        continue
+
+                    target = get_target(name, exclude=failed_deletes)
+                    not_better = target is None or (
+                        candidate_score >= target[2] if using_fscore else candidate_score <= target[2]
+                    )
+                    if not_better:
+                        target_str = f"{target[2]:.3f}" if target is not None else "N/A"
+                        op = "<" if using_fscore else ">"
                         progress.console.print(
-                            f"    🔄 {fname}: blur {candidate_score:.3f} > {target_score:.3f},"
-                            f" replacing {target_frigate_file}"
+                            f"    [dim]⏭  {fname}: {score_label} {candidate_score:.3f}"
+                            f" not {op} {target_str}, skipping[/dim]"
                         )
-                        if delete_frigate_person_files(name, [target_frigate_file]):
-                            remove_frigate_file(name, target_frigate_file)
-                            person_has_fscores = has_frigate_scores(name)
-                            effective_count -= 1
-                            min_quality_score_for_slot = score_map.get(fname)
-                        else:
-                            logger.warning(f"Failed to delete {target_frigate_file} for {name}, skipping replacement")
-                            failed_deletes.add(target_frigate_file)
-                            progress.advance(upload_task)
-                            continue
+                        progress.advance(upload_task)
+                        continue
+
+                    target_frigate_file, _target_asset_id, target_score = target
+                    op = "<" if using_fscore else ">"
+                    progress.console.print(
+                        f"    🔄 {fname}: {score_label} {candidate_score:.3f} {op} {target_score:.3f},"
+                        f" replacing {target_frigate_file}{better_note}"
+                    )
+                    if delete_frigate_person_files(name, [target_frigate_file]):
+                        remove_frigate_file(name, target_frigate_file)
+                        person_has_fscores = has_frigate_scores(name)
+                        effective_count -= 1
+                        min_quality_score_for_slot = None if using_fscore else candidate_score
+                    else:
+                        logger.warning(f"Failed to delete {target_frigate_file} for {name}, skipping replacement")
+                        failed_deletes.add(target_frigate_file)
+                        progress.advance(upload_task)
+                        continue
 
                 for attempt in range(1, max_retries + 1):
                     try:

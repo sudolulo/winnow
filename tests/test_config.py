@@ -18,7 +18,7 @@ def test_config_loads_defaults(monkeypatch):
     assert cfg.OUTPUT_DIR == "./frigate_train"
     assert cfg.YEARS_FILTER == 10
     assert cfg.MIN_FACE_WIDTH == 90
-    assert cfg.MIN_FACE_COUNT == 0
+    assert cfg.MIN_FACE_COUNT == 3
     assert cfg.BLUR_THRESHOLD == 120.0
     assert cfg.MIN_CONFIDENCE == 0.7
     assert cfg.MAX_AUTO_IMAGES == 80

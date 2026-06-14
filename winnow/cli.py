@@ -130,6 +130,18 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
     return people
 
 
+_UNSUPPORTED_VARS = [
+    "ENABLE_FRIGATE_SCORES",
+    "FRIGATE_SCORE_CEILING",
+    "MIN_FACE_WIDTH",
+    "FACE_MARGIN",
+    "ENABLE_FACE_ALIGNMENT",
+    "USE_FULL_RESOLUTION",
+    "MIN_CONFIDENCE",
+    "BLUR_THRESHOLD",
+]
+
+
 def main() -> None:
     """Entry point for winnow CLI."""
     try:
@@ -144,6 +156,17 @@ def main() -> None:
     [bold blue]winnow[/bold blue]
     [dim]Immich -> Frigate Training Data Curator[/dim]
         """)
+
+        set_unsupported = [v for v in _UNSUPPORTED_VARS if os.environ.get(v)]
+        if set_unsupported:
+            console.print(
+                f"[bold yellow]⚠  Advanced tuning vars set: "
+                f"{', '.join(set_unsupported)}[/bold yellow]"
+            )
+            console.print(
+                "[dim]  These defaults are calibrated for Frigate's ArcFace requirements. "
+                "Image quality issues caused by non-default values will not be investigated.[/dim]\n"
+            )
 
         ConfigManager.get().interactive_setup()
 

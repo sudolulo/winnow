@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-06-14
+
+### Changed
+
+- **`FRIGATE_SCORE_CEILING` is now dynamic by default**: previously defaulted to `0` (disabled). Now unset (default) enables a self-calibrating novelty gate — below-cap candidates are skipped if their pre-upload Frigate score exceeds the most-redundant tracked file's score. This catches conditions already covered by manually-added Frigate images that winnow cannot track. Set `FRIGATE_SCORE_CEILING=0` to disable entirely; set a positive value (e.g. `0.85`) for a fixed hard ceiling.
+- **Quality replacement branches consolidated**: the Frigate-score and blur-score replacement paths in the upload loop shared identical structure. Merged into a single code path parameterised by score source and comparison direction.
+- **`MIN_FACE_COUNT` default raised from `0` to `3`**: people with fewer than 3 tagged photos produce degenerate training sets; skipping them by default avoids noisy runs.
+- **`STRATEGY=adaptive`** is the new primary name for embedding-based diversity selection; `auto` remains a silent alias for backwards compatibility.
+- **`MERGE_DUPLICATE_PEOPLE` and `TRACE_CROP_SIZE`** added to the README env var table (were in the codebase but undocumented).
+- **CUDA version corrected** in the image tags table (was 13.3, actual base image is 12.8.1).
+
 ## [0.4.8] - 2026-06-14
 
 ### Changed

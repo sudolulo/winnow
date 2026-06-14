@@ -53,7 +53,7 @@ Immich library
    • Farthest Point Sampling → fill remaining slots with maximally spread picks
    • Hard example weighting — low-confidence detections get a distance boost
      so unusual angles and harder looks are preferred over easy frontals
-   • Auto mode: stops when the next candidate is too similar to those already
+   • Adaptive mode: stops when the next candidate is too similar to those already
      selected (distance threshold = 20 % of median pairwise distance for
      faces, 10 % for objects)
       │
@@ -68,7 +68,9 @@ Immich library
       ▼
 9. Deliver
    • Face mode: upload crops to Frigate's face registration API
-     ↳ below MAX_AUTO_IMAGES — upload freely
+     ↳ below MAX_AUTO_IMAGES — upload, unless the novelty gate
+       (FRIGATE_SCORE_CEILING) determines the candidate is already
+       covered by the current training set
      ↳ at cap + QUALITY_REPLACEMENT=true — with Frigate scoring active,
        swap the most redundant tracked image (highest pre-upload recognize
        score) if the candidate is more novel (lower score); falling back to
@@ -78,7 +80,7 @@ Immich library
    • Object mode: save crops to disk → place into your Frigate data directory
 ```
 
-Uploaded and rejected asset IDs are persisted across runs. The same image is never processed twice; Frigate rejections are permanently skipped unless `RETRY_REJECTED=true`.
+Uploaded and rejected asset IDs are persisted across runs. The same image is never processed twice; rejected assets are permanently skipped unless `RETRY_REJECTED=true`.
 
 ---
 
@@ -96,7 +98,7 @@ Uploaded and rejected asset IDs are persisted across runs. The same image is nev
 
 | Tag | Arch | Acceleration |
 | :-- | :-- | :-- |
-| `:latest` | amd64 + arm64 | NVIDIA CUDA 13.3 (amd64) · requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) |
+| `:latest` | amd64 + arm64 | NVIDIA CUDA 12.8 (amd64) · requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) |
 | `:rocm` | amd64 | AMD ROCm · pass `/dev/kfd` + `/dev/dri` |
 | `:intel` | amd64 | Intel Arc / iGPU via OpenVINO · pass `/dev/dri`, set `OPENVINO_DEVICE=GPU` |
 | `:cpu` | amd64 + arm64 | CPU only · ~2 GB smaller · no GPU required |
@@ -179,10 +181,10 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `TRAINING_MODE` | `face` | `face` — upload crops to Frigate; `object` — save crops to disk |
-| `STRATEGY` | `auto` | `auto` (embedding-based adaptive), `standard` (30 images), `broad` (100 images) |
+| `STRATEGY` | `adaptive` | `adaptive` — embedding-based diversity selection, stops when candidates become redundant; `standard` — fixed 30 images; `broad` — fixed 100 images |
 | `LIMIT` | *(unset)* | Exact image count — overrides `STRATEGY` |
 | `OBJECT_CLASS` | `dog` | Target class for object mode (any YOLO class: `dog`, `cat`, `car`, etc.) |
-| `AUTO_MODE` | *(auto)* | Force non-interactive mode in a terminal; auto-detected otherwise |
+| `AUTO_MODE` | *(auto)* | Skip interactive prompts and process all people unattended — auto-detected when no TTY is present (Docker, cron); set `true` to force in a terminal |
 | `VERBOSE` | `false` | Enable DEBUG-level console output (log file is always DEBUG) |
 
 ### People Filtering
@@ -191,23 +193,31 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | :--- | :--- | :--- |
 | `ONLY_PEOPLE` | *(unset)* | Comma-separated whitelist — process only these people |
 | `SKIP_PEOPLE` | *(unset)* | Comma-separated list — skip these people |
-| `MIN_FACE_COUNT` | `0` | Skip people with fewer than N tagged assets in Immich |
+| `MIN_FACE_COUNT` | `3` | Skip people with fewer than N tagged assets in Immich |
+| `MERGE_DUPLICATE_PEOPLE` | `false` | When Immich has duplicate entries for the same person (same face split across multiple names), merge their asset pools before processing. Without this, each duplicate group emits a warning and is skipped |
 | `YEARS_FILTER` | `10` | Ignore images older than N years |
 
 ### Image Quality
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
+| `MAX_AUTO_IMAGES` | `80` | Maximum training images per person in Frigate |
+| `QUALITY_REPLACEMENT` | `true` | When at cap, swap a weaker tracked image for a better candidate. With Frigate scoring active, targets the most redundant image (highest pre-upload recognize score); otherwise uses blur score. Never touches manually added Frigate files. Set `false` to skip people at cap |
+
+#### Advanced Tuning *(calibrated — do not adjust)*
+
+These defaults are tuned for Frigate's ArcFace requirements. winnow will warn on launch if any are set. Image quality issues caused by non-default values will not be investigated.
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `ENABLE_FRIGATE_SCORES` | `true` | Call Frigate's recognize endpoint pre-upload to store diversity scores used for quality replacement. Adds ~200 ms per upload. Disabling also disables the below-cap novelty gate |
+| `FRIGATE_SCORE_CEILING` | *(unset)* | Below-cap novelty gate. Unset: dynamic — skips candidates whose Frigate score exceeds the most-redundant tracked file's score, auto-calibrates each run. `0`: disable entirely. Positive value (e.g. `0.85`): fixed hard ceiling |
 | `MIN_FACE_WIDTH` | `90` | Minimum face crop width in pixels |
 | `FACE_MARGIN` | `0.15` | Padding around bounding box crop (fraction of face size) |
 | `ENABLE_FACE_ALIGNMENT` | `true` | Align to ArcFace 112×112 format using facial landmarks |
 | `USE_FULL_RESOLUTION` | `true` | Download full-resolution originals rather than preview thumbnails |
 | `MIN_CONFIDENCE` | `0.7` | Minimum Immich face detection confidence |
 | `BLUR_THRESHOLD` | `120.0` | Laplacian variance threshold — lower accepts more blur |
-| `MAX_AUTO_IMAGES` | `80` | Maximum training images per person in Frigate |
-| `QUALITY_REPLACEMENT` | `true` | When at cap, swap a weaker tracked image for a better candidate. With Frigate scoring active, targets the most redundant image (highest pre-upload recognize score); otherwise uses blur score. Never touches manually added Frigate files. Set `false` to skip people at cap |
-| `FRIGATE_SCORE_CEILING` | `0.0` | Skip uploads whose pre-upload Frigate recognize score exceeds this value — they are already well-covered. `0` disables; requires at least one prior run to have scores |
-| `ENABLE_FRIGATE_SCORES` | `true` | Call Frigate's recognize endpoint pre-upload to store diversity scores used for quality replacement. Adds ~200 ms per upload. Disable to use blur-score replacement only |
 
 ### GPU & Models
 
@@ -231,8 +241,9 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `DRY_RUN` | `false` | Preview selection without downloading or uploading |
-| `RETRY_REJECTED` | `false` | Re-attempt assets previously rejected by Frigate |
-| `RESET_PERSON` | *(unset)* | Clear upload history for one person and delete their winnow-managed Frigate training files so the next run starts fresh. Manually added Frigate files are never touched |
+| `RETRY_REJECTED` | `false` | Re-attempt all previously rejected assets (low-confidence skips, Frigate rejections, and other permanent exclusions) |
+| `RESET_PERSON` | *(unset)* | Set to a person's name to clear their upload history and delete their winnow-managed Frigate training files so the next run starts fresh. Set to `*` to reset all tracked people at once. Manually added Frigate files are never touched |
+| `TRACE_CROP_SIZE` | *(unset)* | Debug: print all tracked crops whose width or height matches this pixel value, then exit |
 
 ### Scheduling
 
@@ -253,7 +264,7 @@ uv run winnow
 
 Requires Python 3.13+ and [uv](https://astral.sh/uv). An NVIDIA, AMD, or Intel GPU is recommended — CPU mode works but embedding computation is slower.
 
-When run with a terminal attached, winnow starts an interactive session: select which people to process and choose a strategy (auto, standard, broad, or a custom count) per person. Without a TTY — Docker, cron, or `AUTO_MODE=true` — it processes all people automatically using the configured defaults.
+When run with a terminal attached, winnow starts an interactive session: select which people to process and choose a strategy (adaptive, standard, broad, or a custom count) per person. Without a TTY — Docker, cron, or `AUTO_MODE=true` — it processes all people unattended using the configured defaults.
 
 ---
 
