@@ -50,17 +50,8 @@ jobs:
             exit 1
           fi
 
-      - name: Ensure lockfiles are current
-        run: |
-          cp pyproject.toml _pyproject_orig.toml
-          for variant in cpu rocm intel; do
-            cp pyproject-${variant}.toml pyproject.toml
-            uv lock
-            cp uv.lock uv-${variant}.lock
-          done
-          cp _pyproject_orig.toml pyproject.toml
-          uv lock
-          rm _pyproject_orig.toml
+      - name: Ensure lockfile is current
+        run: uv lock
 
       - name: Resolve tag name
         id: tag
@@ -117,15 +108,25 @@ jobs:
           script: |
             const tag = process.env.RELEASE_TAG;
             const notes = (process.env.RELEASE_NOTES || '').trim();
-            await github.rest.repos.createRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag_name: tag,
-              name: `Release ${tag}`,
-              body: notes || `Release ${tag}`,
-              draft: false,
-              prerelease: false,
-            });
+            try {
+              const existing = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: tag,
+              });
+              console.log(`Release ${tag} already exists (id ${existing.data.id}), skipping creation.`);
+            } catch (err) {
+              if (err.status !== 404) throw err;
+              await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: tag,
+                name: `Release ${tag}`,
+                body: notes || `Release ${tag}`,
+                draft: false,
+                prerelease: false,
+              });
+            }
 
   build-images:
     name: Build and push Docker images

@@ -12,9 +12,6 @@ on:
       - ".github/workflows/lint.yml"
       - ".github/dependabot.yml"
       - "uv.lock"
-      - "uv-cpu.lock"
-      - "uv-rocm.lock"
-      - "uv-intel.lock"
   workflow_call:
     inputs:
       tag:
