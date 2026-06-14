@@ -1,7 +1,7 @@
 [project]
 name = "winnow"
 version = "0.4.10"
-description = "Selects diverse, high-quality photos from Immich as training data for Frigate face recognition and object classification."
+description = "Selects diverse, high-quality photos from Immich as training data for Frigate face recognition."
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.13"
 authors = [{ name = "Holden Salomon", email = "holden@arch.fyi" }]
@@ -27,10 +27,6 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
     "rich>=14.2.0",
-    "torch>=2.12.0",
-    "torchvision>=0.27.0",
-    "transformers>=5.12.0",
-    "ultralytics>=8.4.66",
 ]
 
 [project.scripts]
@@ -53,27 +49,6 @@ required-environments = [
     "sys_platform == 'linux' and platform_machine == 'aarch64'",
 ]
 
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cu126", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
-    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
-    { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
-]
-torchvision = [
-    { index = "pytorch-cu126", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
-    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
-    { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
 
 [dependency-groups]
 dev = [
@@ -104,9 +79,6 @@ nvidia-cudnn-cu12 = "nvidia.cudnn"
 onnxruntime-gpu = "onnxruntime"
 requests = "requests"
 rich = "rich"
-torch = "torch"
-transformers = "transformers"
-ultralytics = "ultralytics"
 
 [tool.deptry.per_rule_ignores]
 DEP002 = ["onnxruntime-gpu", "nvidia-cudnn-cu12"]

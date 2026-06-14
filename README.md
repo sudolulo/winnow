@@ -39,8 +39,7 @@ Immich library
       │
       ▼
 4. Compute embeddings from the same preview thumbnails
-   • Faces   → InsightFace (ArcFace / Buffalo_L)  → 512-dim vector
-   • Objects → SigLIP (Vision Transformer)         → 768-dim vector
+   • InsightFace (ArcFace / Buffalo_L) → 512-dim vector
       │
       ▼
 5. Near-duplicate removal — greedy cosine-distance pass drops burst shots
@@ -61,34 +60,24 @@ Immich library
 7. Download full-resolution originals from Immich
       │
       ▼
-8. Crop and process
-   • Face mode: EXIF-corrected, landmark-aligned 112×112 crop (ArcFace format)
-   • Object mode: YOLOv9c detection → one crop per matched instance
+8. Crop and process — EXIF-corrected, landmark-aligned 112×112 crop (ArcFace format)
       │
       ▼
-9. Deliver
-   • Face mode: upload crops to Frigate's face registration API
-     ↳ below MAX_AUTO_IMAGES — upload, unless the novelty gate
-       (FRIGATE_SCORE_CEILING) determines the candidate is already
-       covered by the current training set
-     ↳ at cap + QUALITY_REPLACEMENT=true — with Frigate scoring active,
-       swap the most redundant tracked image (highest pre-upload recognize
-       score) if the candidate is more novel (lower score); falling back to
-       blur-score comparison when no Frigate scores are available; manually
-       added files are never touched
-     ↳ at cap + QUALITY_REPLACEMENT=false — skip this person
-   • Object mode: save crops to disk → place into your Frigate data directory
+9. Deliver — upload crops to Frigate's face registration API
+   ↳ below MAX_AUTO_IMAGES — upload, unless the novelty gate
+     (FRIGATE_SCORE_CEILING) determines the candidate is already
+     covered by the current training set
+   ↳ at cap + QUALITY_REPLACEMENT=true — with Frigate scoring active,
+     swap the most redundant tracked image (highest pre-upload recognize
+     score) if the candidate is more novel (lower score); falling back to
+     blur-score comparison when no Frigate scores are available; manually
+     added files are never touched
+   ↳ at cap + QUALITY_REPLACEMENT=false — skip this person
 ```
 
 Uploaded and rejected asset IDs are persisted across runs. The same image is never processed twice; rejected assets are permanently skipped unless `RETRY_REJECTED=true`.
 
 ---
-
-## Modes
-
-**Face mode** (default) — extracts face crops using Immich's bounding box metadata, applies EXIF orientation correction, and aligns them to ArcFace's standard 112×112 format using 5-point facial landmarks. Crops are uploaded directly to Frigate's face registration API.
-
-**Object mode** — runs each full-resolution image through YOLOv9c to detect instances of a target class (dog, cat, car, etc.), crops each detection, and saves it to the output directory. Frigate has no API for uploading object training data; place the crops into your Frigate data directory manually.
 
 ---
 
@@ -116,7 +105,7 @@ services:
       - FRIGATE_URL=http://192.168.1.10:5000
       - CRON_SCHEDULE=0 3 * * 0
     volumes:
-      - /path/to/models:/models
+      - /path/to/models:/models    # INSIGHTFACE_HOME — persists Buffalo_L model (~300 MB)
       - /path/to/cache:/app/.if_cache
       - /path/to/output:/app/frigate_train
     deploy:
@@ -162,7 +151,7 @@ See [compose.yml](compose.yml) for the full annotated example with all options.
 | *(empty string)* | Stay alive, run nothing — trigger manually with `docker exec -it winnow winnow` |
 | Cron expression | Run on startup, then repeat on schedule |
 
-In scheduled mode the process (and loaded models) stays resident between runs. The first run after a fresh install downloads the embedding models (~1–2 GB); subsequent runs use the cached models from the mounted volume.
+In scheduled mode the process (and loaded models) stays resident between runs. The first run after a fresh install downloads InsightFace Buffalo_L (~300 MB); subsequent runs use the cached model from the mounted volume.
 
 ---
 
@@ -180,10 +169,8 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `TRAINING_MODE` | `face` | `face` — upload crops to Frigate; `object` — save crops to disk |
 | `STRATEGY` | `adaptive` | `adaptive` — embedding-based diversity selection, stops when candidates become redundant; `standard` — fixed 30 images; `broad` — fixed 100 images |
 | `LIMIT` | *(unset)* | Exact image count — overrides `STRATEGY` |
-| `OBJECT_CLASS` | `dog` | Target class for object mode (any YOLO class: `dog`, `cat`, `car`, etc.) |
 | `AUTO_MODE` | *(auto)* | Skip interactive prompts and process all people unattended — auto-detected when no TTY is present (Docker, cron); set `true` to force in a terminal |
 | `VERBOSE` | `false` | Enable DEBUG-level console output (log file is always DEBUG) |
 
@@ -227,7 +214,6 @@ These defaults are tuned for Frigate's ArcFace requirements. winnow will warn on
 | `OPENVINO_DEVICE` | `CPU` | Intel variant only: set `GPU` to use Arc or iGPU; default runs on CPU |
 | `ENABLE_CACHE` | `true` | Cache computed embeddings to disk (speeds up re-runs on the same library) |
 | `CACHE_DIR` | `.if_cache` | Path for embedding cache and upload tracker files |
-| `HF_HOME` | *(system)* | HuggingFace model cache path (SigLIP) |
 | `INSIGHTFACE_HOME` | *(system)* | InsightFace model cache path (Buffalo_L) |
 
 ### Output

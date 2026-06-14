@@ -26,10 +26,8 @@ STRATEGY_PRESETS = {
 }
 
 
-def _get_strategy_choice(has_embedding: bool, entity_type: str) -> tuple[int | str, str]:
+def _get_strategy_choice(has_embedding: bool) -> tuple[int | str, str]:
     """Prompt user for training strategy and return (limit, selection_mode)."""
-    model_name = "InsightFace" if entity_type == "face" else "SigLIP"
-
     if has_embedding:
         rprint("  [bold]1.[/bold] Adaptive Diversity [green][Recommended][/green]")
         rprint("     [dim]• Dynamically selects images until redundancy starts[/dim]")
@@ -51,7 +49,7 @@ def _get_strategy_choice(has_embedding: bool, entity_type: str) -> tuple[int | s
         return 30, "smart"
 
     # Fallback when embedding model not available
-    rprint(f"  [yellow]Note: {model_name} not available. Using Time Spread.[/yellow]")
+    rprint("  [yellow]Note: InsightFace not available. Using Time Spread.[/yellow]")
     rprint("  [bold]1.[/bold] Standard (30 images) [green][Recommended][/green]")
     rprint("  [bold]2.[/bold] Broad (100 images)")
     rprint("  [bold]3.[/bold] Custom Count")
@@ -86,15 +84,13 @@ def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, st
 
 
 def _perform_selection(
-    assets: list, limit: int | str, name: str, selection_mode: str, entity_type: str, person_id: str | None = None
+    assets: list, limit: int | str, name: str, selection_mode: str, person_id: str | None = None
 ) -> list:
     """Run diversity selection with progress display."""
     if selection_mode == "smart":
-        model_display = "InsightFace (face embeddings)" if entity_type == "face" else "SigLIP (visual embeddings)"
-        rprint(f"\n[cyan]Using {model_display} for diversity analysis...[/cyan]")
+        rprint("\n[cyan]Using InsightFace (face embeddings) for diversity analysis...[/cyan]")
 
-        # Pre-load model explicitly (separate from availability check)
-        load_embedding_model(entity_type)
+        load_embedding_model()
 
         with Progress(
             SpinnerColumn(),
@@ -109,7 +105,6 @@ def _perform_selection(
                 limit,
                 name,
                 selection_mode=selection_mode,
-                entity_type=entity_type,
                 person_id=person_id,
                 progress_callback=lambda c, t: progress.update(task, completed=c, total=t),
             )
@@ -120,9 +115,7 @@ def _perform_selection(
 
     rprint(f"\n[cyan]Using time-spread selection for {limit} images...[/cyan]")
     with console.status(f"[bold]Selecting {limit} images evenly distributed over time...[/bold]"):
-        selected = select_diverse_assets(
-            assets, limit, name, selection_mode="time", entity_type=entity_type, person_id=person_id
-        )
+        selected = select_diverse_assets(assets, limit, name, selection_mode="time", person_id=person_id)
     rprint(f"  [green]Selected {len(selected)} images using time spread.[/green]")
     return selected
 
@@ -132,22 +125,12 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
     name = person["name"]
     console.print(f"\nSelected: [bold green]{name}[/bold green]")
 
-    # Select training mode
-    rprint("\n[bold cyan]Training Mode:[/bold cyan]")
-    rprint("  [bold]1.[/bold] Face (Frigate Face Recognition)")
-    rprint("  [bold]2.[/bold] Object (Frigate Object Classification)")
-
-    mode_choice = Prompt.ask("Choice", choices=["1", "2"], default="1")
-    entity_type = "face" if mode_choice == "1" else "object"
-
-    config = {"name": name, "mode": entity_type, "quality_replacement": Config.QUALITY_REPLACEMENT}
-    if entity_type == "object":
-        config["object_class"] = Prompt.ask("Enter Object Class (e.g. dog, cat, car)", default="dog")
+    config = {"name": name, "mode": "face", "quality_replacement": Config.QUALITY_REPLACEMENT}
 
     # Fetch and filter assets
     years = IntPrompt.ask("Filter images older than (years)", default=Config.YEARS_FILTER)
 
-    console.print(f"Scanning for {name} ({entity_type})...")
+    console.print(f"Scanning for {name}...")
     with console.status("[bold green]Fetching assets...[/bold green]"):
         all_assets = fetch_all_assets(person)
         recent_assets = filter_recent_assets(all_assets, years=years)
@@ -171,17 +154,15 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
         return None
 
     # Strategy selection
-    has_embedding = is_embedding_available(entity_type)
+    has_embedding = is_embedding_available()
     rprint(f"\n[bold cyan]Select Training Strategy for {name}:[/bold cyan]")
 
-    limit, selection_mode = _get_strategy_choice(has_embedding, entity_type)
+    limit, selection_mode = _get_strategy_choice(has_embedding)
     if selection_mode == "skip":
         return None
 
     # Perform selection
-    selected_assets = _perform_selection(
-        recent_assets, limit, name, selection_mode, entity_type, person_id=person["id"]
-    )
+    selected_assets = _perform_selection(recent_assets, limit, name, selection_mode, person_id=person["id"])
 
     rprint(f"  [green]Queued {len(selected_assets)} images for {name}.[/green]")
     return {"person": person, "assets": selected_assets, "limit": len(selected_assets), "config": config}
@@ -231,7 +212,6 @@ def auto_configure(people: list[dict]) -> list[dict]:
         rprint("[red]No people found with names in Immich.[/red]")
         return []
 
-    mode = os.environ.get("TRAINING_MODE", "face")
     strategy = os.environ.get("STRATEGY", "auto")
     skip = os.environ.get("SKIP_PEOPLE", "").split(",") if os.environ.get("SKIP_PEOPLE") else []
     only = os.environ.get("ONLY_PEOPLE", "").split(",") if os.environ.get("ONLY_PEOPLE") else []
@@ -260,11 +240,7 @@ def auto_configure(people: list[dict]) -> list[dict]:
     jobs = []
     for person in valid_people:
         name = person["name"]
-        entity_type = mode
-
-        config = {"name": name, "mode": entity_type}
-        if entity_type == "object":
-            config["object_class"] = os.environ.get("OBJECT_CLASS", "dog")
+        config = {"name": name, "mode": "face"}
 
         all_assets = fetch_all_assets(person)
         recent_assets = filter_recent_assets(all_assets, years=Config.YEARS_FILTER)
@@ -307,7 +283,7 @@ def auto_configure(people: list[dict]) -> list[dict]:
 
         config["quality_replacement"] = quality_replacement_only or Config.QUALITY_REPLACEMENT
 
-        has_embedding = is_embedding_available(entity_type)
+        has_embedding = is_embedding_available()
         limit, selection_mode = _resolve_strategy(strategy, has_embedding)
 
         # Cap selection to remaining capacity (no cap when replacement-only — executor
@@ -323,9 +299,7 @@ def auto_configure(people: list[dict]) -> list[dict]:
         if selection_mode == "skip":
             continue
 
-        selected_assets = _perform_selection(
-            recent_assets, limit, name, selection_mode, entity_type, person_id=person["id"]
-        )
+        selected_assets = _perform_selection(recent_assets, limit, name, selection_mode, person_id=person["id"])
         if auto_cap is not None:
             selected_assets = selected_assets[:auto_cap]
 
@@ -340,20 +314,17 @@ def _show_preview(jobs: list[dict]) -> None:
     """Show a summary table of all queued jobs before execution."""
     table = Table(title="📋 Training Job Preview", show_header=True, header_style="bold cyan")
     table.add_column("Person", style="bold")
-    table.add_column("Mode", style="dim")
     table.add_column("Images", justify="right")
     table.add_column("Date Range", style="dim")
 
     for job in jobs:
         name = job["person"]["name"]
-        mode = job["config"].get("mode", "face")
         count = str(job["limit"])
 
-        # Date range
         dates = sorted(a.get("fileCreatedAt", "")[:10] for a in job["assets"] if a.get("fileCreatedAt"))
         date_range = f"{dates[0]} → {dates[-1]}" if len(dates) >= 2 else (dates[0] if dates else "—")
 
-        table.add_row(name, mode, count, date_range)
+        table.add_row(name, count, date_range)
 
     console.print()
     console.print(table)

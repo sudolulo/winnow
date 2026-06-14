@@ -19,7 +19,7 @@ from .frigate_api import (
     get_frigate_person_files,
     recognize_face,
 )
-from .image_processing import process_face_mode, process_full_mode, process_object_mode
+from .image_processing import process_face_mode
 from .immich_api import fetch_face_data, fetch_full_image
 from .log_config import console
 from .quality import assess_quality
@@ -250,26 +250,21 @@ def execute_jobs(jobs: list[dict]) -> None:
                     if img is None:
                         progress.console.print(f"[red]Failed download {asset['id']}[/red]")
                     else:
-                        saved = (
-                            process_face_mode(img, asset, person, person_dir, count, insightface_app=insightface_app)
-                            if mode == "face"
-                            else process_object_mode(img, config, person_dir, count)
-                            if mode == "object"
-                            else process_full_mode(img, person_dir, count)
+                        saved = process_face_mode(
+                            img, asset, person, person_dir, count, insightface_app=insightface_app
                         )
                         if saved:
-                            # Record which asset produced which output file
                             filename = f"{count}.jpg"
                             asset_map[filename] = asset["id"]
                             score_map[filename] = asset.get("quality_score")
-                            if mode == "face" and isinstance(saved, tuple):
+                            if isinstance(saved, tuple):
                                 dims_map[filename] = saved
                             # Time-spread path: compute blur score from the downloaded
                             # image. Cap at 1440px so the scale matches the preview
                             # thumbnails the embedding path uses for scoring — Laplacian
                             # variance grows with resolution, making full-res and
                             # thumbnail scores incomparable if left uncapped.
-                            if mode == "face" and score_map[filename] is None:
+                            if score_map[filename] is None:
                                 try:
                                     score_img = img.convert("RGB") if img.mode != "RGB" else img
                                     if score_img.width > 1440 or score_img.height > 1440:
@@ -279,12 +274,6 @@ def execute_jobs(jobs: list[dict]) -> None:
                                 except Exception as exc:
                                     logger.debug(f"Quality score fallback for {asset['id']}: {exc}")
                                     score_map[filename] = 0.0  # unknown quality — treat as lowest
-                            # Also record object-mode variant filenames
-                            if mode == "object":
-                                for f in sorted(os.listdir(person_dir)):
-                                    if f.startswith(f"{count}_") and f not in asset_map:
-                                        asset_map[f] = asset["id"]
-                                        score_map[f] = asset.get("face_confidence")
 
                             count += 1
                         else:
@@ -312,28 +301,12 @@ def execute_jobs(jobs: list[dict]) -> None:
 def upload_to_frigate(jobs: list[dict]) -> None:
     """Upload processed face crops to Frigate via API with detailed logging.
 
-    Only runs for face-mode jobs. Object-mode crops are saved to the output
-    directory as the deliverable and must be copied to Frigate manually.
-
     After each successful upload, records the Immich asset ID in the
     upload tracker so it is skipped on future runs.
     """
-    face_jobs = [j for j in jobs if j["config"].get("mode", "face") == "face"]
-
-    if not face_jobs:
-        rprint("[dim]No face-mode jobs to upload.[/dim]")
+    if not jobs:
+        rprint("[dim]No jobs to upload.[/dim]")
         return
-
-    # Notify user about object-mode jobs that were skipped
-    object_jobs = [j for j in jobs if j["config"].get("mode") == "object"]
-    for job in object_jobs:
-        name = job["person"]["name"]
-        try:
-            person_dir = _safe_person_dir(Config.OUTPUT_DIR, name)
-        except ValueError as e:
-            logger.error(str(e))
-            continue
-        rprint(f"  [dim]📁 {name} (object): crops saved to {person_dir} — copy to Frigate manually[/dim]")
 
     frigate_url = os.environ.get("FRIGATE_URL", "")
     if not frigate_url:
@@ -347,7 +320,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
     # from the asset_map stored on each job during execute_jobs()
     filename_to_asset_id: dict[str, dict[str, str]] = {}
     total_files = 0
-    for job in face_jobs:
+    for job in jobs:
         name = job["person"]["name"]
         asset_map = job.get("asset_map", {})
         filename_to_asset_id[name] = asset_map
@@ -357,7 +330,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
         rprint("  [yellow]No images found to upload.[/yellow]")
         return
 
-    rprint(f"  People: [bold]{len(face_jobs)}[/bold], Total images: [bold]{total_files}[/bold]")
+    rprint(f"  People: [bold]{len(jobs)}[/bold], Total images: [bold]{total_files}[/bold]")
 
     uploaded, failed = 0, 0
     max_retries = 2
@@ -375,7 +348,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
     ) as progress:
         upload_task = progress.add_task("[green]Uploading to Frigate", total=total_files)
 
-        for job in face_jobs:
+        for job in jobs:
             name = job["person"]["name"]
             # URL-encode the name for the API (handles spaces, special chars)
             encoded_name = quote(name, safe="")
