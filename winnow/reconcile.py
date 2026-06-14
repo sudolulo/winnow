@@ -45,7 +45,7 @@ def reconcile_frigate_mappings(
             )
             return
         current_files = set(fresh)
-        if len(current_files - known_files_before) >= target:
+        if len(current_files - known_files_before) == target:
             break
 
     new_files = current_files - known_files_before

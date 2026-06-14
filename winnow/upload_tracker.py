@@ -112,22 +112,21 @@ def _maybe_migrate(cache_dir: str, conn: sqlite3.Connection) -> None:
 
     logger.info("Migrating JSON tracker files to SQLite in %s", cache_dir)
 
-    with conn:
-        if upload_json.exists():
-            try:
-                data = json.loads(upload_json.read_text())
-                _migrate_json_data(conn, data, "uploaded")
-                upload_json.rename(upload_json.with_suffix(".json.bak"))
-            except Exception as exc:
-                logger.warning("Migration of %s failed: %s", upload_json, exc)
+    try:
+        with conn:
+            if upload_json.exists():
+                _migrate_json_data(conn, json.loads(upload_json.read_text()), "uploaded")
+            if reject_json.exists():
+                _migrate_json_data(conn, json.loads(reject_json.read_text()), "rejected")
+    except Exception as exc:
+        logger.warning("JSON migration failed, will retry next run: %s", exc)
+        return
 
-        if reject_json.exists():
-            try:
-                data = json.loads(reject_json.read_text())
-                _migrate_json_data(conn, data, "rejected")
-                reject_json.rename(reject_json.with_suffix(".json.bak"))
-            except Exception as exc:
-                logger.warning("Migration of %s failed: %s", reject_json, exc)
+    # Rename only after successful commit so a failed run retries cleanly next start.
+    if upload_json.exists():
+        upload_json.rename(upload_json.with_suffix(".json.bak"))
+    if reject_json.exists():
+        reject_json.rename(reject_json.with_suffix(".json.bak"))
 
     logger.info("JSON → SQLite migration complete")
 
@@ -309,9 +308,14 @@ def has_frigate_scores(person_name: str) -> bool:
     return row[0] > 0
 
 
+_VALID_SCORE_COLS = frozenset({"blur_score", "frigate_score"})
+
+
 def _pick_mapped_file(
     person_name: str, score_col: str, *, highest: bool, exclude: set[str] | None = None
 ) -> tuple[str, str, float] | None:
+    if score_col not in _VALID_SCORE_COLS:
+        raise ValueError(f"Invalid score column: {score_col!r}")
     conn = _get_conn()
     order = "DESC" if highest else "ASC"
     rows = conn.execute(

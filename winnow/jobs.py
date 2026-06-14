@@ -292,11 +292,13 @@ def auto_configure(people: list[dict]) -> list[dict]:
 
         # Cap selection to remaining capacity (no cap when replacement-only — executor
         # decides per-image whether to swap; any candidate could be an improvement).
-        auto_cap = None
         if not quality_replacement_only:
             if limit == "auto":
+                # Switch from open-ended auto to a fixed budget at remaining capacity
+                # so the diversity selector itself stops at the right count instead of
+                # selecting MAX_AUTO_IMAGES and then discarding the excess by position.
                 if already_uploaded > 0:
-                    auto_cap = capacity
+                    limit = capacity
             else:
                 limit = min(limit, capacity)
 
@@ -319,11 +321,6 @@ def auto_configure(people: list[dict]) -> list[dict]:
         if job is None:
             rprint(f"  [dim]Skipping {name} (0 images selected).[/dim]")
             continue
-
-        # Apply auto_cap post-selection if needed
-        if auto_cap is not None and len(job["assets"]) > auto_cap:
-            job["assets"] = job["assets"][:auto_cap]
-            job["limit"] = len(job["assets"])
 
         rprint(f"  [green]Queued {job['limit']} images for {name}.[/green]")
         jobs.append(job)

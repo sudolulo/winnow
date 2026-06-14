@@ -9,8 +9,6 @@ from typing import ClassVar
 from dotenv import load_dotenv
 from rich.prompt import Prompt
 
-load_dotenv()
-
 CONFIG_FILE = Path(".immich_config.json")
 
 
@@ -81,6 +79,7 @@ class _Config:
 
     def _load(self) -> None:
         """Load configuration from environment and config file."""
+        load_dotenv()
         # Load from environment (highest priority)
         self.IMMICH_URL = os.getenv("IMMICH_URL")
         self.API_KEY = os.getenv("API_KEY")
@@ -102,12 +101,14 @@ class _Config:
         self.ENABLE_CACHE = os.getenv("ENABLE_CACHE", "true").lower() in ("true", "1", "yes")
         self.CACHE_DIR = os.getenv("CACHE_DIR", ".if_cache")
 
-        # Fall back to config file for non-sensitive values (API_KEY not stored here)
+        # Fall back to config file only when the env var is genuinely absent (None).
+        # An explicitly empty env var (IMMICH_URL="") takes priority over the file.
         if CONFIG_FILE.exists():
             try:
                 data = json.loads(CONFIG_FILE.read_text())
-                self.IMMICH_URL = self.IMMICH_URL or data.get("IMMICH_URL")
-                if not os.getenv("OUTPUT_DIR"):
+                if self.IMMICH_URL is None:
+                    self.IMMICH_URL = data.get("IMMICH_URL")
+                if os.getenv("OUTPUT_DIR") is None:
                     self.OUTPUT_DIR = data.get("OUTPUT_DIR", self.OUTPUT_DIR)
             except (json.JSONDecodeError, OSError) as e:
                 logging.warning("Failed to load config file: %s", e)

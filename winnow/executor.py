@@ -299,16 +299,21 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 else get_frigate_person_files(name)
             )
             if _snapshot is None:
-                # Frigate GET is down; fall back to the tracker's mapped filenames
-                # as the pre-upload baseline. reconciliation will still work unless
-                # there are concurrent manual uploads (handled by >target guard).
+                # Frigate GET is down. The tracker only knows files winnow mapped
+                # previously — it is blind to manually-added Frigate files. Using
+                # the tracker as the baseline would make those unmapped files look
+                # like new uploads in reconcile, triggering the >target guard and
+                # silently dropping all mappings. Skip reconciliation entirely when
+                # we can't get a reliable live snapshot.
                 logger.warning(
-                    f"{name}: Frigate API unreachable at upload start"
-                    " — using tracker baseline for post-upload reconciliation"
+                    "%s: Frigate API unreachable at upload start"
+                    " — file mapping will be skipped for this batch", name
                 )
-                known_frigate_files_at_start: set[str] = get_tracked_frigate_filenames(name)
+                known_frigate_files_at_start: set[str] = set()
+                _skip_reconcile = True
             else:
                 known_frigate_files_at_start: set[str] = set(_snapshot)
+                _skip_reconcile = False
                 # Remove tracker mappings for files that no longer exist in Frigate
                 # (manually deleted, or cleaned up outside winnow). This corrects the
                 # effective_count so those slots are available for new uploads.
@@ -548,7 +553,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 )
 
             # Batch-map Frigate filenames to asset IDs now that all uploads are done.
-            if actually_uploaded:
+            if actually_uploaded and not _skip_reconcile:
                 reconcile_frigate_mappings(name, known_frigate_files_at_start, actually_uploaded)
 
             # Per-person summary

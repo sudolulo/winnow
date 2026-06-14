@@ -48,8 +48,11 @@ RUN if [ "$VARIANT" = "cpu" ]; then \
         uv sync --frozen --no-dev --extra rocm; \
     elif [ "$VARIANT" = "intel" ]; then \
         uv sync --frozen --no-dev --extra intel; \
-    else \
+    elif [ "$VARIANT" = "gpu" ]; then \
         uv sync --frozen --no-dev --extra gpu; \
+    else \
+        echo "Unknown VARIANT: '$VARIANT'. Must be one of: cpu, rocm, intel, gpu" >&2; \
+        exit 1; \
     fi && \
     uv cache clean
 
