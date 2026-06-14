@@ -26,6 +26,25 @@ class FaceData:
     image_height: int
 
 
+def get_immich_version() -> tuple[int, int, int] | None:
+    """Fetch Immich server version from GET /api/server/version.
+
+    Returns (major, minor, patch) or None if unreachable or unparseable.
+    """
+    try:
+        resp = requests.get(
+            f"{Config.IMMICH_URL}/api/server/version",
+            headers=get_headers(),
+            timeout=5,
+        )
+        if resp.ok:
+            data = resp.json()
+            return (int(data["major"]), int(data["minor"]), int(data["patch"]))
+        return None
+    except Exception:
+        return None
+
+
 def get_people() -> list[dict]:
     """Fetch all people from Immich."""
     try:

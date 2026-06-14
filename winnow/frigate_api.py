@@ -8,6 +8,24 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+def get_frigate_version() -> str | None:
+    """Fetch Frigate's version string from GET /api/version.
+
+    Returns the version string (e.g. "0.16.0-beta4") or None if FRIGATE_URL
+    is unset, the endpoint is unreachable, or the response is not parseable.
+    """
+    frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
+    if not frigate_url:
+        return None
+    try:
+        resp = requests.get(f"{frigate_url}/api/version", timeout=5)
+        if resp.ok:
+            return resp.text.strip().strip('"')
+        return None
+    except Exception:
+        return None
+
+
 def _get_faces_data() -> dict | None:
     """Fetch raw GET /api/faces response. Returns None if unavailable."""
     frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
@@ -33,6 +51,10 @@ def get_all_frigate_person_files() -> dict[str, list[str]] | None:
         return None
     # Response: {person_name: [file, ...], "train": [...], ...}
     # "train" is a flat pending list, not a person — skip it.
+    # TODO(frigate-api): "train" is the only known special key as of Frigate v0.16.
+    # If Frigate adds other top-level non-person keys, they'll be silently treated
+    # as person names here. Switch to an allowlist or a typed schema when Frigate
+    # documents its response contract.
     return {
         name: files
         for name, files in data.items()
@@ -75,6 +97,16 @@ def recognize_face(file_path: str) -> tuple[str | None, float] | None:
 
     Returns None if FRIGATE_URL is unset, the API is unreachable, no face is
     detected, or face recognition is not enabled in Frigate.
+
+    LIMITATION — mean embedding comparison: the score reflects similarity to
+    the arithmetic mean of all training embeddings, not to individual ones.
+    A bimodal training set (e.g. frontals + profiles) has a mean that sits
+    between both clusters, making candidates from either cluster look more
+    novel than they are. Winnow could add redundant frontals while the score
+    suggests novelty, because the mean is pulled toward profiles.
+    TODO(frigate-api): if Frigate exposes per-file embeddings via the API,
+    replace mean-comparison with nearest-neighbour distance across individual
+    training embeddings for accurate coverage detection.
     """
     frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
     if not frigate_url:

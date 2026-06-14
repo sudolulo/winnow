@@ -17,6 +17,7 @@ from .frigate_api import (
     delete_frigate_person_files,
     get_all_frigate_person_files,
     get_frigate_person_files,
+    get_frigate_version,
     recognize_face,
 )
 from .image_processing import process_face_mode
@@ -311,6 +312,18 @@ def upload_to_frigate(jobs: list[dict]) -> None:
         rprint("[yellow]⚠️  FRIGATE_URL not set, skipping upload.[/yellow]")
         return
 
+    _frigate_version = get_frigate_version()
+    if _frigate_version is not None:
+        try:
+            parts = [int(x) for x in _frigate_version.split("-")[0].split(".") if x.isdigit()]
+            if len(parts) >= 2 and (parts[0], parts[1]) < (0, 16):
+                rprint(
+                    f"  [yellow]⚠  Frigate {_frigate_version} detected — "
+                    "face training API requires v0.16+. Uploads may fail.[/yellow]"
+                )
+        except Exception:
+            pass
+
     rprint("\n[bold cyan]📤 Uploading to Frigate[/bold cyan]")
     rprint(f"  Target: [dim]{frigate_url}[/dim]")
 
@@ -380,6 +393,14 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             # manually-added Frigate files don't consume winnow's managed quota.
             # Replacement targets also come exclusively from the tracker, so manually
             # added files are never selected for deletion — only winnow-uploaded ones.
+            # LIMITATION — manual files are invisible to diversity decisions: winnow
+            # can observe their effect on the Frigate score (indirectly, via recognize)
+            # but cannot measure their embedding distribution directly. If a user has
+            # 20 manually-added frontals and winnow has room for 20 more, winnow may
+            # add more frontals because it can't see that frontals are already covered.
+            # TODO(frigate-api): if Frigate exposes per-file embeddings, compute
+            # diversity against the full training set (tracked + manual) rather than
+            # relying solely on the Frigate score as a proxy signal.
             _snapshot = (
                 all_frigate_files.get(name, []) if all_frigate_files is not None
                 else get_frigate_person_files(name)
@@ -447,6 +468,14 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 # Frigate rebuilds its model asynchronously after any delete (clear + background
                 # thread), so the first recognize call after a deletion returns None — our code
                 # handles this conservatively by skipping that candidate until the next run.
+                # LIMITATION — async rebuild during multi-replacement runs: each deletion in a
+                # single run triggers a background model rebuild in Frigate. Subsequent recognize
+                # calls in the same run may get None (rebuild in progress), causing later
+                # candidates to fall back to blur-score replacement or be skipped entirely.
+                # The more replacements that happen in one run, the worse the scoring gets.
+                # TODO(frigate-api): if Frigate exposes a model generation counter or a
+                # rebuild-complete signal, poll it between recognize calls during replacement
+                # sequences rather than accepting stale/None scores.
                 pre_fscore: float | None = None
                 if Config.ENABLE_FRIGATE_SCORES and pre_run_count > 0:
                     if not at_cap or person_has_fscores:
