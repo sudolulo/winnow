@@ -31,7 +31,6 @@ from .upload_tracker import (
     has_frigate_scores,
     mark_rejected,
     mark_uploaded,
-    record_frigate_file,
     record_frigate_files_batch,
     remove_frigate_file,
 )
