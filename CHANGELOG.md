@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-06-14
+
+### Added
+
+- **InsightFace landmark-based face crop alignment**: face crops for Frigate training are now aligned using InsightFace's `norm_crop` (ArcFace 112×112 alignment with 5-point facial landmarks). Previously, Immich's API returned only bounding boxes with no landmarks, so `align_face()` was dead code and crops were plain bbox slices — resulting in misaligned or partial crops (e.g. foreheads). The fix runs InsightFace detection on an expanded region around the Immich bbox, finds the nearest face, and uses its keypoints for proper alignment. Controlled by `ENABLE_FACE_ALIGNMENT` (default `true`).
+- **Duplicate Immich person detection and handling**: when multiple Immich person records share the same name, winnow now detects this at startup and warns with a per-group summary. Without handling, two jobs would run for the same Frigate folder and overwrite each other's output. By default (`MERGE_DUPLICATE_PEOPLE=false`) only the first person per name is processed. Set `MERGE_DUPLICATE_PEOPLE=true` to permanently merge duplicate records inside Immich (keeps the person with the most assets).
+
 ## [0.4.2] - 2026-06-13
 
 ### Changed
