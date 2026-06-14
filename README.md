@@ -79,8 +79,6 @@ Uploaded and rejected asset IDs are persisted across runs. The same image is nev
 
 ---
 
----
-
 ## Running in Docker
 
 ### Image Tags
