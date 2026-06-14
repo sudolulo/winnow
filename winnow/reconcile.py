@@ -60,6 +60,12 @@ def reconcile_frigate_mappings(
             except (ValueError, IndexError):
                 return 0.0
 
+        logger.debug(
+            "%s: mapping %s file(s) by filename timestamp — assumes Frigate processes"
+            " uploads in FIFO order; mapping may be wrong if that ever changes",
+            person_name,
+            target,
+        )
         mappings = {
             frigate_file: asset_id
             for (_, asset_id), frigate_file in zip(uploaded, sorted(new_files, key=_ts))

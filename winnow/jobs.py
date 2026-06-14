@@ -239,15 +239,7 @@ def auto_configure(people: list[dict]) -> list[dict]:
     if skip:
         valid_people = [p for p in valid_people if p["name"] not in skip]
 
-    # Filter by minimum face count (Issue #6: previously unimplemented)
     min_face_count = Config.MIN_FACE_COUNT
-    if min_face_count > 0:
-        valid_people = [p for p in valid_people if p.get("assetCount", 0) >= min_face_count]
-        if valid_people:
-            rprint(
-                f"  Filtered to {len(valid_people)} people with"
-                f" ≥{min_face_count} assets (MIN_FACE_COUNT={min_face_count})"
-            )
 
     frigate_counts = get_frigate_face_counts()
     # Persist each count to tracker so the last known value survives Frigate downtime
@@ -263,6 +255,13 @@ def auto_configure(people: list[dict]) -> list[dict]:
         recent_assets = filter_recent_assets(all_assets, years=Config.YEARS_FILTER)
 
         rprint(f"  {name}: {len(all_assets)} total, {len(recent_assets)} recent")
+
+        # MIN_FACE_COUNT guard: skip people with too few Immich assets.
+        # Done here (after fetch) rather than upfront because Immich v2.7.5+
+        # dropped assetCount from the /api/people response.
+        if min_face_count > 0 and len(all_assets) < min_face_count:
+            rprint(f"  [dim]Skipping {name} ({len(all_assets)} assets < MIN_FACE_COUNT={min_face_count}).[/dim]")
+            continue
 
         # Enforce MAX_AUTO_IMAGES against the tracked file count only.
         # Manually-added Frigate files are invisible to this cap so users can

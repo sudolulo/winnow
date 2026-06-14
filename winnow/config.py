@@ -9,7 +9,7 @@ from typing import ClassVar
 from dotenv import load_dotenv
 from rich.prompt import Prompt
 
-CONFIG_FILE = Path(".immich_config.json")
+_LEGACY_CONFIG_FILE = Path(".immich_config.json")  # pre-v0.6: lived in process CWD, not on a volume
 
 
 class _Config:
@@ -113,9 +113,13 @@ class _Config:
 
         # Fall back to config file only when the env var is genuinely absent (None).
         # An explicitly empty env var (IMMICH_URL="") takes priority over the file.
-        if CONFIG_FILE.exists():
+        # Prefer DATA_DIR/.immich_config.json (volume-safe in Docker) and fall back
+        # to the legacy CWD path so existing installations continue to work.
+        _data_cfg = Path(self.DATA_DIR) / ".immich_config.json"
+        config_file = _data_cfg if _data_cfg.exists() else _LEGACY_CONFIG_FILE
+        if config_file.exists():
             try:
-                data = json.loads(CONFIG_FILE.read_text())
+                data = json.loads(config_file.read_text())
                 if self.IMMICH_URL is None:
                     self.IMMICH_URL = data.get("IMMICH_URL")
                 if os.getenv("OUTPUT_DIR") is None:
@@ -135,9 +139,13 @@ class _Config:
 
         API_KEY is intentionally excluded — store it in .env or as an
         environment variable instead of a plain-text config file.
+        Writes to DATA_DIR/.immich_config.json so the file survives container
+        restarts when DATA_DIR is a mounted volume.
         """
+        config_file = Path(self.DATA_DIR) / ".immich_config.json"
         try:
-            CONFIG_FILE.write_text(
+            Path(self.DATA_DIR).mkdir(parents=True, exist_ok=True)
+            config_file.write_text(
                 json.dumps(
                     {
                         "IMMICH_URL": self.IMMICH_URL,
@@ -146,7 +154,7 @@ class _Config:
                     indent=2,
                 )
             )
-            logging.info("Configuration saved to %s", CONFIG_FILE)
+            logging.info("Configuration saved to %s", config_file)
         except OSError as e:
             logging.error("Failed to save config: %s", e)
 

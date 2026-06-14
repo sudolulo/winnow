@@ -35,10 +35,12 @@ def _suppress_output():
         try:
             os.dup2(saved_out, 1)
         finally:
-            os.dup2(saved_err, 2)
-        os.close(devnull_fd)
-        os.close(saved_out)
-        os.close(saved_err)
+            try:
+                os.dup2(saved_err, 2)
+            finally:
+                os.close(devnull_fd)
+                os.close(saved_out)
+                os.close(saved_err)
 
 
 # Lazy-loaded singleton

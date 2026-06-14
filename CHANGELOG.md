@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-06-14
+
+### Fixed
+
+- **Immich v2.7.5 compatibility**: `auto_configure` no longer pre-filters people by `assetCount` from the `/api/people` response, which Immich v2.7.5 dropped. The `MIN_FACE_COUNT` check now runs after `fetch_all_assets` so the actual asset count is used instead of the missing field.
+
+- **Dockerfile supply-chain**: replaced `curl | sh` uv installer with `COPY --from=ghcr.io/astral-sh/uv:0.11.21` to eliminate the network-executed script.
+
+- **HEALTHCHECK**: replaced the static file-existence check with `kill -0 $(cat /tmp/winnow.pid)` so the container reports unhealthy when the scheduler process actually dies, not just when a script file is missing.
+
+- **`CONFIG_FILE` volume safety**: the config file path now resolves to `DATA_DIR/.immich_config.json` so it persists across container restarts. The legacy CWD location is still read as a fallback for existing setups.
+
+- **EmbeddingCache singleton isolation**: `get_cache()` now tracks the `cache_dir` argument and re-creates the cache when it changes, preventing test runs from sharing state across different `DATA_DIR` values.
+
+- **File descriptor leak in `_suppress_output()`**: `devnull_fd`, `saved_out`, and `saved_err` are now all closed in a nested `finally` chain, preventing fd exhaustion on long runs.
+
+- **Silent exception in `upload_tracker`**: `except Exception: pass` on SQLite connection close is now `except Exception as e: logger.debug(...)` so connection errors are visible in debug logs.
+
+- **Frigate API unknown-key logging**: `get_all_frigate_person_files` now logs unexpected non-list keys at DEBUG level instead of silently skipping them.
+
+- **Reconcile debug log**: added a debug log entry before the FIFO timestamp mapping step in `reconcile_frigate_mappings` to make the mapping assumption visible in logs.
+
+- **CI action SHA pinning**: all five GitHub Actions workflows now pin every third-party action to a full commit SHA. Updated `setup-uv` v7→v8.2.0, `upload-artifact` v4→v7.0.1, `download-artifact` v4→v8.0.1, `ruff-action` v3→v4.0.0.
+
 ## [0.5.1] - 2026-06-14
 
 ### Changed
