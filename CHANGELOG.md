@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-06-14
+
+### Changed
+
+- **`_dedup_embeddings` pre-allocated buffer**: replaced the grow-on-keep `np.vstack` pattern with a pre-allocated `(Q, D)` buffer filled row-by-row. Eliminates O(K²) copy work and the GC pressure from K intermediate heap allocations while keeping identical arithmetic for the similarity checks.
+- **`_kmedoids` cost computation vectorized**: the Python-level `sum(dist_matrix[i, medoids[labels[i]]] for i in range(n))` generator (called once per swap evaluation) is replaced with `dist_matrix[np.arange(n), np.array(medoids)[labels]].sum()` — a single numpy fancy-index + reduction, ~20–50× faster in the swap loop.
+- **`_reconcile_frigate_mappings` single-write batch**: previously called `record_frigate_file` once per uploaded file, each doing a full JSON load + save (O(L) disk round-trips per person). Now builds the full `{frigate_filename: asset_id}` mapping dict and writes it in one `record_frigate_files_batch` call (O(1) disk round-trip).
+
 ## [0.4.6] - 2026-06-14
 
 ### Fixed

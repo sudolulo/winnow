@@ -337,16 +337,19 @@ def _dedup_embeddings(
     order = sorted(range(len(candidates)), key=lambda i: quality_scores[i], reverse=True)
 
     kept_indices = []
-    kept_stack: np.ndarray | None = None  # rebuilt only when a new item is kept (not every iteration)
+    # Pre-allocate a max-size buffer and fill row-by-row — eliminates the O(K²)
+    # copy overhead from vstack-on-keep while keeping identical arithmetic.
+    kept_buf = np.empty((len(order), emb_normed.shape[1]), dtype=emb_normed.dtype)
+    n_kept = 0
 
     for i in order:
-        if kept_stack is not None:
-            sims = emb_normed[i] @ kept_stack.T
+        if n_kept > 0:
+            sims = emb_normed[i] @ kept_buf[:n_kept].T
             if np.any(sims > 1 - _DEDUP_THRESHOLD):
                 continue
+        kept_buf[n_kept] = emb_normed[i]
+        n_kept += 1
         kept_indices.append(i)
-        row = emb_normed[i : i + 1]
-        kept_stack = row if kept_stack is None else np.vstack([kept_stack, row])
 
     dropped = len(embeddings) - len(kept_indices)
     if dropped:
@@ -390,7 +393,7 @@ def _kmedoids(dist_matrix: np.ndarray, k: int, max_iter: int = 50) -> tuple[list
     # Iterative swap step
     medoids = list(medoids)
     labels = np.argmin(dist_matrix[:, medoids], axis=1)
-    cost = sum(dist_matrix[i, medoids[labels[i]]] for i in range(n))
+    cost = dist_matrix[np.arange(n), np.array(medoids)[labels]].sum()
 
     for _ in range(max_iter):
         improved = False
@@ -405,7 +408,7 @@ def _kmedoids(dist_matrix: np.ndarray, k: int, max_iter: int = 50) -> tuple[list
                 new_medoids = medoids.copy()
                 new_medoids[m_idx] = cand
                 new_labels = np.argmin(dist_matrix[:, new_medoids], axis=1)
-                new_cost = sum(dist_matrix[i, new_medoids[new_labels[i]]] for i in range(n))
+                new_cost = dist_matrix[np.arange(n), np.array(new_medoids)[new_labels]].sum()
                 if new_cost < cost:
                     medoids = new_medoids
                     labels = new_labels

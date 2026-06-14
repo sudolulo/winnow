@@ -32,6 +32,7 @@ from .upload_tracker import (
     mark_rejected,
     mark_uploaded,
     record_frigate_file,
+    record_frigate_files_batch,
     remove_frigate_file,
 )
 
@@ -100,10 +101,12 @@ def _reconcile_frigate_mappings(
             except (ValueError, IndexError):
                 return 0.0
 
-        for (fname, asset_id), frigate_file in zip(uploaded, sorted(new_files, key=_ts)):
-            if asset_id:
-                record_frigate_file(person_name, frigate_file, asset_id)
-        logger.debug(f"{person_name}: batch-mapped {target} Frigate file(s)")
+        mappings = {
+            frigate_file: asset_id
+            for (_, asset_id), frigate_file in zip(uploaded, sorted(new_files, key=_ts))
+            if asset_id
+        }
+        record_frigate_files_batch(person_name, mappings)
     elif len(new_files) > target:
         logger.info(
             f"{person_name}: {len(new_files)} new Frigate files for {target} uploads"
