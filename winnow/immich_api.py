@@ -14,6 +14,7 @@ from .config import Config, get_headers
 logger = logging.getLogger(__name__)
 
 MAX_PAGES = 1000  # Safety limit for pagination
+_MAX_ASSETS_PER_PERSON = 5000  # Stop fetching after this many — diversity pool is capped at 3000 anyway
 
 
 @dataclass
@@ -95,10 +96,10 @@ def fetch_all_assets(person: dict) -> list[dict]:
             if not page_assets:
                 break
 
-            assets.extend(page_assets)
+            assets.extend(a for a in page_assets if isinstance(a, dict))
             logger.debug(f"Fetched page {page}, total: {len(assets)}")
 
-            if len(page_assets) < page_size:
+            if len(page_assets) < page_size or len(assets) >= _MAX_ASSETS_PER_PERSON:
                 break
 
         except (requests.RequestException, ValueError) as e:
