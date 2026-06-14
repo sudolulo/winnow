@@ -12,7 +12,13 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Model versions — bump these when the upstream model changes
+# Model versions — bump these when the upstream model changes.
+# LIMITATION — no automatic invalidation: if the user replaces the buffalo_l
+# model files on disk (e.g. custom weights, InsightFace update) without
+# changing INSIGHTFACE_HOME, the version string here stays "buffalo_l_v1" and
+# stale embeddings from the old model are served from cache indefinitely.
+# TODO: derive the version from a checksum of the model files, or expose a
+# --clear-cache / CLEAR_EMBEDDING_CACHE flag so users can force invalidation.
 MODEL_VERSIONS = {
     "insightface": "buffalo_l_v1",
     "immich": "immich_buffalo_l_v1",

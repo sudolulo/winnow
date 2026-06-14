@@ -203,6 +203,13 @@ def _select_by_embedding(
     # Process in bounded batches so at most _BATCH decoded images live in RAM
     # at once. With 472 candidates each thumbnail is ~3-8 MB decoded; loading
     # all at once easily exhausts a 4 GB container limit on CPU.
+    # LIMITATION — thumbnail-resolution embeddings drive full-res crop selection:
+    # diversity selection runs InsightFace on Immich preview thumbnails (~720p)
+    # to avoid downloading full-res for every candidate, but the training crop
+    # comes from the full-resolution original. Embeddings from thumbnails are
+    # representative in practice, but heavy JPEG compression on a preview could
+    # produce a subtly different embedding than the full-res version. For most
+    # libraries this is negligible; it matters if Immich preview quality is low.
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     _BATCH = 32
