@@ -36,6 +36,7 @@ class _Config:
 
     # People filtering
     MIN_FACE_COUNT: int = 0
+    MERGE_DUPLICATE_PEOPLE: bool = False
 
     # Output quality
     FACE_MARGIN: float = 0.15
@@ -60,6 +61,7 @@ class _Config:
         self.YEARS_FILTER = int(os.getenv("YEARS_FILTER", "10"))
         self.MIN_FACE_WIDTH = int(os.getenv("MIN_FACE_WIDTH", "90"))
         self.MIN_FACE_COUNT = int(os.getenv("MIN_FACE_COUNT", "0"))
+        self.MERGE_DUPLICATE_PEOPLE = os.getenv("MERGE_DUPLICATE_PEOPLE", "false").lower() in ("true", "1", "yes")
         self.BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "120.0"))
         self.MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.7"))
         self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "80"))
