@@ -7,7 +7,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def isolated_cache(monkeypatch, tmp_path):
     """Point tracker at a temp directory so tests don't touch real cache files."""
-    monkeypatch.setenv("CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
     from winnow.config import _Config
     _Config.reset()
     # Also reset the SQLite connection so the next call opens the new path

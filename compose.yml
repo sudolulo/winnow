@@ -37,7 +37,7 @@ services:
       # - FORCE_CPU=true              # Disable GPU, fall back to CPU
       # - OPENVINO_DEVICE=GPU         # Intel variant only: use Arc/iGPU instead of CPU (default: CPU)
       # - ENABLE_CACHE=false          # Disable embedding cache (default: true)
-      - CACHE_DIR=/app/.if_cache
+      - DATA_DIR=/app/data
       - INSIGHTFACE_HOME=/models/.insightface
 
       # ── Tracker overrides (one-shot, remove after use) ────────────────────
@@ -57,7 +57,7 @@ services:
     volumes:
       # Replace with absolute paths on your host, e.g. /opt/winnow/models
       - /path/to/winnow/models:/models
-      - /path/to/winnow/cache:/app/.if_cache
+      - /path/to/winnow/data:/app/data
       - /path/to/winnow/output:/app/frigate_train
     restart: unless-stopped
 

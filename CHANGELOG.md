@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-14
+
+### Changed
+
+- **`CACHE_DIR` renamed to `DATA_DIR`**: the environment variable that sets the path for the embedding cache and SQLite tracker database is now called `DATA_DIR` (default: `data`; Docker default: `/app/data`). The old `CACHE_DIR` still works with a startup deprecation warning — rename it to `DATA_DIR` in your `.env` or `compose.yml` to silence the warning. The container-side default path changes from `/app/.if_cache` to `/app/data`; update your volume mount accordingly.
+
 ## [0.5.0] - 2026-06-14
 
 ### Changed
