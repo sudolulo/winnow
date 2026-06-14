@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-06-14
+
+### Added
+
+- **`RESET_PERSON=*` bulk reset**: resets every tracked person at once (deletes their Frigate training files and clears tracker data). Any other value still resets that specific person by name. If a person is literally named `*` they are reset as part of the bulk operation, and a warning is printed to clarify this.
+- **Near-duplicate removal before diversity selection**: a greedy dedup pass now runs after embedding collection and before clustering. Candidates within 0.20 cosine distance of a higher-quality image are dropped, eliminating burst shots and same-event lookalike photos that produce redundant training images. The best-quality frame from each near-identical group is kept. Dropped count is logged per person.
+
+### Fixed
+
+- **HTTP 500 upload errors no longer show Frigate's misleading "Try restarting Frigate" message**: the response body is now logged at debug level only. HTTP 400 detail (e.g. "No face was detected") is still shown since it is actionable.
+- **`RuntimeWarning: Mean of empty slice`** when a person has only one image after quality filtering: `_compute_adaptive_threshold` now returns the floor value immediately when there are no pairwise distances to sample, and the k-medoids cluster count is floored at 1 to prevent `k=0`.
+- **Path traversal guard on output directory**: person names with `../` sequences or absolute paths (e.g. `/etc`) are now rejected before any filesystem operation, logging an error and skipping the job rather than writing outside the output tree.
+
 ## [0.4.3] - 2026-06-14
 
 ### Added
