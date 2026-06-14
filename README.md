@@ -98,9 +98,9 @@ services:
   winnow:
     image: ghcr.io/sudolulo/winnow:latest
     environment:
-      - IMMICH_URL=http://192.168.50.1:30041
+      - IMMICH_URL=http://192.168.1.10:2283
       - API_KEY=your-immich-api-key
-      - FRIGATE_URL=http://localhost:5001
+      - FRIGATE_URL=http://192.168.1.10:5000
       - CRON_SCHEDULE=0 3 * * 0
     volumes:
       - /path/to/models:/models    # INSIGHTFACE_HOME — persists Buffalo_L model (~300 MB)
