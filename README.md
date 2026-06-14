@@ -43,24 +43,30 @@ Immich library
    • Objects → SigLIP (Vision Transformer)         → 768-dim vector
       │
       ▼
-5. Diversity selection
+5. Near-duplicate removal — greedy cosine-distance pass drops burst shots
+   and near-identical photos before clustering runs; the highest-quality
+   image from each near-duplicate group is kept
+      │
+      ▼
+6. Diversity selection
    • K-Medoids clustering → one representative per natural group
    • Farthest Point Sampling → fill remaining slots with maximally spread picks
-   • Hard example weighting — unusual angles and low-confidence detections
-     are biased toward selection, since those are where models tend to fail
-   • Auto mode: stops when similarity to the existing set exceeds a threshold
-     (20 % of median pairwise distance for faces, 10 % for objects)
+   • Hard example weighting — low-confidence detections get a distance boost
+     so unusual angles and harder looks are preferred over easy frontals
+   • Auto mode: stops when the next candidate is too similar to those already
+     selected (distance threshold = 20 % of median pairwise distance for
+     faces, 10 % for objects)
       │
       ▼
-6. Download full-resolution originals from Immich
+7. Download full-resolution originals from Immich
       │
       ▼
-7. Crop and process
+8. Crop and process
    • Face mode: EXIF-corrected, landmark-aligned 112×112 crop (ArcFace format)
    • Object mode: YOLOv9c detection → one crop per matched instance
       │
       ▼
-8. Deliver
+9. Deliver
    • Face mode: upload crops to Frigate's face registration API
      ↳ below MAX_AUTO_IMAGES — upload freely
      ↳ at cap + QUALITY_REPLACEMENT=true — with Frigate scoring active,
