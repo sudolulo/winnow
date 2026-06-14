@@ -21,7 +21,7 @@ def test_config_loads_defaults(monkeypatch):
     assert cfg.MIN_FACE_COUNT == 3
     assert cfg.BLUR_THRESHOLD == 120.0
     assert cfg.MIN_CONFIDENCE == 0.7
-    assert cfg.MAX_AUTO_IMAGES == 80
+    assert cfg.MAX_AUTO_IMAGES == 20
     assert cfg.QUALITY_REPLACEMENT is True
     assert cfg.FACE_MARGIN == 0.15
     assert cfg.USE_FULL_RESOLUTION is True
