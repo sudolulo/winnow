@@ -96,7 +96,7 @@ Uploaded and rejected asset IDs are persisted across runs. The same image is nev
 
 | Tag | Arch | Acceleration |
 | :-- | :-- | :-- |
-| `:latest` | amd64 + arm64 | NVIDIA CUDA 13.3 (amd64) · requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) |
+| `:latest` | amd64 + arm64 | NVIDIA CUDA 12.8 (amd64) · requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) |
 | `:rocm` | amd64 | AMD ROCm · pass `/dev/kfd` + `/dev/dri` |
 | `:intel` | amd64 | Intel Arc / iGPU via OpenVINO · pass `/dev/dri`, set `OPENVINO_DEVICE=GPU` |
 | `:cpu` | amd64 + arm64 | CPU only · ~2 GB smaller · no GPU required |
@@ -192,6 +192,7 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | `ONLY_PEOPLE` | *(unset)* | Comma-separated whitelist — process only these people |
 | `SKIP_PEOPLE` | *(unset)* | Comma-separated list — skip these people |
 | `MIN_FACE_COUNT` | `0` | Skip people with fewer than N tagged assets in Immich |
+| `MERGE_DUPLICATE_PEOPLE` | `false` | When Immich has duplicate entries for the same person (same face split across multiple names), merge their asset pools before processing. Without this, each duplicate group emits a warning and is skipped |
 | `YEARS_FILTER` | `10` | Ignore images older than N years |
 
 ### Image Quality
@@ -232,7 +233,8 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | :--- | :--- | :--- |
 | `DRY_RUN` | `false` | Preview selection without downloading or uploading |
 | `RETRY_REJECTED` | `false` | Re-attempt assets previously rejected by Frigate |
-| `RESET_PERSON` | *(unset)* | Clear upload history for one person and delete their winnow-managed Frigate training files so the next run starts fresh. Manually added Frigate files are never touched |
+| `RESET_PERSON` | *(unset)* | Set to a person's name to clear their upload history and delete their winnow-managed Frigate training files so the next run starts fresh. Set to `*` to reset all tracked people at once. Manually added Frigate files are never touched |
+| `TRACE_CROP_SIZE` | *(unset)* | Debug: print all tracked crops whose width or height matches this pixel value, then exit |
 
 ### Scheduling
 
