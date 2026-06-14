@@ -163,6 +163,11 @@ def main() -> None:
         if reset_person_name:
             if reset_person_name == "*":
                 names = list(get_person_summary().keys())
+                if "*" in names:
+                    rprint(
+                        "[yellow]Note: a person literally named '*' exists in the tracker "
+                        "and will be reset along with everyone else.[/yellow]"
+                    )
                 if names:
                     for name in names:
                         reset_person(name)
