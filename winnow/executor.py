@@ -17,6 +17,7 @@ from .frigate_api import (
     delete_frigate_person_files,
     get_all_frigate_person_files,
     get_frigate_person_files,
+    get_frigate_version,
     recognize_face,
 )
 from .image_processing import process_face_mode
@@ -311,10 +312,17 @@ def upload_to_frigate(jobs: list[dict]) -> None:
         rprint("[yellow]⚠️  FRIGATE_URL not set, skipping upload.[/yellow]")
         return
 
-    # TODO: verify Frigate version at startup (GET /api/version) and warn if
-    # below v0.16. The face training API (/api/faces/{name}/register,
-    # /api/faces/{name}/delete, /api/faces/recognize) was introduced in v0.16;
-    # older versions return 404s that surface as opaque upload failures.
+    _frigate_version = get_frigate_version()
+    if _frigate_version is not None:
+        try:
+            parts = [int(x) for x in _frigate_version.split("-")[0].split(".") if x.isdigit()]
+            if len(parts) >= 2 and (parts[0], parts[1]) < (0, 16):
+                rprint(
+                    f"  [yellow]⚠  Frigate {_frigate_version} detected — "
+                    "face training API requires v0.16+. Uploads may fail.[/yellow]"
+                )
+        except Exception:
+            pass
 
     rprint("\n[bold cyan]📤 Uploading to Frigate[/bold cyan]")
     rprint(f"  Target: [dim]{frigate_url}[/dim]")

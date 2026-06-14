@@ -8,6 +8,24 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+def get_frigate_version() -> str | None:
+    """Fetch Frigate's version string from GET /api/version.
+
+    Returns the version string (e.g. "0.16.0-beta4") or None if FRIGATE_URL
+    is unset, the endpoint is unreachable, or the response is not parseable.
+    """
+    frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
+    if not frigate_url:
+        return None
+    try:
+        resp = requests.get(f"{frigate_url}/api/version", timeout=5)
+        if resp.ok:
+            return resp.text.strip().strip('"')
+        return None
+    except Exception:
+        return None
+
+
 def _get_faces_data() -> dict | None:
     """Fetch raw GET /api/faces response. Returns None if unavailable."""
     frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
