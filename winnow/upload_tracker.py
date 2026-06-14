@@ -74,8 +74,8 @@ def _get_conn() -> sqlite3.Connection:
     if _conn is not None and _conn_path != db_path:
         try:
             _conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to close previous SQLite connection: %s", e)
         _conn = None
 
     if _conn is None:

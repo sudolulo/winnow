@@ -38,8 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.13 /usr/bin/python3
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && cp /root/.local/bin/uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.21 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
@@ -130,5 +129,6 @@ USER appuser
 # the dist-info. Explicitly adding /app lets Python find winnow/__init__.py there.
 ENV INSIGHTFACE_HOME=/models/.insightface PYTHONPATH=/app
 
-HEALTHCHECK CMD test -f /app/entrypoint.sh || exit 1
+HEALTHCHECK --interval=60s --timeout=5s --start-period=120s --retries=3 \
+    CMD sh -c 'if [ -f /tmp/winnow.pid ]; then kill -0 "$(cat /tmp/winnow.pid)"; fi'
 ENTRYPOINT ["tini", "--", "/app/entrypoint.sh"]

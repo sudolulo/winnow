@@ -52,14 +52,16 @@ def get_all_frigate_person_files() -> dict[str, list[str]] | None:
     # Response: {person_name: [file, ...], "train": [...], ...}
     # "train" is a flat pending list, not a person — skip it.
     # TODO(frigate-api): "train" is the only known special key as of Frigate v0.16.
-    # If Frigate adds other top-level non-person keys, they'll be silently treated
-    # as person names here. Switch to an allowlist or a typed schema when Frigate
-    # documents its response contract.
-    return {
-        name: files
-        for name, files in data.items()
-        if name != "train" and isinstance(files, list)
-    }
+    # Log unexpected non-list values so future Frigate schema additions are visible.
+    result = {}
+    for name, files in data.items():
+        if name == "train":
+            continue
+        if isinstance(files, list):
+            result[name] = files
+        else:
+            logger.debug("Frigate API: skipping unexpected key %r (got %s, not list)", name, type(files).__name__)
+    return result
 
 
 def get_frigate_face_counts() -> dict[str, int] | None:
