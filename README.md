@@ -191,7 +191,7 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | :--- | :--- | :--- |
 | `ONLY_PEOPLE` | *(unset)* | Comma-separated whitelist — process only these people |
 | `SKIP_PEOPLE` | *(unset)* | Comma-separated list — skip these people |
-| `MIN_FACE_COUNT` | `0` | Skip people with fewer than N tagged assets in Immich |
+| `MIN_FACE_COUNT` | `3` | Skip people with fewer than N tagged assets in Immich |
 | `MERGE_DUPLICATE_PEOPLE` | `false` | When Immich has duplicate entries for the same person (same face split across multiple names), merge their asset pools before processing. Without this, each duplicate group emits a warning and is skipped |
 | `YEARS_FILTER` | `10` | Ignore images older than N years |
 
