@@ -184,6 +184,8 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 | `MERGE_DUPLICATE_PEOPLE` | `false` | When Immich has duplicate entries for the same person (same face split across multiple names), merge their asset pools before processing. Without this, each duplicate group emits a warning and is skipped |
 | `YEARS_FILTER` | `10` | Ignore images older than N years |
 
+> **Duplicate people detection** — winnow warns at startup if the same name appears on multiple Immich person records (a common side-effect of Immich's face clustering creating separate pools for the same individual). By default (`false`) it logs the duplicates, keeps only the person with the most assets, and skips the rest — no data is changed. Set `MERGE_DUPLICATE_PEOPLE=true` to permanently merge each duplicate group inside Immich (the person with the most assets absorbs the others). **This modifies Immich and cannot be undone.** Only enable it once you've verified the duplicates are actually the same person.
+
 ### Image Quality
 
 | Variable | Default | Description |
@@ -220,7 +222,7 @@ These defaults are tuned for Frigate's ArcFace requirements. winnow will warn on
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `OUTPUT_DIR` | `./frigate_train` | Directory for object-mode crops and the `winnow.log` file. In Docker, set this via the volume mount instead. |
+| `OUTPUT_DIR` | `./frigate_train` | Directory where face crops are staged before upload and where `winnow.log` is written. In Docker, set this via the volume mount instead. |
 
 ### Tracker Overrides *(one-shot — remove after use)*
 
