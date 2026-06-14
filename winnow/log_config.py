@@ -13,12 +13,9 @@ console = Console()
 NOISY_LOGGERS = (
     "urllib3",
     "PIL",
-    "ultralytics",
     "insightface",
     "onnxruntime",
     "matplotlib",
-    "transformers",
-    "torch",
 )
 
 
@@ -51,7 +48,6 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
 
     # Suppress Python warnings from ML libraries
     warnings.filterwarnings("ignore", category=UserWarning, module="onnxruntime")
-    warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 
     return root
 

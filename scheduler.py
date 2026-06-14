@@ -16,7 +16,6 @@ except ImportError:
 from winnow.cli import main
 
 SCHEDULE = os.environ["CRON_SCHEDULE"]
-MODELS_DIR = os.environ.get("HF_HOME", "/models/huggingface")
 INSIGHTFACE_HOME = os.environ.get("INSIGHTFACE_HOME", "/models/.insightface")
 
 logger = logging.getLogger(__name__)
@@ -24,11 +23,8 @@ logger = logging.getLogger(__name__)
 
 def check_models() -> None:
     buffalo = Path(INSIGHTFACE_HOME) / "models" / "buffalo_l"
-    hf_hub = Path(MODELS_DIR) / "hub"
     if not buffalo.exists():
         print("  InsightFace Buffalo_L not found — will download on first run", flush=True)
-    if not (hf_hub.exists() and any(hf_hub.iterdir())):
-        print("  HuggingFace models not found — will download on first run", flush=True)
 
 
 NOW = time.time()
