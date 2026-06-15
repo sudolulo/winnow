@@ -6,8 +6,8 @@ import shutil
 from io import BytesIO
 from urllib.parse import quote
 
-import requests
 import PIL
+import requests
 from PIL import Image
 from rich import print as rprint
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
