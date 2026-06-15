@@ -8,7 +8,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
-from .config import Config, _getenv_bool, _getenv_int
+from .config import Config, _getenv_bool, _getenv_int, _getenv_optional_int
 from .diversity import select_diverse_assets
 from .embeddings import is_embedding_available, load_embedding_model
 from .frigate_api import get_frigate_face_counts
@@ -68,13 +68,9 @@ def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, st
     if not has_embedding:
         return _getenv_int("LIMIT", 30), "time"
 
-    custom_limit = os.environ.get("LIMIT", "").strip()
-    if custom_limit:
-        try:
-            return int(custom_limit), "smart"
-        except ValueError:
-            logger.warning("LIMIT=%r is not a valid integer — using adaptive strategy", custom_limit)
-            # fall through to strategy_map
+    custom_limit = _getenv_optional_int("LIMIT")
+    if custom_limit is not None:
+        return custom_limit, "smart"
 
     strategy_map = {
         "adaptive": ("auto", "smart"),

@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS tracked_assets (
     crop_width    INTEGER,
     crop_height   INTEGER,
     frigate_score REAL,
-    PRIMARY KEY (asset_id, status)
+    PRIMARY KEY (asset_id, person_name, status)
 );
 
 CREATE TABLE IF NOT EXISTS frigate_files (
@@ -56,6 +56,44 @@ CREATE TABLE IF NOT EXISTS person_metadata (
 # Module-level connection state — re-opened when DATA_DIR changes (test isolation)
 _conn: sqlite3.Connection | None = None
 _conn_path: str | None = None
+
+
+def _migrate_schema_v2(conn: sqlite3.Connection) -> None:
+    """Migrate tracked_assets from PRIMARY KEY (asset_id, status) to (asset_id, person_name, status).
+
+    The old PK meant INSERT OR REPLACE for person B on an asset already tracked for
+    person A would silently overwrite person_name, breaking quality-replacement JOINs
+    for person A. The new PK gives each (asset, person) pair its own row.
+
+    SQLite does not support ALTER TABLE to change a primary key; we recreate the table.
+    """
+    pk_cols = {
+        r[1]
+        for r in conn.execute("PRAGMA table_info(tracked_assets)").fetchall()
+        if r[5] > 0  # column index 5 = pk position (0 = not in PK)
+    }
+    if "person_name" in pk_cols:
+        return  # Already at new schema
+
+    logger.info("Migrating tracked_assets: adding person_name to primary key")
+    conn.executescript("""
+        CREATE TABLE tracked_assets_new (
+            asset_id      TEXT NOT NULL,
+            person_name   TEXT,
+            status        TEXT NOT NULL CHECK(status IN ('uploaded', 'rejected')),
+            blur_score    REAL,
+            crop_width    INTEGER,
+            crop_height   INTEGER,
+            frigate_score REAL,
+            PRIMARY KEY (asset_id, person_name, status)
+        );
+        INSERT OR IGNORE INTO tracked_assets_new
+            SELECT asset_id, person_name, status, blur_score, crop_width, crop_height, frigate_score
+            FROM tracked_assets;
+        DROP TABLE tracked_assets;
+        ALTER TABLE tracked_assets_new RENAME TO tracked_assets;
+    """)
+    logger.info("tracked_assets schema migration complete")
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -87,6 +125,7 @@ def _get_conn() -> sqlite3.Connection:
         _conn.executescript(_DDL)
         _conn.commit()
         _conn_path = db_path
+        _migrate_schema_v2(_conn)
         _maybe_migrate(data_dir, _conn)
 
     return _conn

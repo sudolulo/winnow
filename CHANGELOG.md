@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.19] - 2026-06-15
+
+### Fixed
+
+- **`fetch_face_data` no longer falls back to an arbitrary person's face**: when `person_id` is provided but not found in the Immich `/api/faces` response, the function now returns `None` instead of falling back to `faces[0]`. Previously a Frigate group photo where the target person's face entry was missing would inject a different person's bounding box, causing the wrong face crop to be uploaded as training data.
+
+- **`tracked_assets` PRIMARY KEY now includes `person_name`**: the old `PRIMARY KEY (asset_id, status)` meant that `INSERT OR REPLACE` for person B on an asset already tracked for person A silently overwrote `person_name`, destroying the JOIN between `tracked_assets` and `frigate_files` for person A and breaking quality replacement. The key is now `(asset_id, person_name, status)`, giving each person their own row per asset. Existing databases are migrated automatically on first open.
+
+- **`filter_recent_assets` treats `years=0` as "no age filter"**: previously `years = years or Config.YEARS_FILTER` evaluated `0` as falsy and fell through to the default (10 years), silently discarding all older assets when the user explicitly set `YEARS_FILTER=0`. The check is now `if years is None: years = Config.YEARS_FILTER` followed by an early return for `years=0`.
+
+- **`_is_module_available` now correctly returns False for absent modules**: `importlib.util.find_spec` returns `None` (not raises) for missing top-level modules, so the previous `try: find_spec(); return True` always reported modules as installed. Fixed to `return find_spec(...) is not None`, ensuring `is_embedding_available()` returns False when InsightFace or onnxruntime are not installed.
+
+- **Error handler in `execute_jobs` uses `asset.get("id")` instead of `asset["id"]`**: a malformed asset dict missing the `"id"` key would cause a secondary `KeyError` inside the `except` block, propagating uncaught out of `execute_jobs()` and aborting the run mid-job. Changed to `asset.get("id", "<unknown>")`.
+
+- **HTTP 422 now triggers `mark_rejected`**: only `HTTP 400` with `"face"` in the body triggered permanent rejection; `HTTP 422` (Unprocessable Entity) left the asset untracked and caused it to be re-selected and re-attempted on every future run. Both codes are now treated as permanent rejections.
+
+- **Frigate filename reconciliation sort is now deterministic**: `sorted(new_files, key=_ts)` sorted a `set` — when `_ts()` returns `0.0` for non-matching filenames, Python's stable sort preserves the set's hash-randomised input order, producing non-deterministic `asset_id → frigate_filename` mappings. Changed the key to `lambda f: (_ts(f), f)` so equal-timestamp files sort alphabetically.
+
+### Changed
+
+- **`_resolve_strategy` uses `_getenv_optional_int("LIMIT")`**: the inline `os.environ.get("LIMIT", "").strip()` + `int()` + `logger.warning` block in `jobs.py` re-implemented the logic already in `_getenv_num`. A new `_getenv_optional_int` helper (delegating to `_getenv_num(name, None, int)`) replaces the duplicate, consolidating LIMIT parse warnings with the rest of the env-var helpers.
+
+- **`frigate_api.py` uses a shared `_get_frigate_url()` accessor**: `os.environ.get("FRIGATE_URL", "").rstrip("/")` was copy-pasted into all four public functions. A private helper eliminates the duplication so URL normalization is defined once.
+
+- **`blur_score_from_image()` extracted to `quality.py`**: the time-spread blur-score fallback in `execute_jobs` (resize to 1440px, RGB convert, `assess_quality`) is now a shared `blur_score_from_image(img, max_dim=1440)` helper. Both the executor and any future callers use the same cap and error handling so the score scale can't silently diverge between code paths.
+
 ## [0.5.18] - 2026-06-15
 
 ### Fixed

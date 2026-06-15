@@ -22,7 +22,7 @@ from .frigate_api import (
 from .image_processing import process_face_mode
 from .immich_api import fetch_full_image
 from .log_config import console
-from .quality import assess_quality
+from .quality import blur_score_from_image
 from .reconcile import enrich_asset_with_face_data, reconcile_frigate_mappings
 from .upload_tracker import (
     get_lowest_quality_mapped_file,
@@ -176,20 +176,12 @@ def execute_jobs(jobs: list[dict]) -> None:
                                 if isinstance(saved, tuple):
                                     dims_map[filename] = saved
                                 # Time-spread path: compute blur score from the downloaded
-                                # image. Cap at 1440px so the scale matches the preview
-                                # thumbnails the embedding path uses for scoring — Laplacian
-                                # variance grows with resolution, making full-res and
-                                # thumbnail scores incomparable if left uncapped.
+                                # image. Capped at 1440px via blur_score_from_image() so the
+                                # scale matches the preview thumbnails the embedding path uses
+                                # — Laplacian variance grows with resolution, making full-res
+                                # and thumbnail scores incomparable if left uncapped.
                                 if score_map[filename] is None:
-                                    try:
-                                        score_img = img.convert("RGB") if img.mode != "RGB" else img
-                                        if score_img.width > 1440 or score_img.height > 1440:
-                                            score_img = score_img.copy()
-                                            score_img.thumbnail((1440, 1440), Image.LANCZOS)
-                                        score_map[filename] = assess_quality(score_img).blur_score
-                                    except Exception as exc:
-                                        logger.debug("Quality score fallback for %s: %s", asset["id"], exc)
-                                        score_map[filename] = 0.0  # unknown quality — treat as lowest
+                                    score_map[filename] = blur_score_from_image(img)
 
                                 count += 1
                             else:
@@ -197,7 +189,7 @@ def execute_jobs(jobs: list[dict]) -> None:
                                     f"[yellow]Skipped {asset['id']} (no usable face data)[/yellow]"
                                 )
                     except Exception as e:
-                        logger.error("Failed to process asset %s: %s", asset["id"], e)
+                        logger.error("Failed to process asset %s: %s", asset.get("id", "<unknown>"), e)
 
                     progress.advance(job_task)
                     progress.advance(overall_task)
@@ -534,7 +526,11 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                 progress.console.print(f"      [dim]{error_detail}[/dim]")
                             else:
                                 logger.debug("%s HTTP %s: %s", fname, resp.status_code, error_detail)
-                            if resp.status_code == 400 and "face" in full_body.lower():
+                            _is_permanent = (
+                                (resp.status_code == 400 and "face" in full_body.lower())
+                                or resp.status_code == 422
+                            )
+                            if _is_permanent:
                                 asset_id = asset_map.get(fname)
                                 if asset_id:
                                     mark_rejected(asset_id, person_name=name)

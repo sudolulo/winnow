@@ -235,8 +235,7 @@ def get_embedding(
 def _is_module_available(module_name: str) -> bool:
     """Check if a Python module is importable without importing it fully."""
     try:
-        importlib.util.find_spec(module_name)
-        return True
+        return importlib.util.find_spec(module_name) is not None
     except (ModuleNotFoundError, ValueError):
         return False
 

@@ -8,13 +8,18 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+def _get_frigate_url() -> str:
+    """Return normalized FRIGATE_URL with trailing slash stripped, or '' if unset."""
+    return os.environ.get("FRIGATE_URL", "").rstrip("/")
+
+
 def get_frigate_version() -> str | None:
     """Fetch Frigate's version string from GET /api/version.
 
     Returns the version string (e.g. "0.16.0-beta4") or None if FRIGATE_URL
     is unset, the endpoint is unreachable, or the response is not parseable.
     """
-    frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
+    frigate_url = _get_frigate_url()
     if not frigate_url:
         return None
     try:
@@ -28,7 +33,7 @@ def get_frigate_version() -> str | None:
 
 def _get_faces_data() -> dict | None:
     """Fetch raw GET /api/faces response. Returns None if unavailable."""
-    frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
+    frigate_url = _get_frigate_url()
     if not frigate_url:
         return None
     try:
@@ -113,7 +118,7 @@ def recognize_face(file_path: str) -> tuple[str | None, float] | None:
     replace mean-comparison with nearest-neighbour distance across individual
     training embeddings for accurate coverage detection.
     """
-    frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
+    frigate_url = _get_frigate_url()
     if not frigate_url:
         return None
     try:
@@ -140,7 +145,7 @@ def delete_frigate_person_files(person_name: str, filenames: list[str]) -> bool:
     Uses POST /api/faces/{name}/delete with body {"ids": [filename, ...]}.
     Returns True on success, False if unreachable or the request fails.
     """
-    frigate_url = os.environ.get("FRIGATE_URL", "").rstrip("/")
+    frigate_url = _get_frigate_url()
     if not frigate_url or not filenames:
         return False
     from urllib.parse import quote

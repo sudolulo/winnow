@@ -196,14 +196,14 @@ def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | N
         if not isinstance(faces, list) or not faces:
             return None
 
-        # Match the target person if specified
+        # Match the target person if specified; never fall back to a different person's face.
         face = None
         if person_id:
             face = next(
                 (f for f in faces if isinstance(f, dict) and (f.get("person") or {}).get("id") == person_id),
                 None,
             )
-        if face is None:
+        else:
             face = faces[0] if isinstance(faces[0], dict) else None
         if face is None:
             return None
@@ -268,8 +268,11 @@ def fetch_full_image(asset_id: str, timeout: int = 60) -> Image.Image | None:
 
 
 def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[dict]:
-    """Filter assets to keep only those from the last N years."""
-    years = years or Config.YEARS_FILTER
+    """Filter assets to keep only those from the last N years. Pass years=0 to include all."""
+    if years is None:
+        years = Config.YEARS_FILTER
+    if not years:
+        return list(assets)
     cutoff = datetime.now(timezone.utc) - timedelta(days=365 * years)
 
     logger.debug("Filtering assets older than %s years (%s)", years, cutoff)

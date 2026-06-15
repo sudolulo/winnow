@@ -45,6 +45,11 @@ def _getenv_optional_float(name: str) -> float | None:
         return None
 
 
+def _getenv_optional_int(name: str) -> int | None:
+    """Return int value of env var, or None if unset/empty. Warns and returns None on invalid."""
+    return _getenv_num(name, None, int)
+
+
 def _getenv_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
