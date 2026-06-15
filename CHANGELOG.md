@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.15] - 2026-06-15
+
+### Fixed
+
+- **Embedding cache writes were silently no-ops since v0.5.13**: the atomic-write path used `tmp = final + ".tmp"` where `final` ends in `.npy` (e.g. `abc.npy`), producing a tmp path of `abc.npy.tmp`. `np.save` auto-appends `.npy` to paths not already ending in `.npy`, so it wrote to `abc.npy.tmp.npy` instead. The subsequent `os.replace("abc.npy.tmp", "abc.npy")` then raised `FileNotFoundError` (caught silently at DEBUG), meaning no cache entry was ever committed and leaked `*.npy.tmp.npy` files accumulated on disk. The fix inserts `.tmp` before the `.npy` extension: `tmp = final[:-4] + ".tmp.npy"` so `np.save` sees a path already ending in `.npy` and does not re-append.
+
+- **`_getenv_int`/`_getenv_float` no longer route the default through `str()` conversion**: the previous form `os.getenv(name, str(default))` converted the default to a string so it could be fed through `int()`/`float()` — an unnecessary round-trip that would cause `_getenv_int("FOO", 4.0)` to log a spurious "not a valid integer" warning and return the float. The helpers now use `raw = os.getenv(name); return default if raw is None else int(raw)`, passing the typed default through directly.
+
+- **`execute_jobs` progress task now removed via `try/finally`**: `progress.remove_task(job_task)` was duplicated in three early-exit paths (ValueError, symlink TOCTOU, OSError) plus once at normal completion. The entire per-job body is now wrapped in `try/finally: progress.remove_task(job_task)`; the three inner `continue` statements trigger the `finally` automatically before advancing to the next job, making the invariant structurally impossible to violate by a future code path.
+
 ## [0.5.14] - 2026-06-15
 
 ### Fixed

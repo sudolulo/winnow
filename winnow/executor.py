@@ -102,118 +102,116 @@ def execute_jobs(jobs: list[dict]) -> None:
 
             job_task = progress.add_task(f"Processing {name}...", total=len(assets))
             try:
-                person_dir = _safe_person_dir(Config.OUTPUT_DIR, name)
-            except ValueError as e:
-                logger.error(str(e))
-                progress.remove_task(job_task)
-                continue
-            # Face crops are transient (uploaded then discarded); wipe before each run.
-            # A symlink could appear here via a TOCTOU race after _safe_person_dir
-            # returned — writing through it would land crops outside output_dir.
-            if os.path.islink(person_dir):
-                logger.error("person_dir %s became a symlink after path check — skipping job", person_dir)
-                progress.remove_task(job_task)
-                continue
-            try:
-                if os.path.isdir(person_dir):
-                    shutil.rmtree(person_dir)
-                os.makedirs(person_dir, exist_ok=True)
-            except OSError as e:
-                logger.error("Failed to prepare output dir for %s: %s", name, e)
-                progress.remove_task(job_task)
-                continue
-
-            # Track filename → asset_id, filename → confidence score, filename → crop dims
-            asset_map: dict[str, str] = {}
-            score_map: dict[str, float | None] = {}
-            dims_map: dict[str, tuple[int, int]] = {}
-
-            count = 0
-            for asset in assets:
                 try:
-                    # Enrich the asset with face bounding box data from the Immich
-                    # faces API (not included in search/metadata results).
-                    asset = enrich_asset_with_face_data(asset, person)
-                    # Skip download if detection confidence already disqualifies
-                    # the asset — avoids fetching a large image we'll discard.
-                    conf = asset.get("face_confidence")
-                    if conf is not None and conf < Config.MIN_CONFIDENCE:
-                        progress.console.print(
-                            f"[yellow]Skipped {asset['id']}"
-                            f" (detection confidence {conf:.2f} < {Config.MIN_CONFIDENCE})[/yellow]"
-                        )
-                        mark_rejected(asset["id"], person_name=name)
-                        progress.advance(job_task)
-                        progress.advance(overall_task)
-                        continue
+                    person_dir = _safe_person_dir(Config.OUTPUT_DIR, name)
+                except ValueError as e:
+                    logger.error(str(e))
+                    continue
+                # Face crops are transient (uploaded then discarded); wipe before each run.
+                # A symlink could appear here via a TOCTOU race after _safe_person_dir
+                # returned — writing through it would land crops outside output_dir.
+                if os.path.islink(person_dir):
+                    logger.error("person_dir %s became a symlink after path check — skipping job", person_dir)
+                    continue
+                try:
+                    if os.path.isdir(person_dir):
+                        shutil.rmtree(person_dir)
+                    os.makedirs(person_dir, exist_ok=True)
+                except OSError as e:
+                    logger.error("Failed to prepare output dir for %s: %s", name, e)
+                    continue
 
-                    # Use full-resolution for final output when configured
-                    if use_full_res:
-                        img = fetch_full_image(asset["id"])
-                    else:
-                        resp = requests.get(
-                            f"{Config.IMMICH_URL}/api/assets/{asset['id']}/thumbnail?size=preview&format=JPEG",
-                            headers=get_headers(),
-                            timeout=30,
-                        )
-                        if resp.ok:
-                            try:
-                                img = Image.open(BytesIO(resp.content))
-                            except Exception:
-                                logger.warning("Invalid image data for asset %s", asset["id"])
-                                img = None
-                        else:
-                            img = None
+                # Track filename → asset_id, filename → confidence score, filename → crop dims
+                asset_map: dict[str, str] = {}
+                score_map: dict[str, float | None] = {}
+                dims_map: dict[str, tuple[int, int]] = {}
 
-                    if img is None:
-                        progress.console.print(f"[red]Failed download {asset['id']}[/red]")
-                    else:
-                        saved = process_face_mode(
-                            img, asset, person, person_dir, count, insightface_app=insightface_app
-                        )
-                        if saved:
-                            filename = f"{count}.jpg"
-                            asset_map[filename] = asset["id"]
-                            score_map[filename] = asset.get("quality_score")
-                            if isinstance(saved, tuple):
-                                dims_map[filename] = saved
-                            # Time-spread path: compute blur score from the downloaded
-                            # image. Cap at 1440px so the scale matches the preview
-                            # thumbnails the embedding path uses for scoring — Laplacian
-                            # variance grows with resolution, making full-res and
-                            # thumbnail scores incomparable if left uncapped.
-                            if score_map[filename] is None:
-                                try:
-                                    score_img = img.convert("RGB") if img.mode != "RGB" else img
-                                    if score_img.width > 1440 or score_img.height > 1440:
-                                        score_img = score_img.copy()
-                                        score_img.thumbnail((1440, 1440), Image.LANCZOS)
-                                    score_map[filename] = assess_quality(score_img).blur_score
-                                except Exception as exc:
-                                    logger.debug("Quality score fallback for %s: %s", asset["id"], exc)
-                                    score_map[filename] = 0.0  # unknown quality — treat as lowest
-
-                            count += 1
-                        else:
+                count = 0
+                for asset in assets:
+                    try:
+                        # Enrich the asset with face bounding box data from the Immich
+                        # faces API (not included in search/metadata results).
+                        asset = enrich_asset_with_face_data(asset, person)
+                        # Skip download if detection confidence already disqualifies
+                        # the asset — avoids fetching a large image we'll discard.
+                        conf = asset.get("face_confidence")
+                        if conf is not None and conf < Config.MIN_CONFIDENCE:
                             progress.console.print(
-                                f"[yellow]Skipped {asset['id']} (no usable face data)[/yellow]"
+                                f"[yellow]Skipped {asset['id']}"
+                                f" (detection confidence {conf:.2f} < {Config.MIN_CONFIDENCE})[/yellow]"
                             )
-                except Exception as e:
-                    logger.error("Failed to process asset %s: %s", asset["id"], e)
+                            mark_rejected(asset["id"], person_name=name)
+                            progress.advance(job_task)
+                            progress.advance(overall_task)
+                            continue
 
-                progress.advance(job_task)
-                progress.advance(overall_task)
+                        # Use full-resolution for final output when configured
+                        if use_full_res:
+                            img = fetch_full_image(asset["id"])
+                        else:
+                            resp = requests.get(
+                                f"{Config.IMMICH_URL}/api/assets/{asset['id']}/thumbnail?size=preview&format=JPEG",
+                                headers=get_headers(),
+                                timeout=30,
+                            )
+                            if resp.ok:
+                                try:
+                                    img = Image.open(BytesIO(resp.content))
+                                except Exception:
+                                    logger.warning("Invalid image data for asset %s", asset["id"])
+                                    img = None
+                            else:
+                                img = None
 
-            # Store maps on the job so upload_to_frigate can use them
-            job["asset_map"] = asset_map
-            job["score_map"] = score_map
-            job["dims_map"] = dims_map
+                        if img is None:
+                            progress.console.print(f"[red]Failed download {asset['id']}[/red]")
+                        else:
+                            saved = process_face_mode(
+                                img, asset, person, person_dir, count, insightface_app=insightface_app
+                            )
+                            if saved:
+                                filename = f"{count}.jpg"
+                                asset_map[filename] = asset["id"]
+                                score_map[filename] = asset.get("quality_score")
+                                if isinstance(saved, tuple):
+                                    dims_map[filename] = saved
+                                # Time-spread path: compute blur score from the downloaded
+                                # image. Cap at 1440px so the scale matches the preview
+                                # thumbnails the embedding path uses for scoring — Laplacian
+                                # variance grows with resolution, making full-res and
+                                # thumbnail scores incomparable if left uncapped.
+                                if score_map[filename] is None:
+                                    try:
+                                        score_img = img.convert("RGB") if img.mode != "RGB" else img
+                                        if score_img.width > 1440 or score_img.height > 1440:
+                                            score_img = score_img.copy()
+                                            score_img.thumbnail((1440, 1440), Image.LANCZOS)
+                                        score_map[filename] = assess_quality(score_img).blur_score
+                                    except Exception as exc:
+                                        logger.debug("Quality score fallback for %s: %s", asset["id"], exc)
+                                        score_map[filename] = 0.0  # unknown quality — treat as lowest
 
-            progress.remove_task(job_task)
+                                count += 1
+                            else:
+                                progress.console.print(
+                                    f"[yellow]Skipped {asset['id']} (no usable face data)[/yellow]"
+                                )
+                    except Exception as e:
+                        logger.error("Failed to process asset %s: %s", asset["id"], e)
 
-            # Log how many images were actually saved vs selected
-            if count < len(assets):
-                logger.info("%s: saved %s/%s selected images", name, count, len(assets))
+                    progress.advance(job_task)
+                    progress.advance(overall_task)
+
+                # Store maps on the job so upload_to_frigate can use them
+                job["asset_map"] = asset_map
+                job["score_map"] = score_map
+                job["dims_map"] = dims_map
+
+                # Log how many images were actually saved vs selected
+                if count < len(assets):
+                    logger.info("%s: saved %s/%s selected images", name, count, len(assets))
+            finally:
+                progress.remove_task(job_task)
 
 
 def upload_to_frigate(jobs: list[dict]) -> None:

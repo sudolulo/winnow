@@ -13,20 +13,24 @@ _LEGACY_CONFIG_FILE = Path(".immich_config.json")  # pre-v0.6: lived in process 
 
 
 def _getenv_int(name: str, default: int) -> int:
-    val = os.getenv(name, str(default))
+    raw = os.getenv(name)
+    if raw is None:
+        return default
     try:
-        return int(val)
+        return int(raw)
     except ValueError:
-        logging.warning("%s=%r is not a valid integer — using default %s", name, val, default)
+        logging.warning("%s=%r is not a valid integer — using default %s", name, raw, default)
         return default
 
 
 def _getenv_float(name: str, default: float) -> float:
-    val = os.getenv(name, str(default))
+    raw = os.getenv(name)
+    if raw is None:
+        return default
     try:
-        return float(val)
+        return float(raw)
     except ValueError:
-        logging.warning("%s=%r is not a valid float — using default %s", name, val, default)
+        logging.warning("%s=%r is not a valid float — using default %s", name, raw, default)
         return default
 
 
