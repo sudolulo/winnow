@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.11] - 2026-06-15
+
+### Fixed
+
+- **`execute_jobs` symlink TOCTOU gap closed**: the v0.5.10 guard `os.path.isdir(person_dir) and not os.path.islink(person_dir)` silently skipped the wipe when `person_dir` was a symlink-to-directory, then called `os.makedirs` which followed the symlink — allowing crop writes to land outside `output_dir` with no log or skip. The guard is replaced by an explicit pre-check: if `os.path.islink(person_dir)` is True, log an error and `continue`, matching the established `ValueError` pattern from `_safe_person_dir`. The `isdir` / `rmtree` block is restored to its original simple form.
+
 ## [0.5.10] - 2026-06-15
 
 ### Fixed

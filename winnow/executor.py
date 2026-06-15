@@ -107,10 +107,12 @@ def execute_jobs(jobs: list[dict]) -> None:
                 logger.error(str(e))
                 continue
             # Face crops are transient (uploaded then discarded); wipe before each run.
-            # Exclude symlinks explicitly: os.path.isdir follows them and returns True
-            # for a symlink-to-directory, but shutil.rmtree raises OSError on a
-            # top-level symlink rather than deleting through it.
-            if os.path.isdir(person_dir) and not os.path.islink(person_dir):
+            # A symlink could appear here via a TOCTOU race after _safe_person_dir
+            # returned — writing through it would land crops outside output_dir.
+            if os.path.islink(person_dir):
+                logger.error("person_dir %s became a symlink after path check — skipping job", person_dir)
+                continue
+            if os.path.isdir(person_dir):
                 shutil.rmtree(person_dir)
             os.makedirs(person_dir, exist_ok=True)
 
