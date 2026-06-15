@@ -43,8 +43,13 @@ def _safe_person_dir(output_dir: str, person_name: str) -> str:
 
     os.path.join silently discards output_dir when person_name is absolute,
     and '../..' sequences resolve outside the tree. Both are rejected here.
+    Symlinks on the raw (unresolved) path are also rejected — checking after
+    realpath would be too late because realpath follows the link first.
     """
-    candidate = os.path.realpath(os.path.join(output_dir, person_name))
+    raw = os.path.join(output_dir, person_name)
+    if os.path.islink(raw):
+        raise ValueError(f"Person name {person_name!r} resolves to a symlink — skipping")
+    candidate = os.path.realpath(raw)
     base = os.path.realpath(output_dir)
     # Use the base path as its own prefix when it's the filesystem root ("/"),
     # otherwise append os.sep — avoids the false "//" double-slash when base == "/".
@@ -100,9 +105,6 @@ def execute_jobs(jobs: list[dict]) -> None:
                 logger.error(str(e))
                 continue
             # Face crops are transient (uploaded then discarded); wipe before each run.
-            if os.path.islink(person_dir):
-                logger.error("person_dir %s is a symlink — refusing to remove", person_dir)
-                continue
             if os.path.isdir(person_dir):
                 shutil.rmtree(person_dir)
             os.makedirs(person_dir, exist_ok=True)

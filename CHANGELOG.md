@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-06-15
+
+### Fixed
+
+- **Symlink guard moved before `realpath`**: `_safe_person_dir` now checks whether the raw (unresolved) path is a symlink before calling `os.path.realpath`. The previous check in `execute_jobs` ran after `realpath` had already resolved the link, making it unreachable dead code.
+
+- **`fetch_all_assets` returns raw item count**: the function now returns `(assets, total_raw)` where `total_raw` is the total items seen across all pages before non-dict filtering. `auto_configure` and `_configure_person` use `total_raw` for the `MIN_FACE_COUNT` guard and display, so transient non-dict API items cannot cause a person to be incorrectly skipped.
+
+- **Pagination stop on all-non-dict page now logs a warning**: when `valid_assets` is empty but the page was non-empty (all items were non-dict), a `WARNING` is emitted explaining why pagination stopped, distinguishing it from natural end-of-data.
+
+- **`_data_cfg.exists()` called once**: the result is cached in `_data_cfg_exists` so the dual-config warning check and the `config_file` selection always agree — previously two separate `stat()` calls created a TOCTOU window where the log could claim one file while the code loaded another.
+
 ## [0.5.6] - 2026-06-15
 
 ### Fixed

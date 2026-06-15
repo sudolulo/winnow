@@ -162,10 +162,10 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
 
     console.print(f"Scanning for {name}...")
     with console.status("[bold green]Fetching assets...[/bold green]"):
-        all_assets = fetch_all_assets(person)
+        all_assets, total_raw = fetch_all_assets(person)
         recent_assets = filter_recent_assets(all_assets, years=years)
 
-    rprint(f"  Found [bold]{len(all_assets)}[/bold] total, [bold]{len(recent_assets)}[/bold] in range ({years} years).")
+    rprint(f"  Found [bold]{total_raw}[/bold] total, [bold]{len(recent_assets)}[/bold] in range ({years} years).")
 
     # Ask before strategy so the post-dedup count can inform the choice
     retry_env = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
@@ -262,16 +262,18 @@ def auto_configure(people: list[dict]) -> list[dict]:
     for person in valid_people:
         name = person["name"]
 
-        all_assets = fetch_all_assets(person)
+        all_assets, total_raw = fetch_all_assets(person)
         recent_assets = filter_recent_assets(all_assets, years=Config.YEARS_FILTER)
 
-        rprint(f"  {name}: {len(all_assets)} total, {len(recent_assets)} recent")
+        rprint(f"  {name}: {total_raw} total, {len(recent_assets)} recent")
 
         # MIN_FACE_COUNT guard: skip people with too few Immich assets.
+        # Uses total_raw (pre-filter count) so non-dict items from a transient
+        # Immich schema issue don't cause a person to be skipped incorrectly.
         # Done here (after fetch) rather than upfront because Immich v2.7.5+
         # dropped assetCount from the /api/people response.
-        if min_face_count > 0 and len(all_assets) < min_face_count:
-            rprint(f"  [dim]Skipping {name} ({len(all_assets)} assets < MIN_FACE_COUNT={min_face_count}).[/dim]")
+        if min_face_count > 0 and total_raw < min_face_count:
+            rprint(f"  [dim]Skipping {name} ({total_raw} assets < MIN_FACE_COUNT={min_face_count}).[/dim]")
             continue
 
         # Enforce MAX_AUTO_IMAGES against the tracked file count only.
