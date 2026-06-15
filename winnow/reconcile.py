@@ -9,6 +9,12 @@ from .upload_tracker import record_frigate_files_batch
 
 logger = logging.getLogger(__name__)
 
+# Exponential back-off delays (seconds) when polling Frigate after uploads.
+# Frigate processes the upload queue asynchronously, so files aren't
+# immediately visible in GET /api/faces — we wait progressively longer
+# rather than hammering the API.
+_RECONCILE_POLL_DELAYS = (1, 2, 4, 8)
+
 
 def reconcile_frigate_mappings(
     person_name: str,
@@ -34,7 +40,7 @@ def reconcile_frigate_mappings(
     target = len(uploaded)
     current_files: set[str] = set()
 
-    for delay in (1, 2, 4, 8):
+    for delay in _RECONCILE_POLL_DELAYS:
         time.sleep(delay)
         fresh = get_frigate_person_files(person_name)
         if fresh is None:

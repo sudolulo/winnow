@@ -110,12 +110,17 @@ def fetch_all_assets(person: dict) -> list[dict]:
                 break
 
             page_assets = resp.json().get("assets", [])
+            # Immich ≥2.x returns {"assets": {"items": [...]}};
+            # earlier versions returned {"assets": [...]} directly.
             if isinstance(page_assets, dict):
                 page_assets = page_assets.get("items", [])
 
             if not page_assets:
                 break
 
+            skipped = [a for a in page_assets if not isinstance(a, dict)]
+            if skipped:
+                logger.debug("%s: skipping %s non-dict item(s) in page %s", name, len(skipped), page)
             assets.extend(a for a in page_assets if isinstance(a, dict))
             logger.debug("Fetched page %s, total: %s", page, len(assets))
 

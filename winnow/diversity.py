@@ -23,6 +23,15 @@ from .quality import assess_quality
 
 logger = logging.getLogger(__name__)
 
+# Candidate pool: cap at _POOL_CAP assets, but take at least _POOL_SCALE × the
+# requested limit so small limits don't artificially narrow the search space.
+_POOL_CAP = 3000
+_POOL_SCALE = 20
+
+# Embedding batch size: bounds decoded thumbnails in memory.
+# At ~3-8 MB each, 32 images ≈ 100–250 MB peak — safe in a 4 GB container.
+_EMBEDDING_BATCH_SIZE = 32
+
 
 def select_diverse_assets(
     assets: list,
@@ -193,9 +202,8 @@ def _select_by_embedding(
     4. Embedding computation
     5. Cluster-aware selection with hard example weighting
     """
-    # Determine candidate pool (cap at 3000 for performance)
     effective_limit = 30 if limit == "auto" else limit
-    pool_size = min(3000, max(effective_limit * 20, len(assets)))
+    pool_size = min(_POOL_CAP, max(effective_limit * _POOL_SCALE, len(assets)))
 
     # Subsample if needed (evenly distributed in time)
     if len(assets) > pool_size:
@@ -216,13 +224,12 @@ def _select_by_embedding(
     # produce a subtly different embedding than the full-res version. For most
     # libraries this is negligible; it matters if Immich preview quality is low.
     _fetch = fetch_fn or _fetch_thumbnail
-    _BATCH = 32
     embeddings, valid_candidates, confidence_scores = [], [], []
     quality_filtered = 0
     processed = 0
 
-    for batch_start in range(0, len(candidates), _BATCH):
-        batch = candidates[batch_start : batch_start + _BATCH]
+    for batch_start in range(0, len(candidates), _EMBEDDING_BATCH_SIZE):
+        batch = candidates[batch_start : batch_start + _EMBEDDING_BATCH_SIZE]
 
         # Download this batch concurrently
         batch_images: dict[str, Image.Image] = {}
