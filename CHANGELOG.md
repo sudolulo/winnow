@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-06-15
+
+### Fixed
+
+- **Pagination runaway on all-non-dict page**: the empty-page break in `fetch_all_assets` now fires after non-dict filtering rather than before, so a page whose items are all non-dict (e.g. all nulls) correctly terminates pagination instead of looping to MAX_PAGES.
+
+- **Non-dict API items upgraded to warning**: items skipped in a paginated response are now logged at `WARNING` (previously `DEBUG`) so silent asset loss is visible at default log levels.
+
+- **Single-pass page filtering**: `fetch_all_assets` now partitions valid and invalid items in one loop instead of iterating `page_assets` twice with inverse predicates.
+
+- **Reconciliation checks Frigate before sleeping**: the poll loop now performs an initial check immediately after upload, then backs off with `_RECONCILE_POLL_DELAYS` only if needed. Previously the loop always slept ≥1 s before any check.
+
+- **Reconciliation set subtraction computed once**: `current_files - known_files_before` was computed twice per poll iteration (once for the count check, once for the final mapping). It is now computed once and reused.
+
 ## [0.5.5] - 2026-06-15
 
 ### Changed
