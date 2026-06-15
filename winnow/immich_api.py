@@ -89,8 +89,9 @@ def fetch_all_assets(person: dict) -> tuple[list[dict], int]:
     Returns (assets, total_raw) where assets is the list of valid dict items
     and total_raw is the raw item count across pages that had at least one valid
     dict. All-garbage pages (every item non-dict) stop pagination and are not
-    counted. If pagination is interrupted by a network error, total_raw is a
-    lower bound (a warning is logged).
+    counted. total_raw is a lower bound in two cases: a network error interrupts
+    pagination (a warning is logged), or an all-garbage page terminates it early
+    (a warning is logged and later pages are not fetched).
     """
     name = person.get("name", "Unknown")
     person_id = person.get("id")

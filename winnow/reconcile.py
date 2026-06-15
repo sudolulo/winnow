@@ -76,15 +76,16 @@ def reconcile_frigate_mappings(
         }
         record_frigate_files_batch(person_name, mappings)
     elif len(new_files) > target:
-        logger.info(
+        logger.warning(
             "%s: %s new Frigate files for %s uploads"
-            " (external upload detected) — skipping file mapping",
+            " (external upload detected) — skipping file mapping;"
+            " these files are permanently unmapped",
             person_name,
             len(new_files),
             target,
         )
     else:
-        logger.warning(
+        logger.info(
             "%s: only %s of %s expected Frigate files"
             " appeared after reconciliation — mapping skipped",
             person_name,

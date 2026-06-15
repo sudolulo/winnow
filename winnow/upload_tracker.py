@@ -443,9 +443,9 @@ def get_person_summary() -> dict[str, dict]:
     ).fetchall()
 
     def _entry(summary: dict, name: str) -> dict:
-        return summary.setdefault(
-            name, {"uploaded": 0, "rejected": 0, "frigate_count": None, "scores": {}, "frigate_files": {}}
-        )
+        if name not in summary:
+            summary[name] = {"uploaded": 0, "rejected": 0, "frigate_count": None, "scores": {}, "frigate_files": {}}
+        return summary[name]
 
     summary: dict[str, dict] = {}
     for r in rows:

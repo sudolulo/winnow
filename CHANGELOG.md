@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-06-15
+
+### Fixed
+
+- **Reconcile log severity corrected**: the external-upload branch (`len(new_files) > target`) was logged at `INFO` while the timeout branch (`< target`) was logged at `WARNING`. The severity is now inverted to match impact: external upload causes permanent mapping loss (those files are never eligible for quality replacement) and is now `WARNING`; timeout is transient and recoverable next cycle and is now `INFO`.
+
+- **`fetch_all_assets` docstring: lower-bound caveat now covers both interruption cases**: previously only noted that a network error makes `total_raw` a lower bound. An all-garbage page (every item non-dict) also terminates pagination early, leaving later pages unfetched — this case is now documented alongside the network error case.
+
+- **`shutil.rmtree` symlink safety documented**: added a comment above the `rmtree` call in `execute_jobs` noting that POSIX `shutil.rmtree` raises `NotADirectoryError` on a top-level symlink, so a race-replaced symlink cannot cause out-of-tree deletion.
+
+- **`_entry()` in `get_person_summary` no longer allocates default dict for present keys**: `setdefault` evaluates its default argument before checking whether the key exists, allocating and immediately discarding a 5-key dict on every call for an already-present person. Replaced with an explicit `if name not in summary` guard.
+
 ## [0.5.8] - 2026-06-15
 
 ### Fixed
