@@ -152,8 +152,8 @@ class _Config:
         else:
             self.DATA_DIR = "data"
 
-        # Fall back to config file only when the env var is genuinely absent (None).
-        # An explicitly empty env var (IMMICH_URL="") takes priority over the file.
+        # Fall back to config file when the env var is absent or blank — a blank
+        # IMMICH_URL= placeholder in .env should not override the config file.
         # Prefer DATA_DIR/.immich_config.json (volume-safe in Docker) and fall back
         # to the legacy CWD path so existing installations continue to work.
         _data_cfg = Path(self.DATA_DIR) / ".immich_config.json"
@@ -171,7 +171,7 @@ class _Config:
         if _data_cfg_exists or config_file.exists():
             try:
                 data = json.loads(config_file.read_text())
-                if self.IMMICH_URL is None:
+                if not self.IMMICH_URL:
                     self.IMMICH_URL = data.get("IMMICH_URL")
                 if os.getenv("OUTPUT_DIR") is None:
                     self.OUTPUT_DIR = data.get("OUTPUT_DIR", self.OUTPUT_DIR)
