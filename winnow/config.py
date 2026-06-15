@@ -132,7 +132,9 @@ class _Config:
                 _data_cfg,
             )
         config_file = _data_cfg if _data_cfg_exists else _LEGACY_CONFIG_FILE
-        if config_file.exists():
+        # _data_cfg_exists already confirmed the primary path — avoid re-stat.
+        # The short-circuit means the legacy path is stat'd at most once here.
+        if _data_cfg_exists or config_file.exists():
             try:
                 data = json.loads(config_file.read_text())
                 if self.IMMICH_URL is None:

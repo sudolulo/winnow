@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-06-15
+
+### Fixed
+
+- **`_safe_person_dir` docstring corrected**: the previous comment stated "checking after realpath would be too late because realpath follows the link first," which implied `islink` was the primary security guard. The load-bearing path-traversal check is `realpath + startswith`; it rejects both `../../` traversal and symlinks. The `islink` check is a supplementary early-exit that provides a cleaner error message for the symlink sub-case only.
+
+- **`total_raw` not inflated by all-garbage pages**: `fetch_all_assets` previously added `page_count` to `total_raw` before checking whether any valid dict items existed. A page returning only non-dict items would inflate `total_raw` and produce a misleading "N total, 0 recent" display. `total_raw` now accumulates only after `valid_assets` is confirmed non-empty, so all-garbage pages break without contributing. Mixed pages (some valid, some non-dict) still count `page_count` so transient schema glitches on a partial page don't cause `MIN_FACE_COUNT` to incorrectly skip a real person.
+
+- **Pagination interruption warning**: when a `RequestException` breaks pagination mid-way (page > 1), a `WARNING` is now logged noting that `total_raw` is a lower bound. Previously the exception was logged at `ERROR` with no indication that the `MIN_FACE_COUNT` comparison was using a partial count.
+
+- **Config TOCTOU residue**: `config.py` line 135 re-stat'd `_data_cfg` when it was the selected config file, creating a second TOCTOU window after the fix in v0.5.7. The check is now `if _data_cfg_exists or config_file.exists():` — the primary path is never stat'd again, and the legacy path is stat'd at most once.
+
 ## [0.5.7] - 2026-06-15
 
 ### Fixed

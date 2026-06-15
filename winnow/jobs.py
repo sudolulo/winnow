@@ -268,8 +268,8 @@ def auto_configure(people: list[dict]) -> list[dict]:
         rprint(f"  {name}: {total_raw} total, {len(recent_assets)} recent")
 
         # MIN_FACE_COUNT guard: skip people with too few Immich assets.
-        # Uses total_raw (pre-filter count) so non-dict items from a transient
-        # Immich schema issue don't cause a person to be skipped incorrectly.
+        # Uses total_raw so that non-dict items from a transient Immich schema
+        # issue on a mixed page don't shrink the count below the threshold.
         # Done here (after fetch) rather than upfront because Immich v2.7.5+
         # dropped assetCount from the /api/people response.
         if min_face_count > 0 and total_raw < min_face_count:

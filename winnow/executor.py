@@ -42,9 +42,11 @@ def _safe_person_dir(output_dir: str, person_name: str) -> str:
     """Return the output subdirectory for a person, raising ValueError on path traversal.
 
     os.path.join silently discards output_dir when person_name is absolute,
-    and '../..' sequences resolve outside the tree. Both are rejected here.
-    Symlinks on the raw (unresolved) path are also rejected — checking after
-    realpath would be too late because realpath follows the link first.
+    and '../..' sequences resolve outside the tree. Both are rejected by the
+    realpath+startswith guard, which is the load-bearing security check.
+    The islink check below provides an earlier, cleaner error message for the
+    symlink sub-case; it is redundant with (not a replacement for) the
+    realpath+startswith traversal check.
     """
     raw = os.path.join(output_dir, person_name)
     if os.path.islink(raw):
