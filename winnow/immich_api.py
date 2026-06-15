@@ -115,16 +115,25 @@ def fetch_all_assets(person: dict) -> list[dict]:
             if isinstance(page_assets, dict):
                 page_assets = page_assets.get("items", [])
 
-            if not page_assets:
+            page_count = len(page_assets)  # raw count for termination check before filtering
+
+            # Single pass: partition valid assets from unexpected non-dict items
+            valid_assets, skipped_count = [], 0
+            for item in page_assets:
+                if isinstance(item, dict):
+                    valid_assets.append(item)
+                else:
+                    skipped_count += 1
+            if skipped_count:
+                logger.warning("%s: skipping %s non-dict item(s) in page %s", name, skipped_count, page)
+
+            if not valid_assets:
                 break
 
-            skipped = [a for a in page_assets if not isinstance(a, dict)]
-            if skipped:
-                logger.debug("%s: skipping %s non-dict item(s) in page %s", name, len(skipped), page)
-            assets.extend(a for a in page_assets if isinstance(a, dict))
+            assets.extend(valid_assets)
             logger.debug("Fetched page %s, total: %s", page, len(assets))
 
-            if len(page_assets) < page_size or len(assets) >= _MAX_ASSETS_PER_PERSON:
+            if page_count < page_size or len(assets) >= _MAX_ASSETS_PER_PERSON:
                 break
 
         except (requests.RequestException, ValueError) as e:

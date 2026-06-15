@@ -38,10 +38,12 @@ def reconcile_frigate_mappings(
     the cost of occasionally missing them when another client is active.
     """
     target = len(uploaded)
-    current_files: set[str] = set()
+    new_files: set[str] = set()
 
-    for delay in _RECONCILE_POLL_DELAYS:
-        time.sleep(delay)
+    # Check before the first sleep so a fast Frigate response returns immediately.
+    for delay in (None, *_RECONCILE_POLL_DELAYS):
+        if delay is not None:
+            time.sleep(delay)
         fresh = get_frigate_person_files(person_name)
         if fresh is None:
             logger.warning(
@@ -50,14 +52,9 @@ def reconcile_frigate_mappings(
                 person_name,
             )
             return
-        current_files = set(fresh)
-        new_count = len(current_files - known_files_before)
-        if new_count == target:
+        new_files = set(fresh) - known_files_before
+        if len(new_files) >= target:
             break
-        if new_count > target:
-            break  # external upload already visible — no point polling further
-
-    new_files = current_files - known_files_before
 
     if len(new_files) == target:
         def _ts(fname: str) -> float:
