@@ -16,6 +16,9 @@ def _getenv_num(name: str, default, cast):
     raw = os.getenv(name)
     if raw is None:
         return default
+    raw = raw.strip()
+    if not raw:
+        return default
     try:
         return cast(raw)
     except ValueError:
@@ -45,6 +48,9 @@ def _getenv_optional_float(name: str) -> float | None:
 def _getenv_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
+        return default
+    raw = raw.strip()
+    if not raw:
         return default
     return raw.lower() in ("true", "1", "yes")
 

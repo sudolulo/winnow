@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.17] - 2026-06-15
+
+### Fixed
+
+- **`_getenv_num` and `_getenv_bool` now treat an explicitly-empty env var as unset**: previously, `YEARS_FILTER=` (blank) in a `.env` or Compose file caused `int("")` to raise `ValueError`, logging a spurious "not a valid int" warning and returning the default. Both helpers now strip whitespace and treat an empty string the same as an absent variable, returning the typed default silently. This affects all numeric config vars (`YEARS_FILTER`, `MIN_FACE_WIDTH`, `MIN_FACE_COUNT`, `MAX_AUTO_IMAGES`, `BLUR_THRESHOLD`, `MIN_CONFIDENCE`, `FACE_MARGIN`) and all boolean config vars. `_getenv_optional_float` already handled this correctly.
+
+- **`FORCE_CPU` now uses `_getenv_bool`**: `embeddings.py` retained the old inline `os.getenv("FORCE_CPU", "").lower() in ("true", "1", "yes")` pattern after v0.5.16 introduced `_getenv_bool`. The inline copy is now replaced so the canonical truthy-string set is defined in one place.
+
 ## [0.5.16] - 2026-06-15
 
 ### Changed
