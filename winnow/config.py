@@ -12,6 +12,24 @@ from rich.prompt import Prompt
 _LEGACY_CONFIG_FILE = Path(".immich_config.json")  # pre-v0.6: lived in process CWD, not on a volume
 
 
+def _getenv_int(name: str, default: int) -> int:
+    val = os.getenv(name, str(default))
+    try:
+        return int(val)
+    except ValueError:
+        logging.warning("%s=%r is not a valid integer — using default %s", name, val, default)
+        return default
+
+
+def _getenv_float(name: str, default: float) -> float:
+    val = os.getenv(name, str(default))
+    try:
+        return float(val)
+    except ValueError:
+        logging.warning("%s=%r is not a valid float — using default %s", name, val, default)
+        return default
+
+
 class _Config:
     """Singleton configuration with lazy loading via __getattr__.
 
@@ -84,13 +102,13 @@ class _Config:
         self.IMMICH_URL = os.getenv("IMMICH_URL")
         self.API_KEY = os.getenv("API_KEY")
         self.OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./frigate_train")
-        self.YEARS_FILTER = int(os.getenv("YEARS_FILTER", "10"))
-        self.MIN_FACE_WIDTH = int(os.getenv("MIN_FACE_WIDTH", "90"))
-        self.MIN_FACE_COUNT = int(os.getenv("MIN_FACE_COUNT", "3"))
+        self.YEARS_FILTER = _getenv_int("YEARS_FILTER", 10)
+        self.MIN_FACE_WIDTH = _getenv_int("MIN_FACE_WIDTH", 90)
+        self.MIN_FACE_COUNT = _getenv_int("MIN_FACE_COUNT", 3)
         self.MERGE_DUPLICATE_PEOPLE = os.getenv("MERGE_DUPLICATE_PEOPLE", "false").lower() in ("true", "1", "yes")
-        self.BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "120.0"))
-        self.MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.7"))
-        self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "20"))
+        self.BLUR_THRESHOLD = _getenv_float("BLUR_THRESHOLD", 120.0)
+        self.MIN_CONFIDENCE = _getenv_float("MIN_CONFIDENCE", 0.7)
+        self.MAX_AUTO_IMAGES = _getenv_int("MAX_AUTO_IMAGES", 20)
         self.QUALITY_REPLACEMENT = os.getenv("QUALITY_REPLACEMENT", "true").lower() in ("true", "1", "yes")
         _ceiling_env = os.getenv("FRIGATE_SCORE_CEILING", "").strip()
         if _ceiling_env:
@@ -102,7 +120,7 @@ class _Config:
         else:
             self.FRIGATE_SCORE_CEILING = None
         self.ENABLE_FRIGATE_SCORES = os.getenv("ENABLE_FRIGATE_SCORES", "true").lower() in ("true", "1", "yes")
-        self.FACE_MARGIN = float(os.getenv("FACE_MARGIN", "0.15"))
+        self.FACE_MARGIN = _getenv_float("FACE_MARGIN", 0.15)
         self.USE_FULL_RESOLUTION = os.getenv("USE_FULL_RESOLUTION", "true").lower() in ("true", "1", "yes")
         self.ENABLE_FACE_ALIGNMENT = os.getenv("ENABLE_FACE_ALIGNMENT", "true").lower() in ("true", "1", "yes")
         self.ENABLE_CACHE = os.getenv("ENABLE_CACHE", "true").lower() in ("true", "1", "yes")

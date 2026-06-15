@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.14] - 2026-06-15
+
+### Fixed
+
+- **Invalid env var values for numeric config now warn and use defaults**: `YEARS_FILTER`, `MIN_FACE_WIDTH`, `MIN_FACE_COUNT`, `MAX_AUTO_IMAGES`, `BLUR_THRESHOLD`, `MIN_CONFIDENCE`, and `FACE_MARGIN` all used bare `int()`/`float()` with no error handler. A typo such as `YEARS_FILTER=10 ` (trailing space) or `MIN_FACE_WIDTH=auto` raised `ValueError` from inside `__getattr__`, surfacing as a cryptic traceback on the first config access rather than at the config-validation step where a helpful error is expected. The values are now parsed with module-level `_getenv_int` / `_getenv_float` helpers that log a `WARNING` and fall back to the documented default on parse failure, matching the existing pattern already used for `FRIGATE_SCORE_CEILING`.
+
 ## [0.5.13] - 2026-06-15
 
 ### Fixed
