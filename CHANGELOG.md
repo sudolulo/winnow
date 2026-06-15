@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-15
+
+### Changed
+
+- **Reverted upload tracker to JSON storage**: the SQLite-based tracker introduced in v0.5.0 generated 21 bug-fix releases over two days — data-loss risks in the migration layer, schema PK conflicts, tracker isolation races, and disk-full retry storms. The JSON backend is simpler, has no migration layer, and carries no external dependency. Tracker data lives at `DATA_DIR/frigate_uploaded_ids.json` and `DATA_DIR/frigate_rejected_ids.json`; existing JSON files are read automatically. Any `frigate_tracker.db` in `DATA_DIR` can be deleted once you confirm the JSON files look correct.
+
 ## [0.5.21] - 2026-06-15
 
 ### Fixed

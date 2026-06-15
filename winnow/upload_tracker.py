@@ -1,258 +1,146 @@
-"""Persistent tracker for Immich asset IDs uploaded/rejected by Frigate.
+"""Persistent tracker for Immich asset IDs already uploaded/rejected by Frigate.
 
-Uses a local SQLite database (frigate_tracker.db) in DATA_DIR.
+Two separate JSON files in DATA_DIR:
+  frigate_uploaded_ids.json  — successfully uploaded assets
+  frigate_rejected_ids.json  — assets Frigate rejected (e.g. no face detected)
 
-Schema
-------
-tracked_assets   — one row per (asset_id, status) pair
-frigate_files    — Frigate filename → Immich asset_id mapping
-person_metadata  — last-known Frigate training image count per person
+Both are excluded from future candidate pools. To reset:
+  - All:           delete both files
+  - One person:    call reset_person("Name") or set RESET_PERSON=Name
+  - Rejects only:  delete frigate_rejected_ids.json, or set RETRY_REJECTED=true
 
-Migration
----------
-On first open, if the old JSON files exist and the tables are empty, their
-data is migrated automatically. The JSON files are then renamed to .json.bak.
+by_person schema (frigate_uploaded_ids.json):
+  {
+    "asset_ids":      ["immich-id-1", ...],                    # all assets we attempted to upload
+    "scores":         {"immich-id-1": 450.3},                  # Laplacian blur variance at upload time
+    "frigate_scores": {"immich-id-1": 0.87},                   # Frigate recognition confidence (0-1) pre-upload
+    "frigate_files":  {"PersonName-123.webp": "immich-id-1"},  # Frigate filename → asset ID
+    "crop_dims":      {"immich-id-1": [640, 480]},             # crop pixel dimensions at upload time
+    "frigate_count":  42                                       # last known Frigate training image count
+  }
+
+frigate_scores stores pre-upload recognize scores (0-1 sigmoid-mapped cosine
+similarity). High score = the existing training set already covers this face
+condition well. Low score = a gap — novel/diverse for the training set.
+
+frigate_files only contains files winnow uploaded — files added manually through
+Frigate's UI are never mapped here and are never touched by quality replacement.
 """
 
 import json
 import logging
 import os
-import sqlite3
 from pathlib import Path
 
-from .frigate_api import _get_frigate_url, delete_frigate_person_files
+from .frigate_api import delete_frigate_person_files
 
 logger = logging.getLogger(__name__)
 
-# Legacy JSON filenames (for migration)
-_UPLOAD_JSON = "frigate_uploaded_ids.json"
-_REJECT_JSON = "frigate_rejected_ids.json"
-_DB_NAME = "frigate_tracker.db"
+UPLOAD_TRACKER_FILE = "frigate_uploaded_ids.json"
+REJECT_TRACKER_FILE = "frigate_rejected_ids.json"
 
-_DDL = """
-CREATE TABLE IF NOT EXISTS tracked_assets (
-    asset_id      TEXT NOT NULL,
-    person_name   TEXT,
-    status        TEXT NOT NULL CHECK(status IN ('uploaded', 'rejected')),
-    blur_score    REAL,
-    crop_width    INTEGER,
-    crop_height   INTEGER,
-    frigate_score REAL,
-    PRIMARY KEY (asset_id, person_name, status)
-);
-
-CREATE TABLE IF NOT EXISTS frigate_files (
-    frigate_filename TEXT PRIMARY KEY,
-    person_name      TEXT NOT NULL,
-    asset_id         TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS person_metadata (
-    person_name   TEXT PRIMARY KEY,
-    frigate_count INTEGER
-);
-"""
-
-# Module-level connection state — re-opened when DATA_DIR changes (test isolation)
-_conn: sqlite3.Connection | None = None
-_conn_path: str | None = None
+# Write-through in-memory cache keyed by the resolved file path.
+# Reduces per-call JSON reads from O(calls) to O(1) after the first load.
+# Keyed by full path so tests with isolated tmp dirs never share entries.
+_cache: dict[str, dict] = {}
 
 
-def _migrate_schema_v2(conn: sqlite3.Connection) -> None:
-    """Migrate tracked_assets from PRIMARY KEY (asset_id, status) to (asset_id, person_name, status).
-
-    The old PK meant INSERT OR REPLACE for person B on an asset already tracked for
-    person A would silently overwrite person_name, breaking quality-replacement JOINs
-    for person A. The new PK gives each (asset, person) pair its own row.
-
-    SQLite does not support ALTER TABLE to change a primary key; we recreate the table.
-    """
-    pk_cols = {
-        r[1]
-        for r in conn.execute("PRAGMA table_info(tracked_assets)").fetchall()
-        if r[5] > 0  # column index 5 = pk position (0 = not in PK)
-    }
-    if "person_name" in pk_cols:
-        return  # Already at new schema
-
-    logger.info("Migrating tracked_assets: adding person_name to primary key")
-    # Use individual execute() calls inside a transaction — executescript() issues an
-    # implicit COMMIT before running, so a crash between DROP and RENAME would
-    # permanently destroy the table with no rollback path.
-    with conn:
-        conn.execute("""
-            CREATE TABLE tracked_assets_new (
-                asset_id      TEXT NOT NULL,
-                person_name   TEXT,
-                status        TEXT NOT NULL CHECK(status IN ('uploaded', 'rejected')),
-                blur_score    REAL,
-                crop_width    INTEGER,
-                crop_height   INTEGER,
-                frigate_score REAL,
-                PRIMARY KEY (asset_id, person_name, status)
-            )
-        """)
-        conn.execute("""
-            INSERT OR IGNORE INTO tracked_assets_new
-                SELECT asset_id, person_name, status, blur_score, crop_width, crop_height, frigate_score
-                FROM tracked_assets
-        """)
-        conn.execute("DROP TABLE tracked_assets")
-        conn.execute("ALTER TABLE tracked_assets_new RENAME TO tracked_assets")
-    logger.info("tracked_assets schema migration complete")
-
-
-def _get_conn() -> sqlite3.Connection:
-    """Return (or create) the module-level SQLite connection.
-
-    Re-opens the connection when Config.DATA_DIR has changed — this provides
-    test isolation when the isolated_cache fixture sets a new tmp directory and
-    calls _Config.reset().
-    """
-    global _conn, _conn_path
-
-    from .config import Config
-    data_dir = Config.DATA_DIR
-    db_path = str(Path(data_dir) / _DB_NAME)
-
-    if _conn is not None and _conn_path != db_path:
-        try:
-            _conn.close()
-        except Exception as e:
-            logger.debug("Failed to close previous SQLite connection: %s", e)
-        _conn = None
-
-    if _conn is None:
-        Path(data_dir).mkdir(parents=True, exist_ok=True)
-        _conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
-        _conn.row_factory = sqlite3.Row
-        _conn.execute("PRAGMA journal_mode=WAL")
-        _conn.execute("PRAGMA foreign_keys=ON")
-        _conn.executescript(_DDL)
-        _conn.commit()
-        _conn_path = db_path
-        _migrate_schema_v2(_conn)
-        _maybe_migrate(data_dir, _conn)
-
-    return _conn
-
-
-# ---------------------------------------------------------------------------
-# JSON → SQLite migration
-# ---------------------------------------------------------------------------
-
-def _maybe_migrate(data_dir: str, conn: sqlite3.Connection) -> None:
-    """If the old JSON files exist and DB is empty, migrate and rename them."""
-    base = Path(data_dir)
-    upload_json = base / _UPLOAD_JSON
-    reject_json = base / _REJECT_JSON
-
-    if not upload_json.exists() and not reject_json.exists():
-        return
-
-    # No row-count guard here: INSERT OR IGNORE makes migration idempotent, so it
-    # is safe to re-run if a previous attempt renamed one file but not the other
-    # (e.g. a PermissionError on the second rename would have left the first file's
-    # data committed but the second file un-renamed and un-migrated).
-
-    logger.info("Migrating JSON tracker files to SQLite in %s", data_dir)
-
+def _tracker_path(filename: str) -> Path:
     try:
-        with conn:
-            if upload_json.exists():
-                _migrate_json_data(conn, json.loads(upload_json.read_text()), "uploaded")
-            if reject_json.exists():
-                _migrate_json_data(conn, json.loads(reject_json.read_text()), "rejected")
-    except Exception as exc:
-        logger.warning("JSON migration failed, will retry next run: %s", exc)
-        return
-
-    # Rename each file independently so a failure on one does not prevent the
-    # other from being marked complete on this run.
-    for json_path in (upload_json, reject_json):
-        if json_path.exists():
-            try:
-                json_path.rename(json_path.with_suffix(".json.bak"))
-            except OSError as exc:
-                logger.warning("Could not rename %s after migration: %s", json_path, exc)
-
-    logger.info("JSON → SQLite migration complete")
+        from .config import Config
+        return Path(Config.DATA_DIR) / filename
+    except (ImportError, AttributeError):
+        return Path(filename)
 
 
-def _migrate_json_data(conn: sqlite3.Connection, data: dict, status: str) -> None:
-    """Insert one JSON tracker file's data into SQLite tables."""
-    flat_key = "uploaded_asset_ids" if status == "uploaded" else "rejected_asset_ids"
-    flat_ids: set[str] = set(data.get(flat_key, []))
-    person_covered: set[str] = set()
-
-    for person_name, raw_entry in data.get("by_person", {}).items():
-        if isinstance(raw_entry, list):
-            entry: dict = {"asset_ids": raw_entry, "scores": {}, "frigate_scores": {},
-                           "frigate_files": {}, "crop_dims": {}}
-        else:
-            entry = {
-                "asset_ids": raw_entry.get("asset_ids", []),
-                "scores": raw_entry.get("scores", {}),
-                "frigate_scores": raw_entry.get("frigate_scores", {}),
-                "frigate_files": raw_entry.get("frigate_files", {}),
-                "crop_dims": raw_entry.get("crop_dims", {}),
-                "frigate_count": raw_entry.get("frigate_count"),
-            }
-
-        for asset_id in entry["asset_ids"]:
-            person_covered.add(asset_id)
-            dims = entry.get("crop_dims", {}).get(asset_id)
-            conn.execute(
-                """INSERT OR IGNORE INTO tracked_assets
-                   (asset_id, person_name, status, blur_score,
-                    crop_width, crop_height, frigate_score)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    asset_id,
-                    person_name,
-                    status,
-                    entry.get("scores", {}).get(asset_id),
-                    dims[0] if dims else None,
-                    dims[1] if dims else None,
-                    entry.get("frigate_scores", {}).get(asset_id) if status == "uploaded" else None,
-                ),
-            )
-
-        if status == "uploaded":
-            for ff, aid in entry.get("frigate_files", {}).items():
-                conn.execute(
-                    "INSERT OR IGNORE INTO frigate_files (frigate_filename, person_name, asset_id) VALUES (?, ?, ?)",
-                    (ff, person_name, aid),
-                )
-            fc = entry.get("frigate_count")
-            if fc is not None:
-                conn.execute(
-                    "INSERT OR REPLACE INTO person_metadata (person_name, frigate_count) VALUES (?, ?)",
-                    (person_name, fc),
-                )
-
-    # Flat IDs not covered by any by_person entry → insert with NULL person
-    for asset_id in flat_ids - person_covered:
-        conn.execute(
-            "INSERT OR IGNORE INTO tracked_assets (asset_id, person_name, status) VALUES (?, NULL, ?)",
-            (asset_id, status),
-        )
+def _load(filename: str) -> dict:
+    path = _tracker_path(filename)
+    key = str(path)
+    if key in _cache:
+        return _cache[key]
+    data: dict = {}
+    if path.exists():
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Could not load tracker {filename}: {e}")
+    _cache[key] = data
+    return data
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+def _save(filename: str, data: dict) -> None:
+    path = _tracker_path(filename)
+    _cache[str(path)] = data  # keep cache consistent with what we write
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def _flat_key(filename: str) -> str:
+    return "uploaded_asset_ids" if "uploaded" in filename else "rejected_asset_ids"
+
+
+def _load_flat(filename: str) -> set[str]:
+    return set(_load(filename).get(_flat_key(filename), []))
+
+
+def _get_ids(entry: list | dict) -> list[str]:
+    """Extract asset_ids from either the old list format or the new dict format."""
+    if isinstance(entry, list):
+        return entry
+    return entry.get("asset_ids", [])
+
+
+def _migrate_entry(entry: list | dict) -> dict:
+    """Ensure by_person entry is in the current dict format."""
+    if isinstance(entry, list):
+        return {"asset_ids": sorted(entry), "scores": {}, "frigate_scores": {}, "frigate_files": {}, "crop_dims": {}}
+    entry.setdefault("asset_ids", [])
+    entry.setdefault("scores", {})
+    entry.setdefault("frigate_scores", {})
+    entry.setdefault("frigate_files", {})
+    entry.setdefault("crop_dims", {})
+    return entry
+
+
+def _mark(
+    filename: str,
+    asset_id: str,
+    person_name: str | None,
+    score: float | None = None,
+    crop_dims: tuple[int, int] | None = None,
+    frigate_score: float | None = None,
+) -> None:
+    data = _load(filename)
+    flat_key = _flat_key(filename)
+    flat = set(data.get(flat_key, []))
+    flat.add(asset_id)
+    data[flat_key] = sorted(flat)
+    if person_name:
+        by_person = data.setdefault("by_person", {})
+        entry = _migrate_entry(by_person.get(person_name, {}))
+        ids = set(entry["asset_ids"])
+        ids.add(asset_id)
+        entry["asset_ids"] = sorted(ids)
+        if score is not None:
+            entry["scores"][asset_id] = round(score, 4)
+        if crop_dims is not None:
+            entry["crop_dims"][asset_id] = [crop_dims[0], crop_dims[1]]
+        if frigate_score is not None:
+            entry["frigate_scores"][asset_id] = round(frigate_score, 4)
+        by_person[person_name] = entry
+    _save(filename, data)
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def load_uploaded_ids() -> set[str]:
-    conn = _get_conn()
-    rows = conn.execute("SELECT asset_id FROM tracked_assets WHERE status='uploaded'").fetchall()
-    return {r[0] for r in rows}
+    return _load_flat(UPLOAD_TRACKER_FILE)
 
 
 def load_rejected_ids() -> set[str]:
-    conn = _get_conn()
-    rows = conn.execute("SELECT asset_id FROM tracked_assets WHERE status='rejected'").fetchall()
-    return {r[0] for r in rows}
+    return _load_flat(REJECT_TRACKER_FILE)
 
 
 def mark_uploaded(
@@ -262,264 +150,233 @@ def mark_uploaded(
     crop_dims: tuple[int, int] | None = None,
     frigate_score: float | None = None,
 ) -> None:
-    conn = _get_conn()
-    with conn:
-        conn.execute(
-            """INSERT OR REPLACE INTO tracked_assets
-               (asset_id, person_name, status, blur_score, crop_width, crop_height, frigate_score)
-               VALUES (?, ?, 'uploaded', ?, ?, ?, ?)""",
-            (
-                asset_id,
-                person_name,
-                round(score, 4) if score is not None else None,
-                crop_dims[0] if crop_dims else None,
-                crop_dims[1] if crop_dims else None,
-                round(frigate_score, 4) if frigate_score is not None else None,
-            ),
-        )
-    logger.debug("Marked %s as uploaded (%s)", asset_id, person_name)
+    _mark(UPLOAD_TRACKER_FILE, asset_id, person_name, score=score, crop_dims=crop_dims, frigate_score=frigate_score)
+    logger.debug(f"Marked {asset_id} as uploaded ({person_name})")
 
 
 def mark_rejected(asset_id: str, person_name: str | None = None) -> None:
-    conn = _get_conn()
-    with conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO tracked_assets (asset_id, person_name, status) VALUES (?, ?, 'rejected')",
-            (asset_id, person_name),
-        )
-    logger.debug("Marked %s as rejected (%s)", asset_id, person_name)
+    _mark(REJECT_TRACKER_FILE, asset_id, person_name)
+    logger.debug(f"Marked {asset_id} as rejected ({person_name})")
+
+
+
+def record_frigate_file(person_name: str, frigate_filename: str, asset_id: str) -> None:
+    """Record the mapping from a Frigate training filename to an Immich asset ID."""
+    data = _load(UPLOAD_TRACKER_FILE)
+    by_person = data.setdefault("by_person", {})
+    entry = _migrate_entry(by_person.get(person_name, {}))
+    entry["frigate_files"][frigate_filename] = asset_id
+    by_person[person_name] = entry
+    _save(UPLOAD_TRACKER_FILE, data)
+    logger.debug(f"Mapped Frigate file {frigate_filename} → {asset_id} ({person_name})")
 
 
 def record_frigate_files_batch(person_name: str, mappings: dict[str, str]) -> None:
-    """Record multiple Frigate filename → asset_id mappings in a single transaction.
-
-    All rows are written atomically — either every mapping is persisted or none
-    are (SQLite rolls back on error), so there is no risk of partial failure.
-    """
+    """Record multiple Frigate filename → asset_id mappings in a single load/save."""
     if not mappings:
         return
-    conn = _get_conn()
-    with conn:
-        conn.executemany(
-            "INSERT OR REPLACE INTO frigate_files (frigate_filename, person_name, asset_id) VALUES (?, ?, ?)",
-            [(ff, person_name, aid) for ff, aid in mappings.items()],
-        )
-    logger.debug("Batch-mapped %s Frigate file(s) for %s", len(mappings), person_name)
+    data = _load(UPLOAD_TRACKER_FILE)
+    by_person = data.setdefault("by_person", {})
+    entry = _migrate_entry(by_person.get(person_name, {}))
+    entry["frigate_files"].update(mappings)
+    by_person[person_name] = entry
+    _save(UPLOAD_TRACKER_FILE, data)
+    logger.debug(f"Batch-mapped {len(mappings)} Frigate file(s) for {person_name}")
 
 
 def remove_frigate_file(person_name: str, frigate_filename: str) -> None:
-    """Remove a Frigate filename mapping and clear its asset's frigate_score.
+    """Remove a Frigate filename from the mapping after it has been deleted.
 
-    Does NOT unmark the source asset_id — the deletion was deliberate.
+    Does NOT unmark the source asset_id — the deletion was deliberate and
+    we don't want to re-upload the inferior image on the next run.
     """
-    conn = _get_conn()
-    with conn:
-        row = conn.execute(
-            "SELECT asset_id FROM frigate_files WHERE frigate_filename=? AND person_name=?",
-            (frigate_filename, person_name),
-        ).fetchone()
-        conn.execute(
-            "DELETE FROM frigate_files WHERE frigate_filename=? AND person_name=?",
-            (frigate_filename, person_name),
-        )
-        if row:
-            conn.execute(
-                "UPDATE tracked_assets SET frigate_score=NULL WHERE asset_id=? AND person_name=?",
-                (row["asset_id"], person_name),
-            )
-    logger.debug("Removed Frigate file mapping %s (%s)", frigate_filename, person_name)
+    data = _load(UPLOAD_TRACKER_FILE)
+    by_person = data.get("by_person", {})
+    entry = _migrate_entry(by_person.get(person_name, {}))
+    asset_id = entry["frigate_files"].pop(frigate_filename, None)
+    if asset_id:
+        entry["frigate_scores"].pop(asset_id, None)
+    by_person[person_name] = entry
+    _save(UPLOAD_TRACKER_FILE, data)
+    logger.debug(f"Removed Frigate file mapping {frigate_filename} ({person_name})")
 
 
 def get_tracked_frigate_file_count(person_name: str) -> int:
-    """Return the number of Frigate training files winnow has mapped for this person."""
-    conn = _get_conn()
-    row = conn.execute(
-        "SELECT COUNT(*) FROM frigate_files WHERE person_name=?", (person_name,)
-    ).fetchone()
-    return row[0]
+    """Return the number of Frigate training files winnow has mapped for this person.
+
+    Used as the cap baseline so that manually-added Frigate files do not
+    consume slots from winnow's managed quota.
+    """
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    return len(entry["frigate_files"])
 
 
 def get_tracked_frigate_filenames(person_name: str) -> set[str]:
-    """Return the set of Frigate filenames currently mapped for a person."""
-    conn = _get_conn()
-    rows = conn.execute(
-        "SELECT frigate_filename FROM frigate_files WHERE person_name=?", (person_name,)
-    ).fetchall()
-    return {r[0] for r in rows}
+    """Return the set of Frigate filenames currently mapped in the tracker for a person.
+
+    Used as a pre-upload baseline when the Frigate GET API is unreachable at
+    upload start, so reconciliation can still identify newly uploaded files.
+    """
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    return set(entry["frigate_files"].keys())
 
 
 def has_frigate_scores(person_name: str) -> bool:
     """Return True if any mapped file for this person has a stored Frigate recognition score."""
-    conn = _get_conn()
-    row = conn.execute(
-        """SELECT COUNT(*) FROM frigate_files ff
-           JOIN tracked_assets ta ON ta.asset_id=ff.asset_id AND ta.person_name=ff.person_name
-           WHERE ff.person_name=? AND ta.frigate_score IS NOT NULL""",
-        (person_name,),
-    ).fetchone()
-    return row[0] > 0
-
-
-# Guard against SQL injection from callers passing dynamic column names.
-# Only these two columns exist and are safe to interpolate into queries.
-_VALID_SCORE_COLS = frozenset({"blur_score", "frigate_score"})
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    frigate_files = entry.get("frigate_files", {})
+    frigate_scores = entry.get("frigate_scores", {})
+    return any(asset_id in frigate_scores for asset_id in frigate_files.values())
 
 
 def _pick_mapped_file(
-    person_name: str, score_col: str, *, highest: bool, exclude: set[str] | None = None
+    person_name: str, score_key: str, *, highest: bool, exclude: set[str] | None = None
 ) -> tuple[str, str, float] | None:
-    if score_col not in _VALID_SCORE_COLS:
-        raise ValueError(f"Invalid score column: {score_col!r}")
-    conn = _get_conn()
-    order = "DESC" if highest else "ASC"
-    rows = conn.execute(
-        f"""SELECT ff.frigate_filename, ff.asset_id, ta.{score_col}
-            FROM frigate_files ff
-            JOIN tracked_assets ta ON ta.asset_id=ff.asset_id AND ta.person_name=ff.person_name
-            WHERE ff.person_name=? AND ta.{score_col} IS NOT NULL
-            ORDER BY ta.{score_col} {order}""",
-        (person_name,),
-    ).fetchall()
-    for row in rows:
-        if exclude is None or row[0] not in exclude:
-            return (row[0], row[1], row[2])
-    return None
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    scores = entry.get(score_key, {})
+    candidates = [
+        (ff, asset_id, scores[asset_id])
+        for ff, asset_id in entry.get("frigate_files", {}).items()
+        if (exclude is None or ff not in exclude) and asset_id in scores
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda x: x[2]) if highest else min(candidates, key=lambda x: x[2])
 
 
 def get_lowest_quality_mapped_file(
     person_name: str, exclude: set[str] | None = None
 ) -> tuple[str, str, float] | None:
-    """Return (frigate_filename, asset_id, score) for the mapped file with the lowest blur score."""
-    return _pick_mapped_file(person_name, "blur_score", highest=False, exclude=exclude)
+    """Return (frigate_filename, asset_id, score) for the mapped file with the lowest
+    blur score, or None if no mapped files with known scores exist.
+
+    Used for quality replacement when no Frigate scores are available.
+    Pass `exclude` to skip files that failed to delete this run.
+    """
+    return _pick_mapped_file(person_name, "scores", highest=False, exclude=exclude)
 
 
 def get_most_redundant_mapped_file(
     person_name: str, exclude: set[str] | None = None
 ) -> tuple[str, str, float] | None:
-    """Return (frigate_filename, asset_id, score) for the mapped file with the highest Frigate score."""
-    return _pick_mapped_file(person_name, "frigate_score", highest=True, exclude=exclude)
+    """Return (frigate_filename, asset_id, score) for the mapped file with the highest
+    Frigate recognition score, or None if no mapped files with Frigate scores exist.
+
+    High Frigate score = the training set already covers this face condition well
+    = the most redundant file and therefore the best replacement target.
+    Pass `exclude` to skip files that failed to delete this run.
+    """
+    return _pick_mapped_file(person_name, "frigate_scores", highest=True, exclude=exclude)
 
 
 def get_frigate_filename_for_asset(person_name: str, asset_id: str) -> str | None:
     """Return the Frigate training filename mapped to this asset ID, or None."""
-    conn = _get_conn()
-    row = conn.execute(
-        "SELECT frigate_filename FROM frigate_files WHERE person_name=? AND asset_id=?",
-        (person_name, asset_id),
-    ).fetchone()
-    return row[0] if row else None
+    data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
+    for frigate_filename, aid in entry["frigate_files"].items():
+        if aid == asset_id:
+            return frigate_filename
+    return None
 
 
 def find_by_crop_dimension(size: int) -> list[dict]:
     """Return all tracked crops whose width or height matches `size` pixels.
 
-    Returns a list of dicts: {person, asset_id, width, height, blur_score, frigate_score, frigate_filename}.
+    Returns a list of dicts: {person, asset_id, width, height, blur_score, frigate_filename}.
+    frigate_filename is None when the Frigate mapping was lost to a reconciliation race.
     """
-    conn = _get_conn()
-    rows = conn.execute(
-        """SELECT ta.person_name, ta.asset_id, ta.crop_width, ta.crop_height,
-                  ta.blur_score, ta.frigate_score, ff.frigate_filename
-           FROM tracked_assets ta
-           LEFT JOIN frigate_files ff ON ff.asset_id=ta.asset_id AND ff.person_name=ta.person_name
-           WHERE ta.status='uploaded' AND (ta.crop_width=? OR ta.crop_height=?)""",
-        (size, size),
-    ).fetchall()
-    return [
-        {
-            "person": r["person_name"],
-            "asset_id": r["asset_id"],
-            "width": r["crop_width"],
-            "height": r["crop_height"],
-            "blur_score": r["blur_score"],
-            "frigate_score": r["frigate_score"],
-            "frigate_filename": r["frigate_filename"],
-        }
-        for r in rows
-    ]
+    data = _load(UPLOAD_TRACKER_FILE)
+    results = []
+    for person_name, raw_entry in data.get("by_person", {}).items():
+        entry = _migrate_entry(raw_entry)
+        scores = entry.get("scores", {})
+        frigate_files = entry.get("frigate_files", {})
+        asset_to_frigate = {v: k for k, v in frigate_files.items()}
+        frigate_scores = entry.get("frigate_scores", {})
+        for asset_id, dims in entry.get("crop_dims", {}).items():
+            w, h = dims[0], dims[1]
+            if w == size or h == size:
+                results.append({
+                    "person": person_name,
+                    "asset_id": asset_id,
+                    "width": w,
+                    "height": h,
+                    "blur_score": scores.get(asset_id),
+                    "frigate_score": frigate_scores.get(asset_id),
+                    "frigate_filename": asset_to_frigate.get(asset_id),
+                })
+    return results
 
 
 def update_frigate_count(person_name: str, count: int) -> None:
     """Record Frigate's authoritative training image count for a person."""
-    conn = _get_conn()
-    with conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO person_metadata (person_name, frigate_count) VALUES (?, ?)",
-            (person_name, count),
-        )
+    data = _load(UPLOAD_TRACKER_FILE)
+    by_person = data.setdefault("by_person", {})
+    entry = _migrate_entry(by_person.get(person_name, {}))
+    entry["frigate_count"] = count
+    by_person[person_name] = entry
+    _save(UPLOAD_TRACKER_FILE, data)
 
 
 def reset_person(person_name: str) -> None:
     """Remove all uploaded and rejected records for a given person.
 
     Also deletes winnow-managed Frigate training files so the next run starts
-    clean rather than uploading on top of orphaned files.
+    clean rather than uploading on top of orphaned files. Manually-added Frigate
+    files (not in frigate_files) are never touched. Proceeds with tracker reset
+    even if Frigate is unreachable.
     """
-    conn = _get_conn()
-
-    # Collect Frigate filenames before deleting
-    frigate_filenames = list(get_tracked_frigate_filenames(person_name))
+    upload_data = _load(UPLOAD_TRACKER_FILE)
+    entry = _migrate_entry(upload_data.get("by_person", {}).get(person_name, {}))
+    frigate_filenames = list(entry.get("frigate_files", {}).keys())
     if frigate_filenames:
-        if not _get_frigate_url():
-            logger.info("FRIGATE_URL not set — skipping Frigate file deletion for %s", person_name)
+        if not os.environ.get("FRIGATE_URL", "").strip():
+            logger.info(f"FRIGATE_URL not set — skipping Frigate file deletion for {person_name}")
         elif delete_frigate_person_files(person_name, frigate_filenames):
-            logger.info("Deleted %s Frigate file(s) for %s", len(frigate_filenames), person_name)
+            logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
         else:
-            logger.warning(
-                "Could not delete Frigate files for %s — tracker reset proceeding anyway", person_name
-            )
+            logger.warning(f"Could not delete Frigate files for {person_name} — tracker reset proceeding anyway")
 
-    with conn:
-        conn.execute("DELETE FROM frigate_files WHERE person_name=?", (person_name,))
-        conn.execute("DELETE FROM tracked_assets WHERE person_name=?", (person_name,))
-        conn.execute("DELETE FROM person_metadata WHERE person_name=?", (person_name,))
-
-    logger.info("Reset tracking data for %s", person_name)
+    changed = False
+    tracker_files = ((UPLOAD_TRACKER_FILE, upload_data), (REJECT_TRACKER_FILE, _load(REJECT_TRACKER_FILE)))
+    for filename, data in tracker_files:
+        flat_key = _flat_key(filename)
+        by_person = data.get("by_person", {})
+        tracker_entry = by_person.pop(person_name, None)
+        if tracker_entry is not None:
+            person_ids = set(_get_ids(tracker_entry))
+            flat = set(data.get(flat_key, [])) - person_ids
+            data[flat_key] = sorted(flat)
+            data["by_person"] = by_person
+            _save(filename, data)
+            changed = True
+    if changed:
+        logger.info(f"Reset tracking data for {person_name}")
+    else:
+        logger.debug(f"reset_person: no tracking data found for {person_name}")
 
 
 def get_person_summary() -> dict[str, dict]:
     """Return {person_name: {uploaded, rejected, frigate_count, scores, frigate_files}} for display/capacity."""
-    conn = _get_conn()
-
-    # Counts per person per status
-    rows = conn.execute(
-        """SELECT person_name, status, COUNT(*) AS cnt
-           FROM tracked_assets WHERE person_name IS NOT NULL
-           GROUP BY person_name, status"""
-    ).fetchall()
-
-    def _entry(summary: dict, name: str) -> dict:
-        if name not in summary:
-            summary[name] = {"uploaded": 0, "rejected": 0, "frigate_count": None, "scores": {}, "frigate_files": {}}
-        return summary[name]
-
-    summary: dict[str, dict] = {}
-    for r in rows:
-        _entry(summary, r["person_name"])[r["status"]] = r["cnt"]
-
-    # Scores for uploaded assets
-    score_rows = conn.execute(
-        """SELECT person_name, asset_id, blur_score
-           FROM tracked_assets
-           WHERE status='uploaded' AND person_name IS NOT NULL AND blur_score IS NOT NULL"""
-    ).fetchall()
-    for r in score_rows:
-        _entry(summary, r["person_name"])["scores"][r["asset_id"]] = r["blur_score"]
-
-    # Frigate file mappings
-    ff_rows = conn.execute(
-        "SELECT person_name, frigate_filename, asset_id FROM frigate_files"
-    ).fetchall()
-    for r in ff_rows:
-        _entry(summary, r["person_name"])["frigate_files"][r["frigate_filename"]] = r["asset_id"]
-
-    # Frigate counts
-    meta_rows = conn.execute(
-        "SELECT person_name, frigate_count FROM person_metadata"
-    ).fetchall()
-    for r in meta_rows:
-        _entry(summary, r["person_name"])["frigate_count"] = r["frigate_count"]
-
-    return dict(sorted(summary.items()))
+    uploaded_data = _load(UPLOAD_TRACKER_FILE).get("by_person", {})
+    rejected_data = _load(REJECT_TRACKER_FILE).get("by_person", {})
+    names = set(uploaded_data) | set(rejected_data)
+    result = {}
+    for name in sorted(names):
+        u_entry = uploaded_data.get(name, {})
+        r_entry = rejected_data.get(name, {})
+        result[name] = {
+            "uploaded": len(_get_ids(u_entry)),
+            "rejected": len(_get_ids(r_entry)),
+            "frigate_count": u_entry.get("frigate_count") if isinstance(u_entry, dict) else None,
+            "scores": u_entry.get("scores", {}) if isinstance(u_entry, dict) else {},
+            "frigate_files": u_entry.get("frigate_files", {}) if isinstance(u_entry, dict) else {},
+        }
+    return result
 
 
 def filter_already_uploaded(
@@ -533,5 +390,5 @@ def filter_already_uploaded(
     new_ids = [aid for aid in asset_ids if aid not in exclude]
     skipped = len(asset_ids) - len(new_ids)
     if skipped:
-        logger.info("Skipping %s assets already uploaded or rejected by Frigate", skipped)
+        logger.info(f"Skipping {skipped} assets already uploaded or rejected by Frigate")
     return new_ids
