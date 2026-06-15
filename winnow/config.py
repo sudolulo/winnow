@@ -12,6 +12,48 @@ from rich.prompt import Prompt
 _LEGACY_CONFIG_FILE = Path(".immich_config.json")  # pre-v0.6: lived in process CWD, not on a volume
 
 
+def _getenv_num(name: str, default, cast):
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    raw = raw.strip()
+    if not raw:
+        return default
+    try:
+        return cast(raw)
+    except ValueError:
+        logging.warning("%s=%r is not a valid %s — using default %s", name, raw, cast.__name__, default)
+        return default
+
+
+def _getenv_int(name: str, default: int) -> int:
+    return _getenv_num(name, default, int)
+
+
+def _getenv_float(name: str, default: float) -> float:
+    return _getenv_num(name, default, float)
+
+
+def _getenv_optional_float(name: str) -> float | None:
+    """Return float value of env var, or None if unset/empty. Warns and returns None on invalid."""
+    return _getenv_num(name, None, float)
+
+
+def _getenv_optional_int(name: str) -> int | None:
+    """Return int value of env var, or None if unset/empty. Warns and returns None on invalid."""
+    return _getenv_num(name, None, int)
+
+
+def _getenv_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    raw = raw.strip()
+    if not raw:
+        return default
+    return raw.lower() in ("true", "1", "yes")
+
+
 class _Config:
     """Singleton configuration with lazy loading via __getattr__.
 
@@ -84,28 +126,20 @@ class _Config:
         self.IMMICH_URL = os.getenv("IMMICH_URL")
         self.API_KEY = os.getenv("API_KEY")
         self.OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./frigate_train")
-        self.YEARS_FILTER = int(os.getenv("YEARS_FILTER", "10"))
-        self.MIN_FACE_WIDTH = int(os.getenv("MIN_FACE_WIDTH", "90"))
-        self.MIN_FACE_COUNT = int(os.getenv("MIN_FACE_COUNT", "3"))
-        self.MERGE_DUPLICATE_PEOPLE = os.getenv("MERGE_DUPLICATE_PEOPLE", "false").lower() in ("true", "1", "yes")
-        self.BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "120.0"))
-        self.MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.7"))
-        self.MAX_AUTO_IMAGES = int(os.getenv("MAX_AUTO_IMAGES", "20"))
-        self.QUALITY_REPLACEMENT = os.getenv("QUALITY_REPLACEMENT", "true").lower() in ("true", "1", "yes")
-        _ceiling_env = os.getenv("FRIGATE_SCORE_CEILING", "").strip()
-        if _ceiling_env:
-            try:
-                self.FRIGATE_SCORE_CEILING = float(_ceiling_env)
-            except ValueError:
-                logging.warning("FRIGATE_SCORE_CEILING=%r is not a valid float — ignoring", _ceiling_env)
-                self.FRIGATE_SCORE_CEILING = None
-        else:
-            self.FRIGATE_SCORE_CEILING = None
-        self.ENABLE_FRIGATE_SCORES = os.getenv("ENABLE_FRIGATE_SCORES", "true").lower() in ("true", "1", "yes")
-        self.FACE_MARGIN = float(os.getenv("FACE_MARGIN", "0.15"))
-        self.USE_FULL_RESOLUTION = os.getenv("USE_FULL_RESOLUTION", "true").lower() in ("true", "1", "yes")
-        self.ENABLE_FACE_ALIGNMENT = os.getenv("ENABLE_FACE_ALIGNMENT", "true").lower() in ("true", "1", "yes")
-        self.ENABLE_CACHE = os.getenv("ENABLE_CACHE", "true").lower() in ("true", "1", "yes")
+        self.YEARS_FILTER = _getenv_int("YEARS_FILTER", 10)
+        self.MIN_FACE_WIDTH = _getenv_int("MIN_FACE_WIDTH", 90)
+        self.MIN_FACE_COUNT = _getenv_int("MIN_FACE_COUNT", 3)
+        self.MERGE_DUPLICATE_PEOPLE = _getenv_bool("MERGE_DUPLICATE_PEOPLE", False)
+        self.BLUR_THRESHOLD = _getenv_float("BLUR_THRESHOLD", 120.0)
+        self.MIN_CONFIDENCE = _getenv_float("MIN_CONFIDENCE", 0.7)
+        self.MAX_AUTO_IMAGES = _getenv_int("MAX_AUTO_IMAGES", 20)
+        self.QUALITY_REPLACEMENT = _getenv_bool("QUALITY_REPLACEMENT", True)
+        self.FRIGATE_SCORE_CEILING = _getenv_optional_float("FRIGATE_SCORE_CEILING")
+        self.ENABLE_FRIGATE_SCORES = _getenv_bool("ENABLE_FRIGATE_SCORES", True)
+        self.FACE_MARGIN = _getenv_float("FACE_MARGIN", 0.15)
+        self.USE_FULL_RESOLUTION = _getenv_bool("USE_FULL_RESOLUTION", True)
+        self.ENABLE_FACE_ALIGNMENT = _getenv_bool("ENABLE_FACE_ALIGNMENT", True)
+        self.ENABLE_CACHE = _getenv_bool("ENABLE_CACHE", True)
         _data_dir = os.getenv("DATA_DIR")
         _cache_dir_legacy = os.getenv("CACHE_DIR")
         if _data_dir:
@@ -118,8 +152,8 @@ class _Config:
         else:
             self.DATA_DIR = "data"
 
-        # Fall back to config file only when the env var is genuinely absent (None).
-        # An explicitly empty env var (IMMICH_URL="") takes priority over the file.
+        # Fall back to config file when the env var is absent or blank — a blank
+        # IMMICH_URL= placeholder in .env should not override the config file.
         # Prefer DATA_DIR/.immich_config.json (volume-safe in Docker) and fall back
         # to the legacy CWD path so existing installations continue to work.
         _data_cfg = Path(self.DATA_DIR) / ".immich_config.json"
@@ -132,10 +166,12 @@ class _Config:
                 _data_cfg,
             )
         config_file = _data_cfg if _data_cfg_exists else _LEGACY_CONFIG_FILE
-        if config_file.exists():
+        # _data_cfg_exists already confirmed the primary path — avoid re-stat.
+        # The short-circuit means the legacy path is stat'd at most once here.
+        if _data_cfg_exists or config_file.exists():
             try:
                 data = json.loads(config_file.read_text())
-                if self.IMMICH_URL is None:
+                if not self.IMMICH_URL:
                     self.IMMICH_URL = data.get("IMMICH_URL")
                 if os.getenv("OUTPUT_DIR") is None:
                     self.OUTPUT_DIR = data.get("OUTPUT_DIR", self.OUTPUT_DIR)

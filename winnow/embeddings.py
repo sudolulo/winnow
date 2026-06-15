@@ -18,6 +18,7 @@ import numpy as np
 from PIL import Image
 
 from .cache import get_cache
+from .config import _getenv_bool
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ _insightface_loaded = False
 
 def _is_force_cpu() -> bool:
     """Check if CPU mode is forced via environment variable."""
-    return os.getenv("FORCE_CPU", "").lower() in ("true", "1", "yes")
+    return _getenv_bool("FORCE_CPU", False)
 
 
 def _preload_cuda_libs() -> None:
@@ -234,8 +235,7 @@ def get_embedding(
 def _is_module_available(module_name: str) -> bool:
     """Check if a Python module is importable without importing it fully."""
     try:
-        importlib.util.find_spec(module_name)
-        return True
+        return importlib.util.find_spec(module_name) is not None
     except (ModuleNotFoundError, ValueError):
         return False
 

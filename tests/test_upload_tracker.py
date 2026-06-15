@@ -10,19 +10,7 @@ def isolated_cache(monkeypatch, tmp_path):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     from winnow.config import _Config
     _Config.reset()
-    # Also reset the SQLite connection so the next call opens the new path
-    import winnow.upload_tracker as ut
-    ut._conn = None
-    ut._conn_path = None
     yield tmp_path
-    # Teardown
-    if ut._conn is not None:
-        try:
-            ut._conn.close()
-        except Exception:
-            pass
-    ut._conn = None
-    ut._conn_path = None
     _Config.reset()
 
 
@@ -85,12 +73,12 @@ def test_duplicate_marks_are_idempotent():
 
 # ── frigate_files mapping ─────────────────────────────────────────────────────
 
-def test_record_and_remove_frigate_files_batch():
-    from winnow.upload_tracker import get_person_summary, record_frigate_files_batch, remove_frigate_file
-    record_frigate_files_batch("Alice", {"Alice-1000.webp": "asset-a1"})
+def test_record_and_remove_frigate_file():
+    from winnow.upload_tracker import get_person_summary, record_frigate_file, remove_frigate_file
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a1")
     assert "Alice-1000.webp" in get_person_summary()["Alice"]["frigate_files"]
     remove_frigate_file("Alice", "Alice-1000.webp")
-    assert "Alice-1000.webp" not in get_person_summary().get("Alice", {}).get("frigate_files", {})
+    assert "Alice-1000.webp" not in get_person_summary()["Alice"]["frigate_files"]
 
 
 def test_remove_nonexistent_frigate_file_is_safe():
@@ -104,11 +92,11 @@ def test_remove_frigate_file_does_not_unmark_asset():
     from winnow.upload_tracker import (
         filter_already_uploaded,
         mark_uploaded,
-        record_frigate_files_batch,
+        record_frigate_file,
         remove_frigate_file,
     )
     mark_uploaded("asset-a1", person_name="Alice")
-    record_frigate_files_batch("Alice", {"Alice-1000.webp": "asset-a1"})
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a1")
     remove_frigate_file("Alice", "Alice-1000.webp")
     # Asset must still be excluded — it was deliberately replaced, not lost
     assert filter_already_uploaded(["asset-a1"]) == []
@@ -120,14 +108,14 @@ def test_get_tracked_frigate_file_count_zero_when_empty():
 
 
 def test_get_tracked_frigate_file_count_counts_only_mapped():
-    """Only files explicitly recorded via record_frigate_files_batch count toward the cap."""
-    from winnow.upload_tracker import get_tracked_frigate_file_count, mark_uploaded, record_frigate_files_batch
+    """Only files explicitly recorded via record_frigate_file count toward the cap."""
+    from winnow.upload_tracker import get_tracked_frigate_file_count, mark_uploaded, record_frigate_file
     mark_uploaded("asset-a", person_name="Alice")
     mark_uploaded("asset-b", person_name="Alice")
-    record_frigate_files_batch("Alice", {"Alice-1000.webp": "asset-a"})
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a")
     # asset-b is uploaded but not yet mapped — does not count
     assert get_tracked_frigate_file_count("Alice") == 1
-    record_frigate_files_batch("Alice", {"Alice-1001.webp": "asset-b"})
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-b")
     assert get_tracked_frigate_file_count("Alice") == 2
 
 
@@ -140,11 +128,12 @@ def test_get_lowest_quality_mapped_file_returns_lowest():
     from winnow.upload_tracker import (
         get_lowest_quality_mapped_file,
         mark_uploaded,
-        record_frigate_files_batch,
+        record_frigate_file,
     )
     mark_uploaded("asset-hi", person_name="Alice", score=0.95)
     mark_uploaded("asset-lo", person_name="Alice", score=0.71)
-    record_frigate_files_batch("Alice", {"Alice-1000.webp": "asset-hi", "Alice-1001.webp": "asset-lo"})
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-hi")
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-lo")
     result = get_lowest_quality_mapped_file("Alice")
     assert result is not None
     frigate_filename, asset_id, score = result
@@ -158,11 +147,12 @@ def test_get_lowest_quality_mapped_file_skips_unscored():
     from winnow.upload_tracker import (
         get_lowest_quality_mapped_file,
         mark_uploaded,
-        record_frigate_files_batch,
+        record_frigate_file,
     )
     mark_uploaded("asset-scored", person_name="Alice", score=0.85)
     mark_uploaded("asset-noscr", person_name="Alice")
-    record_frigate_files_batch("Alice", {"Alice-1000.webp": "asset-scored", "Alice-1001.webp": "asset-noscr"})
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-scored")
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-noscr")
     result = get_lowest_quality_mapped_file("Alice")
     assert result is not None
     assert result[1] == "asset-scored"  # only scored file is a candidate
@@ -176,26 +166,28 @@ def test_get_tracked_frigate_filenames_empty():
 
 
 def test_get_tracked_frigate_filenames_returns_mapped():
-    from winnow.upload_tracker import get_tracked_frigate_filenames, record_frigate_files_batch
-    record_frigate_files_batch("Alice", {"Alice-1000.webp": "asset-a", "Alice-1001.webp": "asset-b"})
+    from winnow.upload_tracker import get_tracked_frigate_filenames, record_frigate_file
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a")
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-b")
     assert get_tracked_frigate_filenames("Alice") == {"Alice-1000.webp", "Alice-1001.webp"}
 
 
 def test_get_tracked_frigate_filenames_excludes_removed():
     from winnow.upload_tracker import (
         get_tracked_frigate_filenames,
-        record_frigate_files_batch,
+        record_frigate_file,
         remove_frigate_file,
     )
-    record_frigate_files_batch("Alice", {"Alice-1000.webp": "asset-a", "Alice-1001.webp": "asset-b"})
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a")
+    record_frigate_file("Alice", "Alice-1001.webp", "asset-b")
     remove_frigate_file("Alice", "Alice-1000.webp")
     assert get_tracked_frigate_filenames("Alice") == {"Alice-1001.webp"}
 
 
 def test_get_tracked_frigate_filenames_isolated_by_person():
-    from winnow.upload_tracker import get_tracked_frigate_filenames, record_frigate_files_batch
-    record_frigate_files_batch("Alice", {"Alice-1000.webp": "asset-a"})
-    record_frigate_files_batch("Bob", {"Bob-2000.webp": "asset-b"})
+    from winnow.upload_tracker import get_tracked_frigate_filenames, record_frigate_file
+    record_frigate_file("Alice", "Alice-1000.webp", "asset-a")
+    record_frigate_file("Bob", "Bob-2000.webp", "asset-b")
     assert get_tracked_frigate_filenames("Alice") == {"Alice-1000.webp"}
     assert get_tracked_frigate_filenames("Bob") == {"Bob-2000.webp"}
 
@@ -206,11 +198,12 @@ def test_get_lowest_quality_exclude_skips_specified_file():
     from winnow.upload_tracker import (
         get_lowest_quality_mapped_file,
         mark_uploaded,
-        record_frigate_files_batch,
+        record_frigate_file,
     )
     mark_uploaded("asset-lo", person_name="Alice", score=0.10)
     mark_uploaded("asset-hi", person_name="Alice", score=0.90)
-    record_frigate_files_batch("Alice", {"Alice-lo.webp": "asset-lo", "Alice-hi.webp": "asset-hi"})
+    record_frigate_file("Alice", "Alice-lo.webp", "asset-lo")
+    record_frigate_file("Alice", "Alice-hi.webp", "asset-hi")
     result = get_lowest_quality_mapped_file("Alice", exclude={"Alice-lo.webp"})
     assert result is not None
     assert result[1] == "asset-hi"  # lo was excluded; hi is returned
@@ -220,28 +213,29 @@ def test_get_lowest_quality_exclude_all_returns_none():
     from winnow.upload_tracker import (
         get_lowest_quality_mapped_file,
         mark_uploaded,
-        record_frigate_files_batch,
+        record_frigate_file,
     )
     mark_uploaded("asset-a", person_name="Alice", score=0.50)
-    record_frigate_files_batch("Alice", {"Alice-a.webp": "asset-a"})
+    record_frigate_file("Alice", "Alice-a.webp", "asset-a")
     assert get_lowest_quality_mapped_file("Alice", exclude={"Alice-a.webp"}) is None
 
 
 # ── get_most_redundant_mapped_file ────────────────────────────────────────────
 
 def test_get_most_redundant_none_when_no_frigate_scores():
-    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_files_batch
+    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_file
     mark_uploaded("asset-a", person_name="Alice", score=0.80)
-    record_frigate_files_batch("Alice", {"Alice-a.webp": "asset-a"})
+    record_frigate_file("Alice", "Alice-a.webp", "asset-a")
     # blur score only, no frigate_score → no candidates
     assert get_most_redundant_mapped_file("Alice") is None
 
 
 def test_get_most_redundant_returns_highest_frigate_score():
-    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_files_batch
+    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_file
     mark_uploaded("asset-novel", person_name="Alice", score=0.50, frigate_score=0.31)
     mark_uploaded("asset-redundant", person_name="Alice", score=0.90, frigate_score=0.88)
-    record_frigate_files_batch("Alice", {"Alice-novel.webp": "asset-novel", "Alice-redundant.webp": "asset-redundant"})
+    record_frigate_file("Alice", "Alice-novel.webp", "asset-novel")
+    record_frigate_file("Alice", "Alice-redundant.webp", "asset-redundant")
     result = get_most_redundant_mapped_file("Alice")
     assert result is not None
     frigate_filename, asset_id, score = result
@@ -251,17 +245,18 @@ def test_get_most_redundant_returns_highest_frigate_score():
 
 
 def test_get_most_redundant_exclude_skips_file():
-    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_files_batch
+    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_file
     mark_uploaded("asset-hi", person_name="Alice", score=0.9, frigate_score=0.85)
     mark_uploaded("asset-lo", person_name="Alice", score=0.5, frigate_score=0.40)
-    record_frigate_files_batch("Alice", {"Alice-hi.webp": "asset-hi", "Alice-lo.webp": "asset-lo"})
+    record_frigate_file("Alice", "Alice-hi.webp", "asset-hi")
+    record_frigate_file("Alice", "Alice-lo.webp", "asset-lo")
     result = get_most_redundant_mapped_file("Alice", exclude={"Alice-hi.webp"})
     assert result is not None
     assert result[1] == "asset-lo"  # hi excluded; lo is next highest
 
 
 def test_get_most_redundant_exclude_all_returns_none():
-    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_files_batch
+    from winnow.upload_tracker import get_most_redundant_mapped_file, mark_uploaded, record_frigate_file
     mark_uploaded("asset-a", person_name="Alice", score=0.5, frigate_score=0.70)
-    record_frigate_files_batch("Alice", {"Alice-a.webp": "asset-a"})
+    record_frigate_file("Alice", "Alice-a.webp", "asset-a")
     assert get_most_redundant_mapped_file("Alice", exclude={"Alice-a.webp"}) is None

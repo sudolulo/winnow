@@ -13,7 +13,6 @@ Usage inside container:
     docker exec -e FORCE_CPU=true winnow python /app/scripts/benchmark.py
 """
 
-import os
 import sys
 import time
 
@@ -22,9 +21,8 @@ from PIL import Image, ImageDraw
 
 
 def _mode_label() -> str:
-    if os.getenv("FORCE_CPU", "").lower() in ("true", "1", "yes"):
-        return "CPU (FORCE_CPU=true)"
-    return "GPU (auto)"
+    from winnow.config import _getenv_bool
+    return "CPU (FORCE_CPU=true)" if _getenv_bool("FORCE_CPU", False) else "GPU (auto)"
 
 
 def make_face_image(size: int = 640) -> Image.Image:

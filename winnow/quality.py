@@ -138,3 +138,23 @@ def assess_quality(
 
     return QualityResult(passed=len(reasons) == 0, reasons=reasons, blur_score=blur_score)
 
+
+def blur_score_from_image(img: Image.Image, max_dim: int = 1440) -> float:
+    """Compute Laplacian-variance blur score, capped at max_dim px to normalise scale.
+
+    Caps resolution so full-res and thumbnail scores are comparable — Laplacian
+    variance grows with pixel count, making uncapped full-res scores much larger
+    than thumbnail scores for the same perceived sharpness.
+
+    Returns 0.0 on any error so callers can treat the result as lowest quality.
+    """
+    try:
+        score_img = img.convert("RGB") if img.mode != "RGB" else img
+        if score_img.width > max_dim or score_img.height > max_dim:
+            score_img = score_img.copy()
+            score_img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+        return float(assess_quality(score_img).blur_score)
+    except Exception as exc:
+        logger.debug("blur_score_from_image failed: %s", exc)
+        return 0.0
+

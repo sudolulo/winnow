@@ -59,7 +59,7 @@ def reconcile_frigate_mappings(
     if len(new_files) == target:
         def _ts(fname: str) -> float:
             try:
-                return float(fname.rsplit("_", 1)[-1].replace(".webp", ""))
+                return float(fname.rsplit("_", 1)[-1].rsplit(".", 1)[0])
             except (ValueError, IndexError):
                 return 0.0
 
@@ -71,14 +71,15 @@ def reconcile_frigate_mappings(
         )
         mappings = {
             frigate_file: asset_id
-            for (_, asset_id), frigate_file in zip(uploaded, sorted(new_files, key=_ts))
+            for (_, asset_id), frigate_file in zip(uploaded, sorted(new_files, key=lambda f: (_ts(f), f)))
             if asset_id
         }
         record_frigate_files_batch(person_name, mappings)
     elif len(new_files) > target:
-        logger.info(
+        logger.warning(
             "%s: %s new Frigate files for %s uploads"
-            " (external upload detected) — skipping file mapping",
+            " (external upload detected) — skipping file mapping;"
+            " these files are permanently unmapped",
             person_name,
             len(new_files),
             target,
@@ -86,7 +87,8 @@ def reconcile_frigate_mappings(
     else:
         logger.warning(
             "%s: only %s of %s expected Frigate files"
-            " appeared after reconciliation — mapping skipped",
+            " appeared after reconciliation — mapping skipped;"
+            " these files are permanently unmapped",
             person_name,
             len(new_files),
             target,

@@ -8,7 +8,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
-from .config import Config
+from .config import Config, _getenv_bool, _getenv_int, _getenv_optional_int
 from .diversity import select_diverse_assets
 from .embeddings import is_embedding_available, load_embedding_model
 from .frigate_api import get_frigate_face_counts
@@ -65,25 +65,12 @@ def _get_strategy_choice(has_embedding: bool) -> tuple[int | str, str]:
 
 def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, str]:
     """Resolve env var strategy to (limit, selection_mode) without prompts."""
-    custom_limit = os.environ.get("LIMIT", "").strip()
-
     if not has_embedding:
-        if custom_limit:
-            try:
-                limit = int(custom_limit)
-            except ValueError:
-                logger.warning("LIMIT=%r is not a valid integer — using default 30", custom_limit)
-                limit = 30
-        else:
-            limit = 30
-        return limit, "time"
+        return _getenv_int("LIMIT", 30), "time"
 
-    if custom_limit:
-        try:
-            return int(custom_limit), "smart"
-        except ValueError:
-            logger.warning("LIMIT=%r is not a valid integer — using adaptive strategy", custom_limit)
-            # fall through to strategy_map
+    custom_limit = _getenv_optional_int("LIMIT")
+    if custom_limit is not None:
+        return custom_limit, "smart"
 
     strategy_map = {
         "adaptive": ("auto", "smart"),
@@ -168,7 +155,7 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
     rprint(f"  Found [bold]{total_raw}[/bold] total, [bold]{len(recent_assets)}[/bold] in range ({years} years).")
 
     # Ask before strategy so the post-dedup count can inform the choice
-    retry_env = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
+    retry_env = _getenv_bool("RETRY_REJECTED", False)
     retry_rejected = Confirm.ask("Include previously rejected images?", default=retry_env)
 
     before_dedup = len(recent_assets)
@@ -242,8 +229,8 @@ def auto_configure(people: list[dict]) -> list[dict]:
         return []
 
     strategy = os.environ.get("STRATEGY", "auto")
-    skip = os.environ.get("SKIP_PEOPLE", "").split(",") if os.environ.get("SKIP_PEOPLE") else []
-    only = os.environ.get("ONLY_PEOPLE", "").split(",") if os.environ.get("ONLY_PEOPLE") else []
+    skip = [s.strip() for s in os.environ.get("SKIP_PEOPLE", "").split(",") if s.strip()]
+    only = [s.strip() for s in os.environ.get("ONLY_PEOPLE", "").split(",") if s.strip()]
 
     if only:
         valid_people = [p for p in valid_people if p["name"] in only]
@@ -268,8 +255,8 @@ def auto_configure(people: list[dict]) -> list[dict]:
         rprint(f"  {name}: {total_raw} total, {len(recent_assets)} recent")
 
         # MIN_FACE_COUNT guard: skip people with too few Immich assets.
-        # Uses total_raw (pre-filter count) so non-dict items from a transient
-        # Immich schema issue don't cause a person to be skipped incorrectly.
+        # Uses total_raw so that non-dict items from a transient Immich schema
+        # issue on a mixed page don't shrink the count below the threshold.
         # Done here (after fetch) rather than upfront because Immich v2.7.5+
         # dropped assetCount from the /api/people response.
         if min_face_count > 0 and total_raw < min_face_count:
@@ -317,7 +304,7 @@ def auto_configure(people: list[dict]) -> list[dict]:
         if selection_mode == "skip":
             continue
 
-        retry_rejected = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
+        retry_rejected = _getenv_bool("RETRY_REJECTED", False)
         before_dedup = len(recent_assets)
         new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets], retry_rejected=retry_rejected))
         recent_assets = [a for a in recent_assets if a["id"] in new_asset_ids]

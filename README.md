@@ -74,7 +74,7 @@ Immich library
    ↳ at cap + QUALITY_REPLACEMENT=false — skip this person
 ```
 
-Uploaded and rejected asset IDs are persisted across runs in a SQLite database (`winnow_tracker.db` in `DATA_DIR`). The same image is never processed twice; rejected assets are permanently skipped unless `RETRY_REJECTED=true`.
+Uploaded and rejected asset IDs are persisted across runs in two JSON files (`frigate_uploaded_ids.json` and `frigate_rejected_ids.json` in `DATA_DIR`). The same image is never processed twice; rejected assets are permanently skipped unless `RETRY_REJECTED=true`.
 
 ---
 
@@ -212,7 +212,7 @@ These defaults are tuned for Frigate's ArcFace requirements. winnow will warn on
 | `FORCE_CPU` | `false` | Disable GPU — fall back to CPU for all inference |
 | `OPENVINO_DEVICE` | `CPU` | Intel variant only: set `GPU` to use Arc or iGPU; default runs on CPU |
 | `ENABLE_CACHE` | `true` | Cache computed embeddings to disk (speeds up re-runs on the same library) |
-| `DATA_DIR` | `data` | Path for embedding cache and upload tracker database (`winnow_tracker.db`) |
+| `DATA_DIR` | `data` | Path for embedding cache and upload tracker JSON files |
 | `INSIGHTFACE_HOME` | *(system)* | InsightFace model cache path (Buffalo_L) |
 
 ### Output
