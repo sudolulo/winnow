@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.12] - 2026-06-15
+
+### Fixed
+
+- **Progress task leak on skipped jobs**: `progress.add_task()` is called unconditionally at the top of the job loop, but both early-exit `continue` paths — the `ValueError` skip from `_safe_person_dir` and the symlink-TOCTOU skip added in v0.5.11 — bypassed `progress.remove_task()`, leaving orphaned 0% rows in the terminal display for the rest of the run. Both `continue` paths now call `progress.remove_task(job_task)` before continuing.
+
 ## [0.5.11] - 2026-06-15
 
 ### Fixed

@@ -105,12 +105,14 @@ def execute_jobs(jobs: list[dict]) -> None:
                 person_dir = _safe_person_dir(Config.OUTPUT_DIR, name)
             except ValueError as e:
                 logger.error(str(e))
+                progress.remove_task(job_task)
                 continue
             # Face crops are transient (uploaded then discarded); wipe before each run.
             # A symlink could appear here via a TOCTOU race after _safe_person_dir
             # returned — writing through it would land crops outside output_dir.
             if os.path.islink(person_dir):
                 logger.error("person_dir %s became a symlink after path check — skipping job", person_dir)
+                progress.remove_task(job_task)
                 continue
             if os.path.isdir(person_dir):
                 shutil.rmtree(person_dir)
