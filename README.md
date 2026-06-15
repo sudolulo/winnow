@@ -5,7 +5,7 @@
 > **Note:** winnow's approach to training Frigate face recognition is not an officially documented workflow — results may vary.
 
 > **Early Development — Use With Caution**
-> winnow is functional but still maturing. Features that modify your Frigate training data — quality replacement, stale mapping cleanup — can remove images from your dataset and are not yet battle-tested at scale. Review the logs after each run and keep backups of your Frigate face training directory until you are confident in the results.
+> winnow is in an unfinished state and maturing. Features that modify your Frigate training data — quality replacement, stale mapping cleanup — can remove images from your dataset and are not yet battle-tested at scale. Review the logs after each run and keep backups of your Frigate face training directory until you are confident in the results.
 
 **Docs:** [Setup](https://github.com/sudolulo/winnow/wiki/Setup) · [Troubleshooting](https://github.com/sudolulo/winnow/wiki/Troubleshooting) · [FAQ](https://github.com/sudolulo/winnow/wiki/FAQ)
 
