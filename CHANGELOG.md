@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.21] - 2026-06-15
+
+### Fixed
+
+- **`_cluster_aware_selection` now respects the requested limit**: the initial K-Medoids seed count `k` was never capped at `target`, so when the remaining capacity was 1–4 slots the function returned 5+ images instead of the requested count, silently violating `MAX_AUTO_IMAGES`. `k` is now `min(..., target)` and the returned list is sliced to `target` as a final guard. A new early-return for `limit == 0` prevents k-medoids from running at all and returning medoids for a zero-budget request.
+
+- **`USE_FULL_RESOLUTION=True` path now marks assets rejected on persistent fetch failure**: when both the original and preview fallback in `fetch_full_image()` fail, the asset was silently re-selected and re-attempted on every future run. The full-res path now calls `mark_rejected()` on a `None` return, matching the behavior added in v0.5.20 for the thumbnail path.
+
+- **`mark_uploaded` tracker failure no longer causes a duplicate Frigate upload**: `mark_uploaded()` was called inside the upload retry `try/except` block. A SQLite error (e.g. disk-full) after a successful HTTP 200 response would propagate to the retry handler, which would retry the POST and upload the same file twice. `mark_uploaded()` is now wrapped in its own `try/except`; a tracker write failure is logged and the upload loop breaks normally so Frigate never receives a duplicate.
+
+- **`_handle_duplicate_people` deduplicates failed merges when some succeed**: when `MERGE_DUPLICATE_PEOPLE=true` and a mix of merges succeed and fail, `get_people()` was returned directly. The re-fetched list still contained the un-merged duplicate pairs, creating two jobs for the same Frigate folder. The re-fetched list is now filtered using the same skip-id logic applied in the all-fail path.
+
+- **`SKIP_PEOPLE`/`ONLY_PEOPLE` now strip whitespace from each element**: `"Alice, Bob".split(",")` produces `[' Bob']` (with a leading space), which never matched person names from Immich. Both env vars now use a list comprehension with `.strip()` on each element, so space-padded comma-separated values work as expected.
+
 ## [0.5.20] - 2026-06-15
 
 ### Fixed

@@ -229,8 +229,8 @@ def auto_configure(people: list[dict]) -> list[dict]:
         return []
 
     strategy = os.environ.get("STRATEGY", "auto")
-    skip = os.environ.get("SKIP_PEOPLE", "").split(",") if os.environ.get("SKIP_PEOPLE") else []
-    only = os.environ.get("ONLY_PEOPLE", "").split(",") if os.environ.get("ONLY_PEOPLE") else []
+    skip = [s.strip() for s in os.environ.get("SKIP_PEOPLE", "").split(",") if s.strip()]
+    only = [s.strip() for s in os.environ.get("ONLY_PEOPLE", "").split(",") if s.strip()]
 
     if only:
         valid_people = [p for p in valid_people if p["name"] in only]

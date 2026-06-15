@@ -149,6 +149,10 @@ def execute_jobs(jobs: list[dict]) -> None:
                         # Use full-resolution for final output when configured
                         if use_full_res:
                             img = fetch_full_image(asset["id"])
+                            if img is None:
+                                # Both original and preview fallback failed — mark rejected
+                                # so this asset isn't retried on every future run.
+                                mark_rejected(asset["id"], person_name=name)
                         else:
                             resp = requests.get(
                                 f"{Config.IMMICH_URL}/api/assets/{asset['id']}/thumbnail?size=preview&format=JPEG",
@@ -498,13 +502,22 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
                             asset_id = asset_map.get(fname)
                             if asset_id:
-                                mark_uploaded(
-                                    asset_id,
-                                    person_name=name,
-                                    score=score_map.get(fname),
-                                    crop_dims=dims_map.get(fname),
-                                    frigate_score=pre_fscore,
-                                )
+                                try:
+                                    mark_uploaded(
+                                        asset_id,
+                                        person_name=name,
+                                        score=score_map.get(fname),
+                                        crop_dims=dims_map.get(fname),
+                                        frigate_score=pre_fscore,
+                                    )
+                                except Exception as tracker_exc:
+                                    # Upload to Frigate succeeded — don't retry on tracker
+                                    # failure or we'd upload a duplicate to Frigate.
+                                    logger.error(
+                                        "Tracker write failed for %s — upload succeeded"
+                                        " but asset may be re-selected next run: %s",
+                                        fname, tracker_exc,
+                                    )
                                 if pre_fscore is not None:
                                     person_has_fscores = True
                                 actually_uploaded.append((fname, asset_id))

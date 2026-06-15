@@ -125,7 +125,17 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
 
     if merged_any:
         rprint("  [dim]Re-fetching people after merge...[/dim]")
-        return get_people()
+        fresh = get_people()
+        # Filter out the smaller duplicate from any group whose merge failed — those
+        # IDs still exist in Immich and would produce two jobs for the same folder.
+        # IDs from groups that merged successfully are already gone from Immich, so
+        # this filter is a no-op for them.
+        skip_ids = {
+            p["id"]
+            for ps in duplicates.values()
+            for p in sorted(ps, key=lambda x: x.get("assetCount", 0), reverse=True)[1:]
+        }
+        return [p for p in fresh if p.get("id") not in skip_ids]
 
     # All merges failed — fall back to local deduplication (keep largest per name) so
     # downstream job creation never runs two jobs for the same Frigate folder.
