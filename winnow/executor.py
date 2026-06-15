@@ -13,6 +13,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 
 from .config import Config, get_headers
 from .frigate_api import (
+    _get_frigate_url,
     delete_frigate_person_files,
     get_all_frigate_person_files,
     get_frigate_person_files,
@@ -158,7 +159,11 @@ def execute_jobs(jobs: list[dict]) -> None:
                                 try:
                                     img = Image.open(BytesIO(resp.content))
                                 except Exception:
-                                    logger.warning("Invalid image data for asset %s", asset["id"])
+                                    # resp.ok=True but content is unreadable — corrupt Immich
+                                    # thumbnail. Mark rejected so this asset isn't retried
+                                    # indefinitely on future runs.
+                                    logger.warning("Invalid image data for asset %s — marking rejected", asset["id"])
+                                    mark_rejected(asset["id"], person_name=name)
                                     img = None
                             else:
                                 img = None
@@ -216,7 +221,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
         rprint("[dim]No jobs to upload.[/dim]")
         return
 
-    frigate_url = os.environ.get("FRIGATE_URL", "")
+    frigate_url = _get_frigate_url()
     if not frigate_url:
         rprint("[yellow]⚠️  FRIGATE_URL not set, skipping upload.[/yellow]")
         return

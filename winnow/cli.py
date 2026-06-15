@@ -127,7 +127,18 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
         rprint("  [dim]Re-fetching people after merge...[/dim]")
         return get_people()
 
-    return people
+    # All merges failed — fall back to local deduplication (keep largest per name) so
+    # downstream job creation never runs two jobs for the same Frigate folder.
+    rprint(
+        "  [yellow]All merges failed — applying local deduplication"
+        " to avoid overwriting output.[/yellow]"
+    )
+    skip_ids = {
+        p["id"]
+        for ps in duplicates.values()
+        for p in sorted(ps, key=lambda x: x.get("assetCount", 0), reverse=True)[1:]
+    }
+    return [p for p in people if p["id"] not in skip_ids]
 
 
 _UNSUPPORTED_VARS = [

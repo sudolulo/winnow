@@ -20,7 +20,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-from .frigate_api import delete_frigate_person_files
+from .frigate_api import _get_frigate_url, delete_frigate_person_files
 
 logger = logging.getLogger(__name__)
 
@@ -76,23 +76,29 @@ def _migrate_schema_v2(conn: sqlite3.Connection) -> None:
         return  # Already at new schema
 
     logger.info("Migrating tracked_assets: adding person_name to primary key")
-    conn.executescript("""
-        CREATE TABLE tracked_assets_new (
-            asset_id      TEXT NOT NULL,
-            person_name   TEXT,
-            status        TEXT NOT NULL CHECK(status IN ('uploaded', 'rejected')),
-            blur_score    REAL,
-            crop_width    INTEGER,
-            crop_height   INTEGER,
-            frigate_score REAL,
-            PRIMARY KEY (asset_id, person_name, status)
-        );
-        INSERT OR IGNORE INTO tracked_assets_new
-            SELECT asset_id, person_name, status, blur_score, crop_width, crop_height, frigate_score
-            FROM tracked_assets;
-        DROP TABLE tracked_assets;
-        ALTER TABLE tracked_assets_new RENAME TO tracked_assets;
-    """)
+    # Use individual execute() calls inside a transaction — executescript() issues an
+    # implicit COMMIT before running, so a crash between DROP and RENAME would
+    # permanently destroy the table with no rollback path.
+    with conn:
+        conn.execute("""
+            CREATE TABLE tracked_assets_new (
+                asset_id      TEXT NOT NULL,
+                person_name   TEXT,
+                status        TEXT NOT NULL CHECK(status IN ('uploaded', 'rejected')),
+                blur_score    REAL,
+                crop_width    INTEGER,
+                crop_height   INTEGER,
+                frigate_score REAL,
+                PRIMARY KEY (asset_id, person_name, status)
+            )
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO tracked_assets_new
+                SELECT asset_id, person_name, status, blur_score, crop_width, crop_height, frigate_score
+                FROM tracked_assets
+        """)
+        conn.execute("DROP TABLE tracked_assets")
+        conn.execute("ALTER TABLE tracked_assets_new RENAME TO tracked_assets")
     logger.info("tracked_assets schema migration complete")
 
 
@@ -453,7 +459,7 @@ def reset_person(person_name: str) -> None:
     # Collect Frigate filenames before deleting
     frigate_filenames = list(get_tracked_frigate_filenames(person_name))
     if frigate_filenames:
-        if not os.environ.get("FRIGATE_URL", "").strip():
+        if not _get_frigate_url():
             logger.info("FRIGATE_URL not set — skipping Frigate file deletion for %s", person_name)
         elif delete_frigate_person_files(person_name, frigate_filenames):
             logger.info("Deleted %s Frigate file(s) for %s", len(frigate_filenames), person_name)

@@ -35,14 +35,8 @@ def _getenv_float(name: str, default: float) -> float:
 
 
 def _getenv_optional_float(name: str) -> float | None:
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return None
-    try:
-        return float(raw)
-    except ValueError:
-        logging.warning("%s=%r is not a valid float — ignoring", name, raw)
-        return None
+    """Return float value of env var, or None if unset/empty. Warns and returns None on invalid."""
+    return _getenv_num(name, None, float)
 
 
 def _getenv_optional_int(name: str) -> int | None:

@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 
 def _get_frigate_url() -> str:
-    """Return normalized FRIGATE_URL with trailing slash stripped, or '' if unset."""
-    return os.environ.get("FRIGATE_URL", "").rstrip("/")
+    """Return normalized FRIGATE_URL with whitespace and trailing slash stripped, or '' if unset."""
+    return os.environ.get("FRIGATE_URL", "").strip().rstrip("/")
 
 
 def get_frigate_version() -> str | None:

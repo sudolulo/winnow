@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.20] - 2026-06-15
+
+### Fixed
+
+- **`_migrate_schema_v2` is now crash-safe**: the previous implementation used `conn.executescript()`, which issues an implicit `COMMIT` before executing — so a process kill between the `DROP TABLE` and the `ALTER TABLE RENAME` would permanently destroy `tracked_assets` with no rollback. Replaced with individual `conn.execute()` calls inside a `with conn:` transaction so the entire migration rolls back on failure.
+
+- **`FRIGATE_URL` with a trailing slash no longer produces double-slash upload paths**: `upload_to_frigate` in `executor.py` read `os.environ.get("FRIGATE_URL", "")` directly, bypassing the `.rstrip("/")` normalization in `frigate_api._get_frigate_url()`. A `FRIGATE_URL` ending in `/` produced paths like `/api/faces//Alice/register` for uploads while all other Frigate API calls used the cleaned URL. Both `executor.py` and `upload_tracker.reset_person` now call `_get_frigate_url()` instead of reading the env var inline.
+
+- **Corrupt thumbnail content now marks the asset rejected**: when `resp.ok=True` but `Image.open()` raises (corrupt JPEG bytes from Immich), the asset was silently skipped with no tracker entry, causing it to be re-selected and re-downloaded on every future run. The path now calls `mark_rejected()` so a permanently corrupt thumbnail doesn't cause an indefinite retry loop.
+
+- **`_save_jpeg` writes atomically**: the face crop JPEG was written directly to its final path — a disk-full or PIL encode error mid-write would leave a truncated file at the output path with no cleanup. The helper now writes to `{path}.tmp` and only calls `os.replace()` on success; on failure the temporary file is removed and the exception is re-raised.
+
+- **`_handle_duplicate_people` deduplicates even when all Immich merges fail**: when `MERGE_DUPLICATE_PEOPLE=true` and every `merge_people()` call returns `False`, the function previously returned the original unfiltered people list. Two jobs for the same person then ran sequentially, with the second job's `shutil.rmtree` wiping the first job's uploaded crops. The function now falls back to local deduplication (keep largest per name) whenever merging fails.
+
+- **`_get_frigate_url()` strips leading/trailing whitespace**: `os.environ.get("FRIGATE_URL", "").rstrip("/")` left whitespace-only values like `"   "` as truthy, allowing them to reach API calls as malformed URLs. Added `.strip()` before `.rstrip("/")` so a whitespace-only value collapses to the empty string and is treated as unset.
+
+### Changed
+
+- **`_getenv_optional_float` now delegates to `_getenv_num`**: the function hand-rolled its own strip/cast/warn/None logic instead of calling `_getenv_num(name, None, float)` the way `_getenv_optional_int` does. Both optional helpers are now consistent and pick up any future changes to the shared `_getenv_num` implementation automatically.
+
+- **`reconcile._ts()` strips any file extension, not just `.webp`**: the Frigate timestamp extracted from training filenames used `.replace(".webp", "")`, which silently returns `0.0` for any non-`.webp` filename and produces undefined-order FIFO mappings if Frigate ever changes its training-file extension. Replaced with `.rsplit(".", 1)[0]` to strip the last extension generically.
+
 ## [0.5.19] - 2026-06-15
 
 ### Fixed

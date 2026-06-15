@@ -59,7 +59,7 @@ def reconcile_frigate_mappings(
     if len(new_files) == target:
         def _ts(fname: str) -> float:
             try:
-                return float(fname.rsplit("_", 1)[-1].replace(".webp", ""))
+                return float(fname.rsplit("_", 1)[-1].rsplit(".", 1)[0])
             except (ValueError, IndexError):
                 return 0.0
 
