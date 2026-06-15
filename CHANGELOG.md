@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-06-15
+
+### Changed
+
+- **Module-level constants in `diversity.py`**: magic numbers `3000` (pool cap), `20` (pool scale), and `32` (embedding batch size) extracted to named constants `_POOL_CAP`, `_POOL_SCALE`, and `_EMBEDDING_BATCH_SIZE`.
+
+- **Reconciliation poll delays extracted**: `(1, 2, 4, 8)` back-off delays in `reconcile.py` extracted to `_RECONCILE_POLL_DELAYS` with an explanatory comment.
+
+- **`_VALID_SCORE_COLS` comment**: explains that the frozenset is a SQL-injection guard for dynamic column interpolation, not a runtime filter.
+
+- **`record_frigate_files_batch` docstring**: clarifies that all mappings are written atomically — no partial failure is possible.
+
+- **`get_person_summary()` refactored**: eliminated four repeated default-dict blocks using a local `_entry()` helper with `setdefault`.
+
+- **`encoded` → `encoded_name` in `frigate_api.py`**: renamed the URL-encoded person name variable for clarity.
+
+- **Dual response shape comment in `immich_api.py`**: documents that Immich ≥2.x returns `{"assets": {"items": [...]}}` while earlier versions returned `{"assets": [...]}` directly.
+
+- **Non-dict item debug log in `fetch_all_assets`**: skipped non-dict items in a page response now emit a `logger.debug` line with the count and page number.
+
 ## [0.5.4] - 2026-06-14
 
 ### Fixed

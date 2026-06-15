@@ -246,7 +246,11 @@ def mark_rejected(asset_id: str, person_name: str | None = None) -> None:
 
 
 def record_frigate_files_batch(person_name: str, mappings: dict[str, str]) -> None:
-    """Record multiple Frigate filename → asset_id mappings in a single transaction."""
+    """Record multiple Frigate filename → asset_id mappings in a single transaction.
+
+    All rows are written atomically — either every mapping is persisted or none
+    are (SQLite rolls back on error), so there is no risk of partial failure.
+    """
     if not mappings:
         return
     conn = _get_conn()
@@ -311,6 +315,8 @@ def has_frigate_scores(person_name: str) -> bool:
     return row[0] > 0
 
 
+# Guard against SQL injection from callers passing dynamic column names.
+# Only these two columns exist and are safe to interpolate into queries.
 _VALID_SCORE_COLS = frozenset({"blur_score", "frigate_score"})
 
 
@@ -436,13 +442,14 @@ def get_person_summary() -> dict[str, dict]:
            GROUP BY person_name, status"""
     ).fetchall()
 
+    def _entry(summary: dict, name: str) -> dict:
+        return summary.setdefault(
+            name, {"uploaded": 0, "rejected": 0, "frigate_count": None, "scores": {}, "frigate_files": {}}
+        )
+
     summary: dict[str, dict] = {}
     for r in rows:
-        name = r["person_name"]
-        if name not in summary:
-            summary[name] = {"uploaded": 0, "rejected": 0, "frigate_count": None,
-                             "scores": {}, "frigate_files": {}}
-        summary[name][r["status"]] = r["cnt"]
+        _entry(summary, r["person_name"])[r["status"]] = r["cnt"]
 
     # Scores for uploaded assets
     score_rows = conn.execute(
@@ -451,33 +458,21 @@ def get_person_summary() -> dict[str, dict]:
            WHERE status='uploaded' AND person_name IS NOT NULL AND blur_score IS NOT NULL"""
     ).fetchall()
     for r in score_rows:
-        name = r["person_name"]
-        if name not in summary:
-            summary[name] = {"uploaded": 0, "rejected": 0, "frigate_count": None,
-                             "scores": {}, "frigate_files": {}}
-        summary[name]["scores"][r["asset_id"]] = r["blur_score"]
+        _entry(summary, r["person_name"])["scores"][r["asset_id"]] = r["blur_score"]
 
     # Frigate file mappings
     ff_rows = conn.execute(
         "SELECT person_name, frigate_filename, asset_id FROM frigate_files"
     ).fetchall()
     for r in ff_rows:
-        name = r["person_name"]
-        if name not in summary:
-            summary[name] = {"uploaded": 0, "rejected": 0, "frigate_count": None,
-                             "scores": {}, "frigate_files": {}}
-        summary[name]["frigate_files"][r["frigate_filename"]] = r["asset_id"]
+        _entry(summary, r["person_name"])["frigate_files"][r["frigate_filename"]] = r["asset_id"]
 
     # Frigate counts
     meta_rows = conn.execute(
         "SELECT person_name, frigate_count FROM person_metadata"
     ).fetchall()
     for r in meta_rows:
-        name = r["person_name"]
-        if name not in summary:
-            summary[name] = {"uploaded": 0, "rejected": 0, "frigate_count": None,
-                             "scores": {}, "frigate_files": {}}
-        summary[name]["frigate_count"] = r["frigate_count"]
+        _entry(summary, r["person_name"])["frigate_count"] = r["frigate_count"]
 
     return dict(sorted(summary.items()))
 
