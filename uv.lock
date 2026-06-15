@@ -862,7 +862,7 @@ wheels = [
 
 [[package]]
 name = "winnow"
-version = "0.5.2"
+version = "0.5.5"
 source = { editable = "." }
 dependencies = [
     { name = "croniter" },

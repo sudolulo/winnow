@@ -144,10 +144,10 @@ def delete_frigate_person_files(person_name: str, filenames: list[str]) -> bool:
     if not frigate_url or not filenames:
         return False
     from urllib.parse import quote
-    encoded = quote(person_name, safe="")
+    encoded_name = quote(person_name, safe="")
     try:
         resp = requests.post(
-            f"{frigate_url}/api/faces/{encoded}/delete",
+            f"{frigate_url}/api/faces/{encoded_name}/delete",
             json={"ids": filenames},
             timeout=10,
         )
