@@ -7,6 +7,7 @@ from io import BytesIO
 from urllib.parse import quote
 
 import requests
+import PIL
 from PIL import Image
 from rich import print as rprint
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
@@ -162,10 +163,11 @@ def execute_jobs(jobs: list[dict]) -> None:
                             if resp.ok:
                                 try:
                                     img = Image.open(BytesIO(resp.content))
-                                except Exception:
-                                    # resp.ok=True but content is unreadable — corrupt Immich
-                                    # thumbnail. Mark rejected so this asset isn't retried
-                                    # indefinitely on future runs.
+                                except PIL.UnidentifiedImageError:
+                                    # Pillow cannot identify the format — genuinely corrupt
+                                    # Immich thumbnail. Mark rejected so this asset isn't
+                                    # retried indefinitely. OSError/truncation errors are
+                                    # transient and intentionally not caught here.
                                     logger.warning("Invalid image data for asset %s — marking rejected", asset["id"])
                                     mark_rejected(asset["id"], person_name=name)
                                     img = None
