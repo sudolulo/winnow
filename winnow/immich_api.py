@@ -277,7 +277,7 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
     recent, skipped = [], 0
     for asset in assets:
         created_at_str = asset.get("fileCreatedAt")
-        if not created_at_str:
+        if not isinstance(created_at_str, str) or not created_at_str:
             continue
 
         try:

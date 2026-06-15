@@ -82,10 +82,17 @@ class EmbeddingCache:
     def put(self, asset_id: str, embedding: np.ndarray, model: str = "insightface") -> None:
         """Store an embedding in the cache."""
         self._ensure_dir()
+        final = self._path(asset_id, model)
+        tmp = final + ".tmp"
         try:
-            np.save(self._path(asset_id, model), embedding)
+            np.save(tmp, embedding)
+            os.replace(tmp, final)
         except Exception as e:
             logger.debug("Cache write failed for %s: %s", asset_id, e)
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
     def clear(self) -> None:
         """Delete all cached embeddings."""

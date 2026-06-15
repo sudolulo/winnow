@@ -114,9 +114,14 @@ def execute_jobs(jobs: list[dict]) -> None:
                 logger.error("person_dir %s became a symlink after path check — skipping job", person_dir)
                 progress.remove_task(job_task)
                 continue
-            if os.path.isdir(person_dir):
-                shutil.rmtree(person_dir)
-            os.makedirs(person_dir, exist_ok=True)
+            try:
+                if os.path.isdir(person_dir):
+                    shutil.rmtree(person_dir)
+                os.makedirs(person_dir, exist_ok=True)
+            except OSError as e:
+                logger.error("Failed to prepare output dir for %s: %s", name, e)
+                progress.remove_task(job_task)
+                continue
 
             # Track filename → asset_id, filename → confidence score, filename → crop dims
             asset_map: dict[str, str] = {}

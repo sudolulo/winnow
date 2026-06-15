@@ -80,7 +80,7 @@ def _get_conn() -> sqlite3.Connection:
 
     if _conn is None:
         Path(data_dir).mkdir(parents=True, exist_ok=True)
-        _conn = sqlite3.connect(db_path, check_same_thread=False)
+        _conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA foreign_keys=ON")

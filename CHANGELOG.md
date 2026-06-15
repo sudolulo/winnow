@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.13] - 2026-06-15
+
+### Fixed
+
+- **`execute_jobs` output-dir OSError now skips the job instead of aborting the run**: `shutil.rmtree` and `os.makedirs` were not wrapped in any error handler — an `OSError` or `PermissionError` (e.g. read-only filesystem, lingering lock) propagated out of the `for job in jobs` loop, abandoning `job_task` in the Rich progress display and silently dropping all remaining jobs. Both calls are now wrapped in `try/except OSError`; on failure the error is logged, the progress task is removed, and the loop continues to the next job.
+
+- **Embedding cache writes are now atomic**: `cache.py` previously called `np.save(path, embedding)` directly to the final `.npy` path. A process kill or container stop mid-write left a truncated file that `np.load` would subsequently raise on. Because `get()` catches the exception and returns `None`, the slot appeared empty on every future run — the corrupted file was never cleaned up and the embedding was silently recomputed forever. The write now goes to a `.tmp` sibling and is renamed into place with `os.replace` (atomic on POSIX); the tmp file is removed on any write failure.
+
+- **`filter_recent_assets` guards against non-string `fileCreatedAt`**: the previous `if not created_at_str` guard passed truthy non-string values (e.g. a Unix-epoch integer returned by some Immich API versions), after which `created_at_str.replace("Z", "+00:00")` raised `AttributeError`. That exception was not caught by the surrounding `except ValueError`, so a single non-string timestamp aborted the entire filtering pass for the person being processed. The guard is now `if not isinstance(created_at_str, str) or not created_at_str`.
+
+- **SQLite connection timeout raised to 30 s**: `sqlite3.connect` defaulted to a 5-second busy timeout. Under concurrent access (scheduled and manual runs overlapping), 5 s was often insufficient, causing `OperationalError: database is locked` that propagated through `upload_to_frigate` and dropped upload-tracking records — assets would then be re-uploaded on the next run. The timeout is now 30 s, matching the typical upload cycle length.
+
 ## [0.5.12] - 2026-06-15
 
 ### Fixed
