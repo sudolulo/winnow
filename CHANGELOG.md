@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.10] - 2026-06-15
+
+### Fixed
+
+- **Reconcile `< target` branch re-escalated to WARNING**: when fewer Frigate files appear than expected after the full backoff window, the affected files are permanently unmapped — identical in consequence to the `> target` (external upload race) case fixed in v0.5.9. The v0.5.9 demotion to `INFO` was incorrect; both post-loop branches now log at `WARNING` and include the "permanently unmapped" label.
+
+- **`execute_jobs` symlink guard added before `shutil.rmtree`**: `os.path.isdir` follows symlinks and returns `True` for a symlink pointing at a directory. If a race condition replaces `person_dir` with such a symlink, the old guard would pass and `shutil.rmtree` would raise an unhandled `OSError`, aborting all remaining jobs in the batch. The guard is now `os.path.isdir(person_dir) and not os.path.islink(person_dir)`, so a symlink-to-directory is silently skipped. The comment is also corrected: `shutil.rmtree` raises `OSError` (not `NotADirectoryError`) on a top-level symlink.
+
 ## [0.5.9] - 2026-06-15
 
 ### Fixed

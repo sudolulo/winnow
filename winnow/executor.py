@@ -107,9 +107,10 @@ def execute_jobs(jobs: list[dict]) -> None:
                 logger.error(str(e))
                 continue
             # Face crops are transient (uploaded then discarded); wipe before each run.
-            # shutil.rmtree raises NotADirectoryError on a top-level symlink (POSIX),
-            # so a race-replaced symlink cannot cause deletion outside output_dir.
-            if os.path.isdir(person_dir):
+            # Exclude symlinks explicitly: os.path.isdir follows them and returns True
+            # for a symlink-to-directory, but shutil.rmtree raises OSError on a
+            # top-level symlink rather than deleting through it.
+            if os.path.isdir(person_dir) and not os.path.islink(person_dir):
                 shutil.rmtree(person_dir)
             os.makedirs(person_dir, exist_ok=True)
 

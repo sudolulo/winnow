@@ -85,9 +85,10 @@ def reconcile_frigate_mappings(
             target,
         )
     else:
-        logger.info(
+        logger.warning(
             "%s: only %s of %s expected Frigate files"
-            " appeared after reconciliation — mapping skipped",
+            " appeared after reconciliation — mapping skipped;"
+            " these files are permanently unmapped",
             person_name,
             len(new_files),
             target,
