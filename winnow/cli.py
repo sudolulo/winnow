@@ -7,7 +7,7 @@ import sys
 from rich import print as rprint
 from rich.prompt import Confirm
 
-from .config import Config
+from .config import Config, _getenv_bool
 from .executor import execute_jobs, upload_to_frigate
 from .immich_api import get_immich_version, get_people, merge_people
 from .jobs import _show_preview, auto_configure, interactive_configure
@@ -145,7 +145,7 @@ _UNSUPPORTED_VARS = [
 def main() -> None:
     """Entry point for winnow CLI."""
     try:
-        verbose = os.environ.get("VERBOSE", "").lower() in ("true", "1", "yes")
+        verbose = _getenv_bool("VERBOSE", False)
         setup_logging(verbose=verbose)
 
         trace_size = os.environ.get("TRACE_CROP_SIZE", "").strip()
@@ -232,8 +232,8 @@ def main() -> None:
 
         # Auto mode when no TTY (Docker, cron, pipes) — the primary use case.
         # A TTY means local interactive use; AUTO_MODE=true overrides that for scripting.
-        auto_mode = not sys.stdin.isatty() or os.environ.get("AUTO_MODE", "").lower() in ("true", "1", "yes")
-        dry_run = os.environ.get("DRY_RUN", "false").lower() in ("true", "1", "yes")
+        auto_mode = not sys.stdin.isatty() or _getenv_bool("AUTO_MODE", False)
+        dry_run = _getenv_bool("DRY_RUN", False)
 
         if dry_run:
             rprint("[bold yellow]DRY RUN — no images will be downloaded or uploaded[/bold yellow]")

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.16] - 2026-06-15
+
+### Changed
+
+- **`_getenv_int` and `_getenv_float` now share a single `_getenv_num` implementation**: the two helpers were structurally identical (read env var, return typed default if absent, try-cast, warn and return default on `ValueError`) with only the cast differing. Both are now thin wrappers around a private `_getenv_num(name, default, cast)`, eliminating the duplicated warning logic.
+
+- **`FRIGATE_SCORE_CEILING` now uses `_getenv_optional_float`**: the previous 9-line inline block (`os.getenv("FRIGATE_SCORE_CEILING", "").strip()` + try/except) has been replaced with a new `_getenv_optional_float(name) -> float | None` helper that encapsulates the "empty-string means None, parse-error means None" semantics, making it consistent with the other numeric env var helpers.
+
+- **Boolean env vars now use `_getenv_bool`**: the `.lower() in ("true", "1", "yes")` pattern was repeated across 11 sites in `config.py`, `jobs.py`, and `cli.py`. A new `_getenv_bool(name, default)` helper centralises the canonical truthy-string set; all sites have been updated to call it.
+
+- **`_resolve_strategy` no-embedding branch uses `_getenv_int`**: the inline `int(custom_limit)` try/except block in `jobs.py` for the time-spread path has been replaced with `_getenv_int("LIMIT", 30)`, matching the pattern used in `config.py`. The smart-mode path retains its own try/except because its fallback is to the strategy map rather than to a numeric default.
+
+- **`cache.py` tmp path uses `str.removesuffix`**: `final[:-4] + ".tmp.npy"` replaced with `final.removesuffix(".npy") + ".tmp.npy"` — the assumption that the cache path ends in `.npy` is now explicit and self-documenting rather than expressed as a magic numeric slice.
+
 ## [0.5.15] - 2026-06-15
 
 ### Fixed

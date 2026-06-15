@@ -85,7 +85,7 @@ class EmbeddingCache:
         final = self._path(asset_id, model)
         # Insert .tmp before .npy so np.save doesn't auto-append another .npy extension
         # (np.save appends .npy to paths that don't already end in .npy).
-        tmp = final[:-4] + ".tmp.npy"
+        tmp = final.removesuffix(".npy") + ".tmp.npy"
         try:
             np.save(tmp, embedding)
             os.replace(tmp, final)

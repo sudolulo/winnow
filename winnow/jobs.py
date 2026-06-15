@@ -8,7 +8,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
-from .config import Config
+from .config import Config, _getenv_bool, _getenv_int
 from .diversity import select_diverse_assets
 from .embeddings import is_embedding_available, load_embedding_model
 from .frigate_api import get_frigate_face_counts
@@ -65,19 +65,10 @@ def _get_strategy_choice(has_embedding: bool) -> tuple[int | str, str]:
 
 def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, str]:
     """Resolve env var strategy to (limit, selection_mode) without prompts."""
-    custom_limit = os.environ.get("LIMIT", "").strip()
-
     if not has_embedding:
-        if custom_limit:
-            try:
-                limit = int(custom_limit)
-            except ValueError:
-                logger.warning("LIMIT=%r is not a valid integer — using default 30", custom_limit)
-                limit = 30
-        else:
-            limit = 30
-        return limit, "time"
+        return _getenv_int("LIMIT", 30), "time"
 
+    custom_limit = os.environ.get("LIMIT", "").strip()
     if custom_limit:
         try:
             return int(custom_limit), "smart"
@@ -168,7 +159,7 @@ def _configure_person(person: dict, people: list[dict]) -> dict | None:
     rprint(f"  Found [bold]{total_raw}[/bold] total, [bold]{len(recent_assets)}[/bold] in range ({years} years).")
 
     # Ask before strategy so the post-dedup count can inform the choice
-    retry_env = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
+    retry_env = _getenv_bool("RETRY_REJECTED", False)
     retry_rejected = Confirm.ask("Include previously rejected images?", default=retry_env)
 
     before_dedup = len(recent_assets)
@@ -317,7 +308,7 @@ def auto_configure(people: list[dict]) -> list[dict]:
         if selection_mode == "skip":
             continue
 
-        retry_rejected = os.environ.get("RETRY_REJECTED", "false").lower() in ("true", "1", "yes")
+        retry_rejected = _getenv_bool("RETRY_REJECTED", False)
         before_dedup = len(recent_assets)
         new_asset_ids = set(filter_already_uploaded([a["id"] for a in recent_assets], retry_rejected=retry_rejected))
         recent_assets = [a for a in recent_assets if a["id"] in new_asset_ids]
