@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.18] - 2026-06-15
+
+### Fixed
+
+- **`scripts/benchmark.py` now uses `_getenv_bool` for `FORCE_CPU`**: the script retained an inline `os.getenv("FORCE_CPU", "").lower() in ("true", "1", "yes")` pattern in `_mode_label()` after `_getenv_bool` was introduced. Replaced with a local import of `_getenv_bool` consistent with how all other winnow imports in the script are deferred into function bodies.
+
 ## [0.5.17] - 2026-06-15
 
 ### Fixed
