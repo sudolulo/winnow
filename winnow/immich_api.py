@@ -83,19 +83,25 @@ def merge_people(survivor_id: str, merge_ids: list[str]) -> bool:
         return False
 
 
-def fetch_all_assets(person: dict) -> list[dict]:
-    """Fetch all assets for a person with pagination."""
+def fetch_all_assets(person: dict) -> tuple[list[dict], int]:
+    """Fetch all assets for a person with pagination.
+
+    Returns (assets, raw_total) where assets is the list of valid dict items
+    and raw_total is the total item count seen before non-dict filtering.
+    raw_total may exceed len(assets) if Immich returned non-dict items.
+    """
     name = person.get("name", "Unknown")
     person_id = person.get("id")
     if not person_id:
         logger.error("Person dict missing 'id' field for %s — skipping asset fetch", name)
-        return []
+        return [], 0
     url = f"{Config.IMMICH_URL}/api/search/metadata"
     page_size = 1000
 
     logger.debug("Fetching assets for %s...", name)
 
-    assets = []
+    assets: list[dict] = []
+    total_raw = 0  # items seen across all pages before non-dict filtering
     for page in range(1, MAX_PAGES + 1):
         try:
             resp = requests.post(
@@ -116,6 +122,7 @@ def fetch_all_assets(person: dict) -> list[dict]:
                 page_assets = page_assets.get("items", [])
 
             page_count = len(page_assets)  # raw count for termination check before filtering
+            total_raw += page_count
 
             # Single pass: partition valid assets from unexpected non-dict items
             valid_assets, skipped_count = [], 0
@@ -128,6 +135,11 @@ def fetch_all_assets(person: dict) -> list[dict]:
                 logger.warning("%s: skipping %s non-dict item(s) in page %s", name, skipped_count, page)
 
             if not valid_assets:
+                if page_count > 0:
+                    logger.warning(
+                        "%s: page %s returned %s item(s) but none were valid dicts — stopping pagination",
+                        name, page, page_count,
+                    )
                 break
 
             assets.extend(valid_assets)
@@ -140,7 +152,7 @@ def fetch_all_assets(person: dict) -> list[dict]:
             logger.error("Exception fetching assets for %s (page %s): %s", name, page, e)
             break
 
-    return assets
+    return assets, total_raw
 
 
 def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | None:

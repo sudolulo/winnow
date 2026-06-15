@@ -123,14 +123,15 @@ class _Config:
         # Prefer DATA_DIR/.immich_config.json (volume-safe in Docker) and fall back
         # to the legacy CWD path so existing installations continue to work.
         _data_cfg = Path(self.DATA_DIR) / ".immich_config.json"
-        if _data_cfg.exists() and _LEGACY_CONFIG_FILE.exists():
+        _data_cfg_exists = _data_cfg.exists()
+        if _data_cfg_exists and _LEGACY_CONFIG_FILE.exists():
             logging.warning(
                 "Two config files found: %s and %s — using %s. Remove the legacy file to silence this.",
                 _data_cfg,
                 _LEGACY_CONFIG_FILE,
                 _data_cfg,
             )
-        config_file = _data_cfg if _data_cfg.exists() else _LEGACY_CONFIG_FILE
+        config_file = _data_cfg if _data_cfg_exists else _LEGACY_CONFIG_FILE
         if config_file.exists():
             try:
                 data = json.loads(config_file.read_text())
