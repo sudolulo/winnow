@@ -70,6 +70,8 @@ def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, st
 
     custom_limit = _getenv_optional_int("LIMIT")
     if custom_limit is not None:
+        if custom_limit == 0:
+            logger.warning("LIMIT=0 selects zero images — set LIMIT to a positive integer or leave unset for auto")
         return custom_limit, "smart"
 
     strategy_map = {

@@ -90,7 +90,7 @@ class EmbeddingCache:
             np.save(tmp, embedding)
             os.replace(tmp, final)
         except Exception as e:
-            logger.debug("Cache write failed for %s: %s", asset_id, e)
+            logger.warning("Cache write failed for %s: %s", asset_id, e)
             try:
                 os.remove(tmp)
             except OSError:

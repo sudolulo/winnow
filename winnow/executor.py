@@ -507,6 +507,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
                             asset_id = asset_map.get(fname)
                             if asset_id:
+                                tracker_ok = True
                                 try:
                                     mark_uploaded(
                                         asset_id,
@@ -516,6 +517,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                         frigate_score=pre_fscore,
                                     )
                                 except Exception as tracker_exc:
+                                    tracker_ok = False
                                     # Upload to Frigate succeeded — don't retry on tracker
                                     # failure or we'd upload a duplicate to Frigate.
                                     logger.error(
@@ -523,9 +525,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                         " but asset may be re-selected next run: %s",
                                         fname, tracker_exc,
                                     )
-                                if pre_fscore is not None:
-                                    person_has_fscores = True
-                                actually_uploaded.append((fname, asset_id))
+                                if tracker_ok:
+                                    if pre_fscore is not None:
+                                        person_has_fscores = True
+                                    actually_uploaded.append((fname, asset_id))
 
                             break
                         else:
