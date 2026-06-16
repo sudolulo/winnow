@@ -442,7 +442,12 @@ def reset_person(person_name: str) -> None:
             data["by_person"] = by_person
             flat_key = _flat_key(filename)
             person_ids = set(_get_ids(tracker_entry))
-            if person_ids and flat_key in data and isinstance(data[flat_key], list):
+            if flat_key in data and not isinstance(data[flat_key], list):
+                logger.warning(
+                    "reset_person: %s has unexpected type for %s (%s) — skipping flat-list cleanup",
+                    filename, flat_key, type(data[flat_key]).__name__,
+                )
+            elif person_ids and flat_key in data:
                 data[flat_key] = sorted(set(data[flat_key]) - person_ids)
             _save(filename, data)
             changed = True

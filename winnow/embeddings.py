@@ -42,13 +42,15 @@ def _suppress_output():
                 os.dup2(saved_out, 1)
             except OSError:
                 pass
-            os.close(saved_out)
+            finally:
+                os.close(saved_out)
         if saved_err is not None:
             try:
                 os.dup2(saved_err, 2)
             except OSError:
                 pass
-            os.close(saved_err)
+            finally:
+                os.close(saved_err)
         if devnull_fd is not None:
             os.close(devnull_fd)
 

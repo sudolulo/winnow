@@ -83,7 +83,6 @@ def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, st
     strategy_map = {
         "adaptive": ("auto", "smart"),
         "auto": ("auto", "smart"),  # legacy alias for adaptive
-        "skip": (0, "skip"),
         "standard": (30, "smart"),
         "broad": (100, "smart"),
     }
