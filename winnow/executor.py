@@ -27,6 +27,7 @@ from .log_config import console
 from .quality import blur_score_from_image
 from .reconcile import enrich_asset_with_face_data, reconcile_frigate_mappings
 from .upload_tracker import (
+    UPLOAD_TRACKER_FILE,
     get_lowest_quality_mapped_file,
     get_most_redundant_mapped_file,
     get_tracked_frigate_file_count,
@@ -481,6 +482,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     )
                     if delete_frigate_person_files(name, [target_frigate_file]):
                         remove_frigate_file(name, target_frigate_file)
+                        person_has_fscores = has_frigate_scores(name)
                         effective_count -= 1
                         min_quality_score_for_slot = None if using_fscore else target_score
                     else:

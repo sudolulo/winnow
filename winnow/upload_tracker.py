@@ -32,7 +32,7 @@ import logging
 import os
 from pathlib import Path
 
-from .frigate_api import delete_frigate_person_files
+from .frigate_api import _get_frigate_url, delete_frigate_person_files
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +95,18 @@ def _save(filename: str, data: dict) -> None:
 def begin_batch(filename: str) -> None:
     """Defer tracker disk writes for filename. All _save calls accumulate in the
     in-memory cache until flush_batch() is called. Use around per-person upload loops
-    to reduce N writes to 1."""
-    _deferred.add(str(_tracker_path(filename)))
+    to reduce N writes to 1.
+
+    If a previous batch for this file was interrupted before flush_batch() was called
+    (e.g. an exception escaped the upload loop), the leftover cache state is flushed
+    to disk here before starting fresh so that partial progress is not silently lost.
+    """
+    path = _tracker_path(filename)
+    key = str(path)
+    if key in _deferred and key in _cache:
+        _write_to_disk(path, _cache[key])
+        _deferred.discard(key)
+    _deferred.add(key)
 
 
 def flush_batch(filename: str) -> None:
@@ -141,20 +151,22 @@ def _mark(
     crop_dims: tuple[int, int] | None = None,
     frigate_score: float | None = None,
 ) -> None:
+    if not person_name:
+        logger.warning("_mark called with empty person_name for asset %s — asset not recorded", asset_id)
+        return
     data = _load(filename)
-    if person_name:
-        by_person = data.setdefault("by_person", {})
-        entry = _migrate_entry(by_person.get(person_name, {}))
-        ids = set(entry["asset_ids"])
-        ids.add(asset_id)
-        entry["asset_ids"] = sorted(ids)
-        if score is not None:
-            entry["scores"][asset_id] = round(score, 4)
-        if crop_dims is not None:
-            entry["crop_dims"][asset_id] = [crop_dims[0], crop_dims[1]]
-        if frigate_score is not None:
-            entry["frigate_scores"][asset_id] = round(frigate_score, 4)
-        by_person[person_name] = entry
+    by_person = data.setdefault("by_person", {})
+    entry = _migrate_entry(by_person.get(person_name, {}))
+    ids = set(entry["asset_ids"])
+    ids.add(asset_id)
+    entry["asset_ids"] = sorted(ids)
+    if score is not None:
+        entry["scores"][asset_id] = round(score, 4)
+    if crop_dims is not None:
+        entry["crop_dims"][asset_id] = [crop_dims[0], crop_dims[1]]
+    if frigate_score is not None:
+        entry["frigate_scores"][asset_id] = round(frigate_score, 4)
+    by_person[person_name] = entry
     _save(filename, data)
 
 
@@ -233,7 +245,7 @@ def remove_frigate_files_batch(person_name: str, frigate_filenames: list[str]) -
     entry = _migrate_entry(raw)
     for fn in frigate_filenames:
         asset_id = entry["frigate_files"].pop(fn, None)
-        if asset_id:
+        if asset_id is not None:
             entry["frigate_scores"].pop(asset_id, None)
     by_person[person_name] = entry
     _save(UPLOAD_TRACKER_FILE, data)
@@ -366,7 +378,7 @@ def reset_all_people() -> None:
         frigate_filenames = list(entry.get("frigate_files", {}).keys())
         if not frigate_filenames:
             continue
-        if not os.environ.get("FRIGATE_URL", "").strip():
+        if not _get_frigate_url():
             logger.info(f"FRIGATE_URL not set — skipping Frigate file deletion for {person_name}")
         elif delete_frigate_person_files(person_name, frigate_filenames):
             logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
@@ -389,7 +401,7 @@ def reset_person(person_name: str) -> None:
     entry = _migrate_entry(upload_data.get("by_person", {}).get(person_name, {}))
     frigate_filenames = list(entry.get("frigate_files", {}).keys())
     if frigate_filenames:
-        if not os.environ.get("FRIGATE_URL", "").strip():
+        if not _get_frigate_url():
             logger.info(f"FRIGATE_URL not set — skipping Frigate file deletion for {person_name}")
         elif delete_frigate_person_files(person_name, frigate_filenames):
             logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
@@ -398,15 +410,16 @@ def reset_person(person_name: str) -> None:
 
     changed = False
     for filename in (UPLOAD_TRACKER_FILE, REJECT_TRACKER_FILE):
-        data = upload_data if filename == UPLOAD_TRACKER_FILE else _load(REJECT_TRACKER_FILE)
-        by_person = data.get("by_person", {})
+        src = upload_data if filename == UPLOAD_TRACKER_FILE else _load(REJECT_TRACKER_FILE)
+        by_person = dict(src.get("by_person", {}))  # copy so pop() does not mutate the cache
         tracker_entry = by_person.pop(person_name, None)
         if tracker_entry is not None:
+            data = dict(src)
+            data["by_person"] = by_person
             flat_key = _flat_key(filename)
             person_ids = set(_get_ids(tracker_entry))
             if person_ids and flat_key in data:
                 data[flat_key] = sorted(set(data[flat_key]) - person_ids)
-            data["by_person"] = by_person
             _save(filename, data)
             changed = True
     if changed:
