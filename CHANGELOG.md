@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-06-16
+
+### Fixed
+
+- **Corrupt or truncated full-res thumbnails now marked rejected**: `OSError` (truncated file) is caught alongside `PIL.UnidentifiedImageError` in the thumbnail path so persistently bad assets are tombstoned instead of retried forever. Full-res download failures (`USE_FULL_RESOLUTION=true`) remain transient — not marked rejected — so a Immich blip doesn't permanently blacklist valid assets.
+
+- **Quality replacement mode no longer flips mid-loop**: `person_has_fscores` was re-evaluated after each file deletion, which could switch the remaining replacements from Frigate-score mode to blur-score mode if the deleted file was the last scored one. The mode is now fixed for the duration of the upload loop.
+
+- **`reset_person` no longer removes shared asset IDs**: the flat `uploaded_asset_ids` list is now rebuilt from all remaining `by_person` entries rather than subtracting the reset person's IDs. Previously, resetting Alice could remove an asset ID that also appeared under Bob, making it re-eligible for upload.
+
+- **`_save` cache updated only after successful write**: the in-memory tracker cache is now updated after `os.replace` succeeds rather than before. A disk-full or permission error no longer leaves the cache permanently ahead of the on-disk file.
+
+- **Stale Frigate file cleanup batched**: the per-file `remove_frigate_file` loop is replaced with a single `remove_frigate_files_batch` call, reducing N tracker writes to 1 when stale mappings are cleaned up.
+
+- **`_migrate_entry` no longer mutates the cache through nested dict aliases**: all five nested dicts (`asset_ids`, `scores`, `frigate_scores`, `frigate_files`, `crop_dims`) are now individually copied so `.pop()` calls in write paths cannot reach the in-memory cache.
+
+- **`find_by_crop_dimension` and `_pick_mapped_file` now agree on duplicate asset→file handling**: both use first-seen-wins when the same `asset_id` maps to multiple Frigate filenames, preventing inconsistent replacement decisions.
+
+- **Non-atomic JSON write**: tracker files are written to a `.tmp` sibling then renamed with `os.replace` so a crash mid-write never leaves a truncated file.
+
+- **`get_person_summary` uses `_migrate_entry`**: replaced three ad-hoc `isinstance` guards with a single `_migrate_entry` call, making old-format (list) entries consistent with every other read path.
+
+- **Quality replacement floor check**: a candidate with a `None` blur score (PIL error during scoring) no longer blocks a freed slot — the `<=` floor comparison is only applied when a score is actually available.
+
+- **`executor.py` syntax error**: the `if img is None:` block in the full-res download path was comment-only and would have raised `IndentationError` on import. Added `pass`.
+
+- **Duplicate `if stale:` guard**: two consecutive identical guards around stale-cleanup and its log print were merged into one.
+
+- **`_flat_key` uses constant equality** instead of substring match, removing a latent routing bug for any filename that happens to contain "uploaded".
+
+- **`remove_frigate_file` no longer creates ghost entries**: returns early when the person is absent rather than writing an empty stub.
+
+- **`skip_ids` extracted to helper**: the identical set comprehension in `_handle_duplicate_people` that appeared in three branches is now a single `_smaller_duplicate_ids()` inner function.
+
+- **`blur_score_from_image` returns `None` on error** instead of `0.0`, so callers can distinguish a failed measurement from a legitimately near-zero Laplacian variance score.
+
 ## [0.6.0] - 2026-06-15
 
 ### Changed

@@ -71,14 +71,20 @@ def _load(filename: str) -> dict:
 
 def _save(filename: str, data: dict) -> None:
     path = _tracker_path(filename)
-    _cache[str(path)] = data  # keep cache consistent with what we write
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+    tmp = path.with_suffix(".tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, path)
+        _cache[str(path)] = data  # update only after the file is safely on disk
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _flat_key(filename: str) -> str:
-    return "uploaded_asset_ids" if "uploaded" in filename else "rejected_asset_ids"
+    return "uploaded_asset_ids" if filename == UPLOAD_TRACKER_FILE else "rejected_asset_ids"
 
 
 def _load_flat(filename: str) -> set[str]:
@@ -96,12 +102,14 @@ def _migrate_entry(entry: list | dict) -> dict:
     """Ensure by_person entry is in the current dict format."""
     if isinstance(entry, list):
         return {"asset_ids": sorted(entry), "scores": {}, "frigate_scores": {}, "frigate_files": {}, "crop_dims": {}}
-    entry.setdefault("asset_ids", [])
-    entry.setdefault("scores", {})
-    entry.setdefault("frigate_scores", {})
-    entry.setdefault("frigate_files", {})
-    entry.setdefault("crop_dims", {})
-    return entry
+    # Copy top-level and all nested dicts so callers' mutations never reach the cache.
+    result = dict(entry)
+    result["asset_ids"] = list(result.get("asset_ids", []))
+    result["scores"] = dict(result.get("scores", {}))
+    result["frigate_scores"] = dict(result.get("frigate_scores", {}))
+    result["frigate_files"] = dict(result.get("frigate_files", {}))
+    result["crop_dims"] = dict(result.get("crop_dims", {}))
+    return result
 
 
 def _mark(
@@ -160,15 +168,10 @@ def mark_rejected(asset_id: str, person_name: str | None = None) -> None:
 
 
 
+
 def record_frigate_file(person_name: str, frigate_filename: str, asset_id: str) -> None:
-    """Record the mapping from a Frigate training filename to an Immich asset ID."""
-    data = _load(UPLOAD_TRACKER_FILE)
-    by_person = data.setdefault("by_person", {})
-    entry = _migrate_entry(by_person.get(person_name, {}))
-    entry["frigate_files"][frigate_filename] = asset_id
-    by_person[person_name] = entry
-    _save(UPLOAD_TRACKER_FILE, data)
-    logger.debug(f"Mapped Frigate file {frigate_filename} → {asset_id} ({person_name})")
+    """Record a single Frigate filename → asset_id mapping."""
+    record_frigate_files_batch(person_name, {frigate_filename: asset_id})
 
 
 def record_frigate_files_batch(person_name: str, mappings: dict[str, str]) -> None:
@@ -190,15 +193,24 @@ def remove_frigate_file(person_name: str, frigate_filename: str) -> None:
     Does NOT unmark the source asset_id — the deletion was deliberate and
     we don't want to re-upload the inferior image on the next run.
     """
+    remove_frigate_files_batch(person_name, [frigate_filename])
+
+
+def remove_frigate_files_batch(person_name: str, frigate_filenames: list[str]) -> None:
+    """Remove multiple Frigate filenames in a single load/save."""
     data = _load(UPLOAD_TRACKER_FILE)
     by_person = data.get("by_person", {})
-    entry = _migrate_entry(by_person.get(person_name, {}))
-    asset_id = entry["frigate_files"].pop(frigate_filename, None)
-    if asset_id:
-        entry["frigate_scores"].pop(asset_id, None)
+    raw = by_person.get(person_name)
+    if raw is None:
+        return
+    entry = _migrate_entry(raw)
+    for fn in frigate_filenames:
+        asset_id = entry["frigate_files"].pop(fn, None)
+        if asset_id:
+            entry["frigate_scores"].pop(asset_id, None)
     by_person[person_name] = entry
     _save(UPLOAD_TRACKER_FILE, data)
-    logger.debug(f"Removed Frigate file mapping {frigate_filename} ({person_name})")
+    logger.debug(f"Removed {len(frigate_filenames)} Frigate file mapping(s) for {person_name}")
 
 
 def get_tracked_frigate_file_count(person_name: str) -> int:
@@ -238,11 +250,12 @@ def _pick_mapped_file(
     data = _load(UPLOAD_TRACKER_FILE)
     entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
     scores = entry.get(score_key, {})
-    candidates = [
-        (ff, asset_id, scores[asset_id])
-        for ff, asset_id in entry.get("frigate_files", {}).items()
-        if (exclude is None or ff not in exclude) and asset_id in scores
-    ]
+    seen_assets: set[str] = set()
+    candidates = []
+    for ff, asset_id in entry.get("frigate_files", {}).items():
+        if (exclude is None or ff not in exclude) and asset_id in scores and asset_id not in seen_assets:
+            seen_assets.add(asset_id)
+            candidates.append((ff, asset_id, scores[asset_id]))
     if not candidates:
         return None
     return max(candidates, key=lambda x: x[2]) if highest else min(candidates, key=lambda x: x[2])
@@ -285,7 +298,9 @@ def find_by_crop_dimension(size: int) -> list[dict]:
         entry = _migrate_entry(raw_entry)
         scores = entry.get("scores", {})
         frigate_files = entry.get("frigate_files", {})
-        asset_to_frigate = {v: k for k, v in frigate_files.items()}
+        asset_to_frigate: dict[str, str] = {}
+        for fn, aid in frigate_files.items():
+            asset_to_frigate.setdefault(aid, fn)  # first-seen wins; plain inversion silently drops duplicates
         frigate_scores = entry.get("frigate_scores", {})
         for asset_id, dims in entry.get("crop_dims", {}).items():
             w, h = dims[0], dims[1]
@@ -338,9 +353,12 @@ def reset_person(person_name: str) -> None:
         by_person = data.get("by_person", {})
         tracker_entry = by_person.pop(person_name, None)
         if tracker_entry is not None:
-            person_ids = set(_get_ids(tracker_entry))
-            flat = set(data.get(flat_key, [])) - person_ids
-            data[flat_key] = sorted(flat)
+            # Rebuild from remaining entries rather than subtracting, so IDs that
+            # appear under another person aren't incorrectly removed from the flat list.
+            remaining_ids: set[str] = set()
+            for other_entry in by_person.values():
+                remaining_ids.update(_get_ids(other_entry))
+            data[flat_key] = sorted(remaining_ids)
             data["by_person"] = by_person
             _save(filename, data)
             changed = True
@@ -357,14 +375,14 @@ def get_person_summary() -> dict[str, dict]:
     names = set(uploaded_data) | set(rejected_data)
     result = {}
     for name in sorted(names):
-        u_entry = uploaded_data.get(name, {})
-        r_entry = rejected_data.get(name, {})
+        u_entry = _migrate_entry(uploaded_data.get(name, {}))
+        r_entry = _migrate_entry(rejected_data.get(name, {}))
         result[name] = {
-            "uploaded": len(_get_ids(u_entry)),
-            "rejected": len(_get_ids(r_entry)),
-            "frigate_count": u_entry.get("frigate_count") if isinstance(u_entry, dict) else None,
-            "scores": u_entry.get("scores", {}) if isinstance(u_entry, dict) else {},
-            "frigate_files": u_entry.get("frigate_files", {}) if isinstance(u_entry, dict) else {},
+            "uploaded": len(u_entry["asset_ids"]),
+            "rejected": len(r_entry["asset_ids"]),
+            "frigate_count": u_entry.get("frigate_count"),
+            "scores": u_entry["scores"],
+            "frigate_files": u_entry["frigate_files"],
         }
     return result
 

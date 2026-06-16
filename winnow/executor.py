@@ -35,6 +35,7 @@ from .upload_tracker import (
     mark_rejected,
     mark_uploaded,
     remove_frigate_file,
+    remove_frigate_files_batch,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,9 +152,9 @@ def execute_jobs(jobs: list[dict]) -> None:
                         if use_full_res:
                             img = fetch_full_image(asset["id"])
                             if img is None:
-                                # Both original and preview fallback failed — mark rejected
-                                # so this asset isn't retried on every future run.
-                                mark_rejected(asset["id"], person_name=name)
+                                # Full-res download failed — could be a transient network
+                                # error, so don't mark rejected; it will be retried next run.
+                                pass
                         else:
                             resp = requests.get(
                                 f"{Config.IMMICH_URL}/api/assets/{asset['id']}/thumbnail?size=preview&format=JPEG",
@@ -163,11 +164,11 @@ def execute_jobs(jobs: list[dict]) -> None:
                             if resp.ok:
                                 try:
                                     img = Image.open(BytesIO(resp.content))
-                                except PIL.UnidentifiedImageError:
-                                    # Pillow cannot identify the format — genuinely corrupt
-                                    # Immich thumbnail. Mark rejected so this asset isn't
-                                    # retried indefinitely. OSError/truncation errors are
-                                    # transient and intentionally not caught here.
+                                except (PIL.UnidentifiedImageError, OSError):
+                                    # Pillow cannot identify the format or the content is
+                                    # truncated. The download already succeeded (resp.ok),
+                                    # so this is a data problem, not a transient network
+                                    # error — mark rejected so it isn't retried forever.
                                     logger.warning("Invalid image data for asset %s — marking rejected", asset["id"])
                                     mark_rejected(asset["id"], person_name=name)
                                     img = None
@@ -345,9 +346,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 # (manually deleted, or cleaned up outside winnow). This corrects the
                 # effective_count so those slots are available for new uploads.
                 stale = get_tracked_frigate_filenames(name) - known_frigate_files_at_start
-                for stale_fn in stale:
-                    remove_frigate_file(name, stale_fn)
                 if stale:
+                    remove_frigate_files_batch(name, list(stale))
                     progress.console.print(
                         f"  [dim]{name}: cleared {len(stale)} stale mapping(s)"
                         " (file(s) no longer in Frigate)[/dim]"
@@ -372,10 +372,9 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 # freed slot isn't filled with something worse than what we removed.
                 if min_quality_score_for_slot is not None:
                     file_score = score_map.get(fname)
-                    if file_score is None or file_score <= min_quality_score_for_slot:
-                        score_str = f"{file_score:.3f}" if file_score is not None else "N/A"
+                    if file_score is not None and file_score <= min_quality_score_for_slot:
                         progress.console.print(
-                            f"    [dim]⏭  {fname}: score {score_str} ≤ freed slot floor"
+                            f"    [dim]⏭  {fname}: score {file_score:.3f} ≤ freed slot floor"
                             f" {min_quality_score_for_slot:.3f}, skipping[/dim]"
                         )
                         progress.advance(upload_task)
@@ -446,11 +445,13 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         get_target = get_most_redundant_mapped_file
                         score_label, better_note = "frigate", " (more novel)"
                         no_score_msg = "Frigate recognize unavailable, skipping replacement"
+                        is_better_than = lambda c, t: c < t
                     else:
                         candidate_score = score_map.get(fname)
                         get_target = get_lowest_quality_mapped_file
                         score_label, better_note = "blur", ""
                         no_score_msg = "no quality score, skipping replacement"
+                        is_better_than = lambda c, t: c > t
 
                     if candidate_score is None:
                         progress.console.print(f"    [dim]⏭  {fname}: {no_score_msg}[/dim]")
@@ -458,28 +459,25 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         continue
 
                     target = get_target(name, exclude=failed_deletes)
-                    not_better = target is None or (
-                        candidate_score >= target[2] if using_fscore else candidate_score <= target[2]
-                    )
+                    not_better = target is None or not is_better_than(candidate_score, target[2])
                     if not_better:
                         target_str = f"{target[2]:.3f}" if target is not None else "N/A"
-                        op = "<" if using_fscore else ">"
+                        cmp_op = "<" if using_fscore else ">"
                         progress.console.print(
                             f"    [dim]⏭  {fname}: {score_label} {candidate_score:.3f}"
-                            f" not {op} {target_str}, skipping[/dim]"
+                            f" not {cmp_op} {target_str}, skipping[/dim]"
                         )
                         progress.advance(upload_task)
                         continue
 
                     target_frigate_file, _target_asset_id, target_score = target
-                    op = "<" if using_fscore else ">"
+                    cmp_op = "<" if using_fscore else ">"
                     progress.console.print(
-                        f"    🔄 {fname}: {score_label} {candidate_score:.3f} {op} {target_score:.3f},"
+                        f"    🔄 {fname}: {score_label} {candidate_score:.3f} {cmp_op} {target_score:.3f},"
                         f" replacing {target_frigate_file}{better_note}"
                     )
                     if delete_frigate_person_files(name, [target_frigate_file]):
                         remove_frigate_file(name, target_frigate_file)
-                        person_has_fscores = has_frigate_scores(name)
                         effective_count -= 1
                         min_quality_score_for_slot = None if using_fscore else target_score
                     else:
