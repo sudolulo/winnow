@@ -1,6 +1,7 @@
 """Execution phase: image processing and Frigate upload."""
 
 import logging
+import operator
 import os
 import shutil
 from io import BytesIO
@@ -27,8 +28,10 @@ from .log_config import console
 from .quality import blur_score_from_image
 from .reconcile import enrich_asset_with_face_data, reconcile_frigate_mappings
 from .upload_tracker import (
-    UPLOAD_TRACKER_FILE,
     REJECT_TRACKER_FILE,
+    UPLOAD_TRACKER_FILE,
+    begin_batch,
+    flush_batch,
     get_lowest_quality_mapped_file,
     get_most_redundant_mapped_file,
     get_tracked_frigate_file_count,
@@ -36,8 +39,6 @@ from .upload_tracker import (
     has_frigate_scores,
     mark_rejected,
     mark_uploaded,
-    begin_batch,
-    flush_batch,
     remove_frigate_file,
     remove_frigate_files_batch,
 )
@@ -452,13 +453,13 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             get_target = get_most_redundant_mapped_file
                             score_label, better_note = "frigate", " (more novel)"
                             no_score_msg = "Frigate recognize unavailable, skipping replacement"
-                            is_better_than = lambda c, t: c < t
+                            is_better_than = operator.lt
                         else:
                             candidate_score = score_map.get(fname)
                             get_target = get_lowest_quality_mapped_file
                             score_label, better_note = "blur", ""
                             no_score_msg = "no quality score, skipping replacement"
-                            is_better_than = lambda c, t: c > t
+                            is_better_than = operator.gt
 
                         if candidate_score is None:
                             progress.console.print(f"    [dim]⏭  {fname}: {no_score_msg}[/dim]")
@@ -489,7 +490,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             effective_count -= 1
                             min_quality_score_for_slot = None if using_fscore else target_score
                         else:
-                            logger.warning("Failed to delete %s for %s, skipping replacement", target_frigate_file, name)
+                            logger.warning(
+                                "Failed to delete %s for %s, skipping replacement",
+                                target_frigate_file, name,
+                            )
                             failed_deletes.add(target_frigate_file)
                             progress.advance(upload_task)
                             continue
@@ -603,11 +607,19 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 try:
                     flush_batch(UPLOAD_TRACKER_FILE)
                 except Exception as _flush_exc:
-                    logger.warning("flush_batch failed during cleanup — batch will be recovered on next begin_batch: %s", _flush_exc)
+                    logger.warning(
+                        "flush_batch failed during cleanup"
+                        " — batch will be recovered on next begin_batch: %s",
+                        _flush_exc,
+                    )
                 try:
                     flush_batch(REJECT_TRACKER_FILE)
                 except Exception as _flush_exc:
-                    logger.warning("flush_batch failed during cleanup — batch will be recovered on next begin_batch: %s", _flush_exc)
+                    logger.warning(
+                        "flush_batch failed during cleanup"
+                        " — batch will be recovered on next begin_batch: %s",
+                        _flush_exc,
+                    )
 
             # Batch-map Frigate filenames to asset IDs now that all uploads are done.
             if actually_uploaded and not _skip_reconcile:

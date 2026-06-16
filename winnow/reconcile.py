@@ -61,7 +61,7 @@ def reconcile_frigate_mappings(
             try:
                 return float(fname.rsplit("_", 1)[-1].rsplit(".", 1)[0])
             except (ValueError, IndexError):
-                return 0.0
+                return float("inf")
 
         logger.debug(
             "%s: mapping %s file(s) by filename timestamp — assumes Frigate processes"

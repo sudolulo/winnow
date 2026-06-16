@@ -508,7 +508,6 @@ def _cluster_aware_selection(
 
     medoid_indices, cluster_labels = _kmedoids(dist_matrix, k)
     selected = list(medoid_indices)
-    selected_set = set(selected)
 
     logger.debug("Selected %s cluster medoids as initial picks.", len(selected))
 
@@ -541,7 +540,6 @@ def _cluster_aware_selection(
             break
 
         selected.append(best_idx)
-        selected_set.add(best_idx)
 
         # Update min distances
         dists_to_new = dist_matrix[best_idx]

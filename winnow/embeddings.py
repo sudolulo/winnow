@@ -181,8 +181,9 @@ def get_face_embedding(img_pil: Image.Image) -> np.ndarray | None:
         return None
 
     try:
-        # InsightFace expects BGR cv2 image
-        img_bgr = cv2.cvtColor(np.asarray(img_pil), cv2.COLOR_RGB2BGR)
+        # InsightFace expects BGR cv2 image; normalise mode first so RGBA/grayscale don't
+        # raise a channel-count error inside cvtColor.
+        img_bgr = cv2.cvtColor(np.asarray(img_pil.convert("RGB")), cv2.COLOR_RGB2BGR)
 
         # Suppress scikit-image FutureWarning from InsightFace's face_align.py
         with warnings.catch_warnings():
