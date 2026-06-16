@@ -281,9 +281,11 @@ def get_tracked_frigate_filenames(person_name: str) -> set[str]:
 def has_frigate_scores(person_name: str) -> bool:
     """Return True if any mapped file for this person has a stored Frigate recognition score."""
     data = _load(UPLOAD_TRACKER_FILE)
-    entry = _migrate_entry(data.get("by_person", {}).get(person_name, {}))
-    frigate_files = entry.get("frigate_files", {})
-    frigate_scores = entry.get("frigate_scores", {})
+    raw = data.get("by_person", {}).get(person_name)
+    if not raw or isinstance(raw, list):
+        return False
+    frigate_files = raw.get("frigate_files", {})
+    frigate_scores = raw.get("frigate_scores", {})
     return any(asset_id in frigate_scores for asset_id in frigate_files.values())
 
 

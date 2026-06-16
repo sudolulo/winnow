@@ -600,7 +600,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     )
 
             finally:
-                flush_batch(UPLOAD_TRACKER_FILE)
+                try:
+                    flush_batch(UPLOAD_TRACKER_FILE)
+                except Exception as _flush_exc:
+                    logger.warning("flush_batch failed during cleanup — batch will be recovered on next begin_batch: %s", _flush_exc)
 
             # Batch-map Frigate filenames to asset IDs now that all uploads are done.
             if actually_uploaded and not _skip_reconcile:
