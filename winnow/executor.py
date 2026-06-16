@@ -396,8 +396,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
                     # Pre-upload Frigate score — clean measurement (image not yet in training set).
                     # Called for all below-cap uploads (seeds frigate_scores for future at-cap
-                    # replacement) and for at-cap uploads when scores already exist. Skipped on
-                    # skipped when has_frigate_model is False (effective_count was 0 before the loop).
+                    # replacement) and for at-cap uploads when scores already exist.
+                    # Skipped when has_frigate_model is False (effective_count was 0 before the loop).
                     # recognize_face returns (face_name, score); we only use the score when the
                     # best match is for the correct person. Mismatches (or "unknown") are treated
                     # as None so a wrong-person score never drives a ceiling skip or replacement.
@@ -539,11 +539,14 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                             person_has_fscores = True
                                     # Always record for reconcile so the Frigate filename→asset_id
                                     # mapping is created even when the tracker write fails.
-                                    # Trade-off: if mark_uploaded failed, this asset_id is not in
-                                    # the upload set, so it may be re-selected next run (Frigate
-                                    # duplicate). The alternative — not appending — leaves the file
-                                    # permanently unmapped, breaking quality-replacement scoring.
-                                    # Frigate duplicate is the lesser consequence.
+                                    # Trade-off: if mark_uploaded failed, asset_id is absent from
+                                    # asset_ids and scores. Consequences: (1) re-selected next run
+                                    # → Frigate duplicate; (2) excluded from quality-replacement
+                                    # candidates (_pick_mapped_file requires a scores entry);
+                                    # (3) counted toward MAX_AUTO_IMAGES cap (via frigate_files).
+                                    # The alternative — not appending — leaves the file permanently
+                                    # unmapped (reconcile never creates the frigate_files entry),
+                                    # making (2) and (3) permanent. Frigate duplicate is lesser.
                                     actually_uploaded.append((fname, asset_id))
 
                                 break

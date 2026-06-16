@@ -517,9 +517,10 @@ def _cluster_aware_selection(
     emb_normed = emb_matrix / np.maximum(norms, 1e-8)
 
     # Build confidence weight array for hard example boosting.
-    # Default to 0.5 for faces with no confidence score so they receive a
-    # moderate diversity boost rather than being treated as high-confidence.
-    conf_array = np.full(n, 0.5)
+    # Default to 1.0 for faces with no confidence score: treat as high-confidence
+    # (no boost) rather than hard-example territory. A missing score field should
+    # not cause these images to beat genuinely high-confidence detections in FPS.
+    conf_array = np.ones(n)
     if confidence_scores:
         for i, c in enumerate(confidence_scores):
             if c is not None:
@@ -586,8 +587,7 @@ def _cluster_aware_selection(
         1 for i in selected
         if confidence_scores
         and i < len(confidence_scores)
-        and confidence_scores[i] is not None
-        and confidence_scores[i] < 0.85
+        and (confidence_scores[i] is None or confidence_scores[i] < 0.85)
     )
     logger.info("Selection complete: %s images (%s hard examples with confidence < 0.85).", len(selected), hard_count)
 
