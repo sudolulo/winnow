@@ -154,7 +154,8 @@ def blur_score_from_image(img: Image.Image, max_dim: int = 1440) -> float | None
         if score_img.width > max_dim or score_img.height > max_dim:
             score_img = score_img.copy()
             score_img.thumbnail((max_dim, max_dim), Image.LANCZOS)
-        return float(assess_quality(score_img).blur_score)
+        gray = cv2.cvtColor(np.array(score_img), cv2.COLOR_RGB2GRAY)
+        return float(cv2.Laplacian(gray, cv2.CV_64F).var())
     except Exception as exc:
         logger.debug("blur_score_from_image failed: %s", exc)
         return None

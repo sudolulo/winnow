@@ -12,7 +12,7 @@ from .executor import execute_jobs, upload_to_frigate
 from .immich_api import get_immich_version, get_people, merge_people
 from .jobs import _show_preview, auto_configure, interactive_configure
 from .log_config import console, setup_logging
-from .upload_tracker import find_by_crop_dimension, get_person_summary, reset_person
+from .upload_tracker import find_by_crop_dimension, get_person_summary, reset_all_people, reset_person
 
 logger = logging.getLogger(__name__)
 
@@ -207,8 +207,7 @@ def main() -> None:
                         "and will be reset along with everyone else.[/yellow]"
                     )
                 if names:
-                    for name in names:
-                        reset_person(name)
+                    reset_all_people()
                     rprint(f"[bold yellow]Reset tracking data for all {len(names)} people.[/bold yellow]")
                 else:
                     rprint("[dim]No tracking data to reset.[/dim]")

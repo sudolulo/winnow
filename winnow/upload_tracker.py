@@ -43,6 +43,7 @@ REJECT_TRACKER_FILE = "frigate_rejected_ids.json"
 # Reduces per-call JSON reads from O(calls) to O(1) after the first load.
 # Keyed by full path so tests with isolated tmp dirs never share entries.
 _cache: dict[str, dict] = {}
+_deferred: set[str] = set()  # paths whose disk writes are batched until flush_batch()
 
 
 def _tracker_path(filename: str) -> Path:
@@ -69,26 +70,46 @@ def _load(filename: str) -> dict:
     return data
 
 
-def _save(filename: str, data: dict) -> None:
-    path = _tracker_path(filename)
+def _write_to_disk(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     try:
         with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
         os.replace(tmp, path)
-        _cache[str(path)] = data  # update only after the file is safely on disk
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
 
 
+def _save(filename: str, data: dict) -> None:
+    path = _tracker_path(filename)
+    key = str(path)
+    if key in _deferred:
+        _cache[key] = data  # accumulate in cache; disk write deferred until flush_batch()
+        return
+    _write_to_disk(path, data)
+    _cache[key] = data  # update cache only after successful write
+
+
+def begin_batch(filename: str) -> None:
+    """Defer tracker disk writes for filename. All _save calls accumulate in the
+    in-memory cache until flush_batch() is called. Use around per-person upload loops
+    to reduce N writes to 1."""
+    _deferred.add(str(_tracker_path(filename)))
+
+
+def flush_batch(filename: str) -> None:
+    """Write the accumulated cache state for filename to disk."""
+    path = _tracker_path(filename)
+    key = str(path)
+    _deferred.discard(key)
+    if key in _cache:
+        _write_to_disk(path, _cache[key])
+
+
 def _flat_key(filename: str) -> str:
     return "uploaded_asset_ids" if filename == UPLOAD_TRACKER_FILE else "rejected_asset_ids"
-
-
-def _load_flat(filename: str) -> set[str]:
-    return set(_load(filename).get(_flat_key(filename), []))
 
 
 def _get_ids(entry: list | dict) -> list[str]:
@@ -121,10 +142,6 @@ def _mark(
     frigate_score: float | None = None,
 ) -> None:
     data = _load(filename)
-    flat_key = _flat_key(filename)
-    flat = set(data.get(flat_key, []))
-    flat.add(asset_id)
-    data[flat_key] = sorted(flat)
     if person_name:
         by_person = data.setdefault("by_person", {})
         entry = _migrate_entry(by_person.get(person_name, {}))
@@ -144,11 +161,21 @@ def _mark(
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def load_uploaded_ids() -> set[str]:
-    return _load_flat(UPLOAD_TRACKER_FILE)
+    """Return all asset IDs recorded as uploaded. Derives from by_person (primary)
+    plus any legacy flat list still present in old tracker files."""
+    data = _load(UPLOAD_TRACKER_FILE)
+    ids = {aid for e in data.get("by_person", {}).values() for aid in _get_ids(e)}
+    ids.update(data.get("uploaded_asset_ids", []))  # backward compat with pre-0.6.1 files
+    return ids
 
 
 def load_rejected_ids() -> set[str]:
-    return _load_flat(REJECT_TRACKER_FILE)
+    """Return all asset IDs recorded as rejected. Derives from by_person (primary)
+    plus any legacy flat list still present in old tracker files."""
+    data = _load(REJECT_TRACKER_FILE)
+    ids = {aid for e in data.get("by_person", {}).values() for aid in _get_ids(e)}
+    ids.update(data.get("rejected_asset_ids", []))  # backward compat with pre-0.6.1 files
+    return ids
 
 
 def mark_uploaded(
@@ -327,6 +354,29 @@ def update_frigate_count(person_name: str, count: int) -> None:
     _save(UPLOAD_TRACKER_FILE, data)
 
 
+def reset_all_people() -> None:
+    """Reset all tracking data in two writes (O(P) Frigate API calls, O(1) disk writes).
+
+    Preferred over calling reset_person() in a loop when RESET_PERSON=* — that
+    approach is O(P²) because each call rebuilds the flat list from all remaining entries.
+    """
+    upload_data = _load(UPLOAD_TRACKER_FILE)
+    for person_name, raw_entry in upload_data.get("by_person", {}).items():
+        entry = _migrate_entry(raw_entry)
+        frigate_filenames = list(entry.get("frigate_files", {}).keys())
+        if not frigate_filenames:
+            continue
+        if not os.environ.get("FRIGATE_URL", "").strip():
+            logger.info(f"FRIGATE_URL not set — skipping Frigate file deletion for {person_name}")
+        elif delete_frigate_person_files(person_name, frigate_filenames):
+            logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
+        else:
+            logger.warning(f"Could not delete Frigate files for {person_name} — tracker reset proceeding anyway")
+    _save(UPLOAD_TRACKER_FILE, {})
+    _save(REJECT_TRACKER_FILE, {})
+    logger.info("Reset all tracking data")
+
+
 def reset_person(person_name: str) -> None:
     """Remove all uploaded and rejected records for a given person.
 
@@ -347,18 +397,15 @@ def reset_person(person_name: str) -> None:
             logger.warning(f"Could not delete Frigate files for {person_name} — tracker reset proceeding anyway")
 
     changed = False
-    tracker_files = ((UPLOAD_TRACKER_FILE, upload_data), (REJECT_TRACKER_FILE, _load(REJECT_TRACKER_FILE)))
-    for filename, data in tracker_files:
-        flat_key = _flat_key(filename)
+    for filename in (UPLOAD_TRACKER_FILE, REJECT_TRACKER_FILE):
+        data = upload_data if filename == UPLOAD_TRACKER_FILE else _load(REJECT_TRACKER_FILE)
         by_person = data.get("by_person", {})
         tracker_entry = by_person.pop(person_name, None)
         if tracker_entry is not None:
-            # Rebuild from remaining entries rather than subtracting, so IDs that
-            # appear under another person aren't incorrectly removed from the flat list.
-            remaining_ids: set[str] = set()
-            for other_entry in by_person.values():
-                remaining_ids.update(_get_ids(other_entry))
-            data[flat_key] = sorted(remaining_ids)
+            flat_key = _flat_key(filename)
+            person_ids = set(_get_ids(tracker_entry))
+            if person_ids and flat_key in data:
+                data[flat_key] = sorted(set(data[flat_key]) - person_ids)
             data["by_person"] = by_person
             _save(filename, data)
             changed = True

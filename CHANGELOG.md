@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-06-16
+
+### Changed
+
+- **Flat `uploaded_asset_ids` / `rejected_asset_ids` lists dropped as primary storage**: asset IDs are now derived on read from `by_person` entries, which are the single source of truth. The legacy flat lists in existing tracker files are still read (union) so no assets become re-eligible after upgrading. New writes no longer maintain the flat lists. This removes the dual-representation sync hazard and paves the way for multi-instance support (per-instance `by_person` keying in a future release).
+
+- **Tracker writes batched per person**: `mark_uploaded` calls inside the per-person upload loop are now accumulated in memory (`begin_batch`) and flushed in a single `os.replace` write at the end of each person's loop (`flush_batch`), reducing N tracker writes per person to 1. Benefits users on slow storage (NAS, SD card, spinning disks).
+
+- **`RESET_PERSON=*` is now O(1) disk writes**: replaced the per-person `reset_person` loop with `reset_all_people()`, which makes one Frigate API call per person for file deletion and then clears both tracker files in two writes. Previously it was O(P²) iterations and 2P writes.
+
+- **`blur_score_from_image` inlines Laplacian computation**: replaced the `assess_quality()` call (which ran grayscale, exposure, and confidence checks whose results were discarded) with a direct `cv2.Laplacian` computation. The function is now self-contained and does not silently inherit future costs added to the full quality pipeline.
+
 ## [0.6.1] - 2026-06-16
 
 ### Fixed

@@ -34,6 +34,8 @@ from .upload_tracker import (
     has_frigate_scores,
     mark_rejected,
     mark_uploaded,
+    begin_batch,
+    flush_batch,
     remove_frigate_file,
     remove_frigate_files_batch,
 )
@@ -364,6 +366,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             min_quality_score_for_slot: float | None = None
             person_has_fscores: bool = has_frigate_scores(name)
 
+            begin_batch(UPLOAD_TRACKER_FILE)
             for fname in person_files:
                 fpath = os.path.join(person_dir, fname)
 
@@ -589,6 +592,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     f"{name}: freed replacement slot (floor {min_quality_score_for_slot:.3f})"
                     " was not filled this run — will be available next run"
                 )
+
+            flush_batch(UPLOAD_TRACKER_FILE)
 
             # Batch-map Frigate filenames to asset IDs now that all uploads are done.
             if actually_uploaded and not _skip_reconcile:
