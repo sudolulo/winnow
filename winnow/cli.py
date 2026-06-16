@@ -136,7 +136,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
                 "Re-fetch after merge returned no people"
                 " — possible transient error; proceeding with pre-merge list"
             )
-            return [p for p in people if p.get("id") not in skip_ids]
+            return [p for p in people if p["id"] not in skip_ids]
         # Filter out the smaller duplicate from any group whose merge failed — those
         # IDs still exist in Immich and would produce two jobs for the same folder.
         # IDs from groups that merged successfully are already gone from Immich, so

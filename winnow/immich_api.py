@@ -285,10 +285,11 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
 
     logger.debug("Filtering assets older than %s years (%s)", years, cutoff)
 
-    recent, skipped = [], 0
+    recent, skipped, bad_timestamp = [], 0, 0
     for asset in assets:
         created_at_str = asset.get("fileCreatedAt")
         if not isinstance(created_at_str, str) or not created_at_str:
+            bad_timestamp += 1
             continue
 
         try:
@@ -299,8 +300,14 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
             else:
                 skipped += 1
         except ValueError:
+            bad_timestamp += 1
             continue
 
+    if bad_timestamp:
+        logger.warning(
+            "filter_recent_assets: %s asset(s) had missing or unparseable fileCreatedAt"
+            " and were excluded from the pool.", bad_timestamp
+        )
     logger.debug("Retained %s assets (filtered %s old assets).", len(recent), skipped)
     return recent
 

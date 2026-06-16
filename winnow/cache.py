@@ -75,7 +75,7 @@ class EmbeddingCache:
         if os.path.exists(path):
             try:
                 return np.load(path)
-            except Exception:
+            except (OSError, ValueError):
                 return None
         return None
 

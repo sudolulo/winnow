@@ -26,22 +26,25 @@ logger = logging.getLogger(__name__)
 @contextmanager
 def _suppress_output():
     """Suppress stdout/stderr at the file-descriptor level, silencing C extension noise."""
-    devnull_fd = os.open(os.devnull, os.O_WRONLY)
-    saved_out, saved_err = os.dup(1), os.dup(2)
+    devnull_fd = None
+    saved_out = None
+    saved_err = None
     try:
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        saved_out = os.dup(1)
+        saved_err = os.dup(2)
         os.dup2(devnull_fd, 1)
         os.dup2(devnull_fd, 2)
         yield
     finally:
-        try:
+        if saved_out is not None:
             os.dup2(saved_out, 1)
-        finally:
-            try:
-                os.dup2(saved_err, 2)
-            finally:
-                os.close(devnull_fd)
-                os.close(saved_out)
-                os.close(saved_err)
+            os.close(saved_out)
+        if saved_err is not None:
+            os.dup2(saved_err, 2)
+            os.close(saved_err)
+        if devnull_fd is not None:
+            os.close(devnull_fd)
 
 
 # Lazy-loaded singleton

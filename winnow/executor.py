@@ -327,6 +327,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             # TODO(frigate-api): if Frigate exposes per-file embeddings, compute
             # diversity against the full training set (tracked + manual) rather than
             # relying solely on the Frigate score as a proxy signal.
+            pre_run_count = get_tracked_frigate_file_count(name)
             _snapshot = (
                 all_frigate_files.get(name, []) if all_frigate_files is not None
                 else get_frigate_person_files(name)
@@ -358,7 +359,6 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         " (file(s) no longer in Frigate)[/dim]"
                     )
             effective_count = get_tracked_frigate_file_count(name)
-            pre_run_count = effective_count
             quality_replacement = job.get("config", {}).get("quality_replacement", False)
             if Config.ENABLE_FRIGATE_SCORES and pre_run_count == 0:
                 progress.console.print(

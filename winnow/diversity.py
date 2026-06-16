@@ -181,6 +181,28 @@ def _crop_face_from_thumbnail(
     return crop
 
 
+def _scale_bbox_to_thumbnail(
+    bbox: tuple[float, float, float, float],
+    img: Image.Image,
+    asset: dict,
+    person_id: str | None = None,
+) -> tuple[float, float, float, float]:
+    """Scale a face bbox from original detection-image space to thumbnail-pixel space."""
+    x1, y1, x2, y2 = bbox
+    img_w, img_h = img.size
+    for person in asset.get("people", []):
+        if person_id and person.get("id") != person_id:
+            continue
+        faces = person.get("faces", [])
+        if faces:
+            meta_w = faces[0].get("imageWidth") or img_w
+            meta_h = faces[0].get("imageHeight") or img_h
+            scale_x, scale_y = img_w / meta_w, img_h / meta_h
+            return (x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y)
+        break
+    return bbox
+
+
 # =============================================================================
 # Embedding Collection
 # =============================================================================
@@ -258,9 +280,13 @@ def _select_by_embedding(
             confidence = _get_face_confidence(asset, person_id=person_id)
 
             face_bbox = _get_face_bbox(asset, person_id=person_id)
+            thumbnail_bbox = (
+                _scale_bbox_to_thumbnail(face_bbox, img, asset, person_id)
+                if face_bbox is not None else None
+            )
             quality = assess_quality(
                 img,
-                face_bbox=face_bbox,
+                face_bbox=thumbnail_bbox,
                 confidence=confidence,
                 blur_threshold=Config.BLUR_THRESHOLD,
                 min_face_px=Config.MIN_FACE_WIDTH,
@@ -273,6 +299,12 @@ def _select_by_embedding(
 
             asset["quality_score"] = quality.blur_score
             face_crop = _crop_face_from_thumbnail(img, asset, person_id=person_id)
+            if face_crop is None and face_bbox is not None:
+                logger.warning(
+                    "Face too small to crop for %s — skipping to avoid embedding wrong person",
+                    asset["id"],
+                )
+                continue
             embed_img = face_crop if face_crop is not None else img
 
             emb = get_embedding(embed_img, asset_id=asset["id"])
@@ -408,7 +440,8 @@ def _kmedoids(dist_matrix: np.ndarray, k: int, max_iter: int = 50) -> tuple[list
     for _ in range(max_iter):
         improved = False
         # Try swapping each medoid with a random non-medoid
-        non_medoids = [i for i in range(n) if i not in medoids]
+        medoid_set = set(medoids)
+        non_medoids = [i for i in range(n) if i not in medoid_set]
         if not non_medoids:
             break
 
@@ -576,4 +609,4 @@ def _select_time_spread(assets: list, limit: int | str) -> list:
         return assets
 
     indices = np.linspace(0, len(assets) - 1, limit, dtype=int)
-    return [assets[i] for i in np.unique(indices)]
+    return [assets[i] for i in indices]
