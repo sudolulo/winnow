@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-06-16
+
+### Fixed
+
+- **`record_frigate_files_batch` no longer mutates the tracker cache before write**: the function shared the same cache-corruption-on-write-failure bug that was fixed in `remove_frigate_files_batch` in v0.6.1 — `data.setdefault("by_person", {})` mutated the cached dict in-place, so a disk-full or permission error left the in-memory cache ahead of the on-disk file. Now uses the same copy-before-mutate pattern (shallow copies of the top-level dict and `by_person` sub-dict) so a failed write leaves cache and disk in sync.
+
+- **`tracker_ok` boolean flag replaced with try/else**: the intermediate boolean was a misleading placeholder — the `True` initial value suggested success before the operation ran. The control flow is now expressed directly with a try/except/else block.
+
+- **`LIMIT` env var guard simplified**: the two adjacent `if custom_limit is not None` checks in `_resolve_strategy` are collapsed into a single `if custom_limit is not None:` with nested branches, removing redundant evaluation.
+
 ## [0.6.2] - 2026-06-16
 
 ### Changed

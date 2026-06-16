@@ -223,11 +223,13 @@ def record_frigate_files_batch(person_name: str, mappings: dict[str, str]) -> No
     """Record multiple Frigate filename → asset_id mappings in a single load/save."""
     if not mappings:
         return
-    data = _load(UPLOAD_TRACKER_FILE)
-    by_person = data.setdefault("by_person", {})
+    src = _load(UPLOAD_TRACKER_FILE)
+    by_person = dict(src.get("by_person", {}))
     entry = _migrate_entry(by_person.get(person_name, {}))
     entry["frigate_files"].update(mappings)
     by_person[person_name] = entry
+    data = dict(src)
+    data["by_person"] = by_person
     _save(UPLOAD_TRACKER_FILE, data)
     logger.debug(f"Batch-mapped {len(mappings)} Frigate file(s) for {person_name}")
 
