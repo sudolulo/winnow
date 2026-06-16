@@ -299,13 +299,6 @@ def _select_by_embedding(
 
             asset["quality_score"] = quality.blur_score
             face_crop = _crop_face_from_thumbnail(img, asset, person_id=person_id)
-            if face_crop is None and face_bbox is not None:
-                logger.warning(
-                    "Face too small to crop for %s — skipping to avoid embedding wrong person",
-                    asset["id"],
-                )
-                quality_filtered += 1
-                continue
             embed_img = face_crop if face_crop is not None else img
 
             emb = get_embedding(embed_img, asset_id=asset["id"])
