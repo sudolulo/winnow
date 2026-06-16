@@ -37,6 +37,11 @@ def _suppress_output():
         os.dup2(devnull_fd, 2)
         yield
     finally:
+        # Each block is a separate sequential statement. A BaseException (e.g.
+        # KeyboardInterrupt) raised inside block N would propagate past blocks N+1
+        # and N+2, leaving saved_err or devnull_fd unclosed. In CPython, KI is
+        # delivered between bytecodes, not mid-syscall; os.dup2 is a single C call
+        # and completes atomically, so this race is not realistically triggerable.
         if saved_out is not None:
             try:
                 os.dup2(saved_out, 1)
