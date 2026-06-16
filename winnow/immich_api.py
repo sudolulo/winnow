@@ -86,9 +86,12 @@ def merge_people(survivor_id: str, merge_ids: list[str]) -> bool:
 def fetch_all_assets(person: dict) -> tuple[list[dict], int]:
     """Fetch all assets for a person with pagination.
 
-    Returns (assets, raw_total) where assets is the list of valid dict items
-    and raw_total is the total item count seen before non-dict filtering.
-    raw_total may exceed len(assets) if Immich returned non-dict items.
+    Returns (assets, total_raw) where assets is the list of valid dict items
+    and total_raw is the raw item count across pages that had at least one valid
+    dict. All-garbage pages (every item non-dict) stop pagination and are not
+    counted. total_raw is a lower bound in two cases: a network error interrupts
+    pagination (a warning is logged), or an all-garbage page terminates it early
+    (a warning is logged and later pages are not fetched).
     """
     name = person.get("name", "Unknown")
     person_id = person.get("id")
@@ -101,7 +104,7 @@ def fetch_all_assets(person: dict) -> tuple[list[dict], int]:
     logger.debug("Fetching assets for %s...", name)
 
     assets: list[dict] = []
-    total_raw = 0  # items seen across all pages before non-dict filtering
+    total_raw = 0  # raw item count across pages that yielded at least one valid dict
     for page in range(1, MAX_PAGES + 1):
         try:
             resp = requests.post(
@@ -122,7 +125,6 @@ def fetch_all_assets(person: dict) -> tuple[list[dict], int]:
                 page_assets = page_assets.get("items", [])
 
             page_count = len(page_assets)  # raw count for termination check before filtering
-            total_raw += page_count
 
             # Single pass: partition valid assets from unexpected non-dict items
             valid_assets, skipped_count = [], 0
@@ -142,6 +144,11 @@ def fetch_all_assets(person: dict) -> tuple[list[dict], int]:
                     )
                 break
 
+            # Count page_count (not just valid items) so that non-dict items from a
+            # transient schema issue on a mixed page don't cause MIN_FACE_COUNT to
+            # skip a real person. Pages where every item is a non-dict are excluded —
+            # they indicate a structural problem and break above without contributing.
+            total_raw += page_count
             assets.extend(valid_assets)
             logger.debug("Fetched page %s, total: %s", page, len(assets))
 
@@ -150,6 +157,11 @@ def fetch_all_assets(person: dict) -> tuple[list[dict], int]:
 
         except (requests.RequestException, ValueError) as e:
             logger.error("Exception fetching assets for %s (page %s): %s", name, page, e)
+            if page > 1:
+                logger.warning(
+                    "%s: pagination interrupted at page %s — total_raw=%s may undercount actual assets",
+                    name, page, total_raw,
+                )
             break
 
     return assets, total_raw
@@ -184,14 +196,14 @@ def fetch_face_data(asset_id: str, person_id: str | None = None) -> FaceData | N
         if not isinstance(faces, list) or not faces:
             return None
 
-        # Match the target person if specified
+        # Match the target person if specified; never fall back to a different person's face.
         face = None
         if person_id:
             face = next(
                 (f for f in faces if isinstance(f, dict) and (f.get("person") or {}).get("id") == person_id),
                 None,
             )
-        if face is None:
+        else:
             face = faces[0] if isinstance(faces[0], dict) else None
         if face is None:
             return None
@@ -256,8 +268,11 @@ def fetch_full_image(asset_id: str, timeout: int = 60) -> Image.Image | None:
 
 
 def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[dict]:
-    """Filter assets to keep only those from the last N years."""
-    years = years or Config.YEARS_FILTER
+    """Filter assets to keep only those from the last N years. Pass years=0 to include all."""
+    if years is None:
+        years = Config.YEARS_FILTER
+    if not years:
+        return list(assets)
     cutoff = datetime.now(timezone.utc) - timedelta(days=365 * years)
 
     logger.debug("Filtering assets older than %s years (%s)", years, cutoff)
@@ -265,7 +280,7 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
     recent, skipped = [], 0
     for asset in assets:
         created_at_str = asset.get("fileCreatedAt")
-        if not created_at_str:
+        if not isinstance(created_at_str, str) or not created_at_str:
             continue
 
         try:

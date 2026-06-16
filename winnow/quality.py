@@ -14,6 +14,11 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
+def _laplacian_var(img_np: np.ndarray) -> float:
+    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY) if img_np.ndim == 3 else img_np
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+
 @dataclass
 class QualityResult:
     """Result of quality assessment on a face/image crop."""
@@ -32,8 +37,7 @@ def check_blur(img_np: np.ndarray, threshold: float = 100.0) -> tuple[bool, str]
 
     Lower variance = blurrier image. ArcFace needs clear facial features.
     """
-    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY) if img_np.ndim == 3 else img_np
-    variance = cv2.Laplacian(gray, cv2.CV_64F).var()
+    variance = _laplacian_var(img_np)
     if variance < threshold:
         return False, f"Blurry (laplacian={variance:.1f}, threshold={threshold})"
     return True, ""
@@ -115,8 +119,7 @@ def assess_quality(
     reasons = []
 
     # Compute laplacian variance once (used by check_blur and stored as blur_score)
-    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY) if img_np.ndim == 3 else img_np
-    blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    blur_score = _laplacian_var(img_np)
 
     checks = [
         (
@@ -137,4 +140,25 @@ def assess_quality(
             reasons.append(reason)
 
     return QualityResult(passed=len(reasons) == 0, reasons=reasons, blur_score=blur_score)
+
+
+def blur_score_from_image(img: Image.Image, max_dim: int = 1440) -> float | None:
+    """Compute Laplacian-variance blur score, capped at max_dim px to normalise scale.
+
+    Caps resolution so full-res and thumbnail scores are comparable — Laplacian
+    variance grows with pixel count, making uncapped full-res scores much larger
+    than thumbnail scores for the same perceived sharpness.
+
+    Returns None on error so callers can distinguish a failed measurement from a
+    legitimately low (near-zero) score.
+    """
+    try:
+        score_img = img.convert("RGB") if img.mode != "RGB" else img
+        if score_img.width > max_dim or score_img.height > max_dim:
+            score_img = score_img.copy()
+            score_img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+        return _laplacian_var(np.array(score_img))
+    except Exception as exc:
+        logger.debug("blur_score_from_image failed: %s", exc)
+        return None
 

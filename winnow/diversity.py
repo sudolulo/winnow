@@ -494,8 +494,13 @@ def _cluster_aware_selection(
     auto_threshold = _compute_adaptive_threshold(emb_normed) if limit == "auto" else 0.0
     target = Config.MAX_AUTO_IMAGES if limit == "auto" else limit
 
+    # Short-circuit: nothing to select
+    if limit != "auto" and target <= 0:
+        return []
+
     # --- Stage 1: K-Medoids clustering ---
-    k = min(max(5, target // 4), max(1, n // 3), n)  # e.g., 1-20 clusters
+    # Cap k at target so we never seed more cluster representatives than requested.
+    k = min(max(5, target // 4), max(1, n // 3), n, target)  # e.g., 1-20 clusters
     logger.debug("Clustering %s embeddings into %s groups (K-Medoids)...", n, k)
 
     # Compute full cosine distance matrix
@@ -547,7 +552,12 @@ def _cluster_aware_selection(
     hard_count = sum(1 for c in selected_conf if c < 0.85)
     logger.info("Selection complete: %s images (%s hard examples with confidence < 0.85).", len(selected), hard_count)
 
-    return [candidates[i] for i in selected]
+    # Slice to target: the while loop enforces this for non-auto mode, but
+    # guard here too in case the medoid seed already exceeded target (small target).
+    result = [candidates[i] for i in selected]
+    if limit != "auto":
+        result = result[:target]
+    return result
 
 
 # =============================================================================

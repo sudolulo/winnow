@@ -7,153 +7,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.7] - 2026-06-15
+## [0.6.3] - 2026-06-16
 
 ### Fixed
 
-- **Symlink guard moved before `realpath`**: `_safe_person_dir` now checks whether the raw (unresolved) path is a symlink before calling `os.path.realpath`. The previous check in `execute_jobs` ran after `realpath` had already resolved the link, making it unreachable dead code.
+- **`record_frigate_files_batch` no longer mutates the tracker cache before write**: the function shared the same cache-corruption-on-write-failure bug that was fixed in `remove_frigate_files_batch` in v0.6.1 — `data.setdefault("by_person", {})` mutated the cached dict in-place, so a disk-full or permission error left the in-memory cache ahead of the on-disk file. Now uses the same copy-before-mutate pattern (shallow copies of the top-level dict and `by_person` sub-dict) so a failed write leaves cache and disk in sync.
 
-- **`fetch_all_assets` returns raw item count**: the function now returns `(assets, total_raw)` where `total_raw` is the total items seen across all pages before non-dict filtering. `auto_configure` and `_configure_person` use `total_raw` for the `MIN_FACE_COUNT` guard and display, so transient non-dict API items cannot cause a person to be incorrectly skipped.
+- **`tracker_ok` boolean flag replaced with try/else**: the intermediate boolean was a misleading placeholder — the `True` initial value suggested success before the operation ran. The control flow is now expressed directly with a try/except/else block.
 
-- **Pagination stop on all-non-dict page now logs a warning**: when `valid_assets` is empty but the page was non-empty (all items were non-dict), a `WARNING` is emitted explaining why pagination stopped, distinguishing it from natural end-of-data.
+- **`LIMIT` env var guard simplified**: the two adjacent `if custom_limit is not None` checks in `_resolve_strategy` are collapsed into a single `if custom_limit is not None:` with nested branches, removing redundant evaluation.
 
-- **`_data_cfg.exists()` called once**: the result is cached in `_data_cfg_exists` so the dual-config warning check and the `config_file` selection always agree — previously two separate `stat()` calls created a TOCTOU window where the log could claim one file while the code loaded another.
-
-## [0.5.6] - 2026-06-15
-
-### Fixed
-
-- **Pagination runaway on all-non-dict page**: the empty-page break in `fetch_all_assets` now fires after non-dict filtering rather than before, so a page whose items are all non-dict (e.g. all nulls) correctly terminates pagination instead of looping to MAX_PAGES.
-
-- **Non-dict API items upgraded to warning**: items skipped in a paginated response are now logged at `WARNING` (previously `DEBUG`) so silent asset loss is visible at default log levels.
-
-- **Single-pass page filtering**: `fetch_all_assets` now partitions valid and invalid items in one loop instead of iterating `page_assets` twice with inverse predicates.
-
-- **Reconciliation checks Frigate before sleeping**: the poll loop now performs an initial check immediately after upload, then backs off with `_RECONCILE_POLL_DELAYS` only if needed. Previously the loop always slept ≥1 s before any check.
-
-- **Reconciliation set subtraction computed once**: `current_files - known_files_before` was computed twice per poll iteration (once for the count check, once for the final mapping). It is now computed once and reused.
-
-## [0.5.5] - 2026-06-15
+## [0.6.2] - 2026-06-16
 
 ### Changed
 
-- **Module-level constants in `diversity.py`**: magic numbers `3000` (pool cap), `20` (pool scale), and `32` (embedding batch size) extracted to named constants `_POOL_CAP`, `_POOL_SCALE`, and `_EMBEDDING_BATCH_SIZE`.
+- **Flat `uploaded_asset_ids` / `rejected_asset_ids` lists dropped as primary storage**: asset IDs are now derived on read from `by_person` entries, which are the single source of truth. The legacy flat lists in existing tracker files are still read (union) so no assets become re-eligible after upgrading. New writes no longer maintain the flat lists. This removes the dual-representation sync hazard and paves the way for multi-instance support (per-instance `by_person` keying in a future release).
 
-- **Reconciliation poll delays extracted**: `(1, 2, 4, 8)` back-off delays in `reconcile.py` extracted to `_RECONCILE_POLL_DELAYS` with an explanatory comment.
+- **Tracker writes batched per person**: `mark_uploaded` calls inside the per-person upload loop are now accumulated in memory (`begin_batch`) and flushed in a single `os.replace` write at the end of each person's loop (`flush_batch`), reducing N tracker writes per person to 1. Benefits users on slow storage (NAS, SD card, spinning disks).
 
-- **`_VALID_SCORE_COLS` comment**: explains that the frozenset is a SQL-injection guard for dynamic column interpolation, not a runtime filter.
+- **`RESET_PERSON=*` is now O(1) disk writes**: replaced the per-person `reset_person` loop with `reset_all_people()`, which makes one Frigate API call per person for file deletion and then clears both tracker files in two writes. Previously it was O(P²) iterations and 2P writes.
 
-- **`record_frigate_files_batch` docstring**: clarifies that all mappings are written atomically — no partial failure is possible.
+- **`blur_score_from_image` inlines Laplacian computation**: replaced the `assess_quality()` call (which ran grayscale, exposure, and confidence checks whose results were discarded) with a direct `cv2.Laplacian` computation. The function is now self-contained and does not silently inherit future costs added to the full quality pipeline.
 
-- **`get_person_summary()` refactored**: eliminated four repeated default-dict blocks using a local `_entry()` helper with `setdefault`.
-
-- **`encoded` → `encoded_name` in `frigate_api.py`**: renamed the URL-encoded person name variable for clarity.
-
-- **Dual response shape comment in `immich_api.py`**: documents that Immich ≥2.x returns `{"assets": {"items": [...]}}` while earlier versions returned `{"assets": [...]}` directly.
-
-- **Non-dict item debug log in `fetch_all_assets`**: skipped non-dict items in a page response now emit a `logger.debug` line with the count and page number.
-
-## [0.5.4] - 2026-06-14
+## [0.6.1] - 2026-06-16
 
 ### Fixed
 
-- **Quality replacement slot floor used wrong score**: when a blur-score replacement deleted a low-quality Frigate file but the subsequent upload failed, `min_quality_score_for_slot` was set to the failed candidate's score rather than the deleted file's score. This caused subsequent candidates that were better than the deleted file (but worse than the failed upload) to be skipped, leaving the freed slot unfilled for the rest of that run. Fixed by using `target_score` (deleted file's score) as the floor, matching the documented intent in the surrounding comment.
+- **Corrupt or truncated full-res thumbnails now marked rejected**: `OSError` (truncated file) is caught alongside `PIL.UnidentifiedImageError` in the thumbnail path so persistently bad assets are tombstoned instead of retried forever. Full-res download failures (`USE_FULL_RESOLUTION=true`) remain transient — not marked rejected — so a Immich blip doesn't permanently blacklist valid assets.
 
-## [0.5.3] - 2026-06-14
+- **Quality replacement mode no longer flips mid-loop**: `person_has_fscores` was re-evaluated after each file deletion, which could switch the remaining replacements from Frigate-score mode to blur-score mode if the deleted file was the last scored one. The mode is now fixed for the duration of the upload loop.
 
-### Fixed
+- **`reset_person` no longer removes shared asset IDs**: the flat `uploaded_asset_ids` list is now rebuilt from all remaining `by_person` entries rather than subtracting the reset person's IDs. Previously, resetting Alice could remove an asset ID that also appeared under Bob, making it re-eligible for upload.
 
-- **`LIMIT` env var crash**: non-integer values (e.g. `"30.5"`, `"all"`) now log a warning and fall back to the default instead of raising `ValueError` at startup.
+- **`_save` cache updated only after successful write**: the in-memory tracker cache is now updated after `os.replace` succeeds rather than before. A disk-full or permission error no longer leaves the cache permanently ahead of the on-disk file.
 
-- **Symlink guard on person output dir**: `shutil.rmtree` is now skipped if `person_dir` resolves to a symlink, preventing traversal out of `OUTPUT_DIR` on a shared volume.
+- **Stale Frigate file cleanup batched**: the per-file `remove_frigate_file` loop is replaced with a single `remove_frigate_files_batch` call, reducing N tracker writes to 1 when stale mappings are cleaned up.
 
-- **`person["id"]` KeyError**: malformed Immich API responses missing the `id` field now log an error and skip that person instead of crashing the job.
+- **`_migrate_entry` no longer mutates the cache through nested dict aliases**: all five nested dicts (`asset_ids`, `scores`, `frigate_scores`, `frigate_files`, `crop_dims`) are now individually copied so `.pop()` calls in write paths cannot reach the in-memory cache.
 
-- **Face data response type validation**: `fetch_face_data` now validates that the `/api/faces` response is a list before indexing, guarding against null or non-list API responses.
+- **`find_by_crop_dimension` and `_pick_mapped_file` now agree on duplicate asset→file handling**: both use first-seen-wins when the same `asset_id` maps to multiple Frigate filenames, preventing inconsistent replacement decisions.
 
-- **Pagination error log includes page number**: the exception log in `fetch_all_assets` now includes the page number that failed.
+- **Non-atomic JSON write**: tracker files are written to a `.tmp` sibling then renamed with `os.replace` so a crash mid-write never leaves a truncated file.
 
-- **`Image.open()` wrapped for non-image responses**: PIL parse errors on thumbnail fetches (e.g. reverse-proxy HTML error page returning 200) are now caught and logged instead of propagating.
+- **`get_person_summary` uses `_migrate_entry`**: replaced three ad-hoc `isinstance` guards with a single `_migrate_entry` call, making old-format (list) entries consistent with every other read path.
 
-- **Frigate version `v`-prefix handling**: `v0.16.0`-style version strings are now correctly parsed; the leading `v` was previously misread, causing the too-old warning to never fire.
+- **Quality replacement floor check**: a candidate with a `None` blur score (PIL error during scoring) no longer blocks a freed slot — the `<=` floor comparison is only applied when a score is actually available.
 
-- **`FRIGATE_SCORE_CEILING` parse guard**: a non-float value in `.env` now logs a warning and disables the ceiling instead of crashing at startup.
+- **`executor.py` syntax error**: the `if img is None:` block in the full-res download path was comment-only and would have raised `IndentationError` on import. Added `pass`.
 
-- **Dual config file warning**: a log warning is emitted when both `DATA_DIR/.immich_config.json` and the legacy CWD config file exist simultaneously.
+- **Duplicate `if stale:` guard**: two consecutive identical guards around stale-cleanup and its log print were merged into one.
 
-- **PID file write guard**: `OSError` on `/tmp/winnow.pid` write is now caught and logged instead of crashing the scheduler.
+- **`_flat_key` uses constant equality** instead of substring match, removing a latent routing bug for any filename that happens to contain "uploaded".
 
-- **Scheduler sleep clamped to 60 s**: bounds recovery time after an NTP clock step.
+- **`remove_frigate_file` no longer creates ghost entries**: returns early when the person is absent rather than writing an empty stub.
 
-- **`get_frigate_person_files` non-list debug log**: consistent with `get_all_frigate_person_files`.
+- **`skip_ids` extracted to helper**: the identical set comprehension in `_handle_duplicate_people` that appeared in three branches is now a single `_smaller_duplicate_ids()` inner function.
 
-## [0.5.2] - 2026-06-14
+- **`blur_score_from_image` returns `None` on error** instead of `0.0`, so callers can distinguish a failed measurement from a legitimately near-zero Laplacian variance score.
 
-### Fixed
-
-- **Immich v2.7.5 compatibility**: `auto_configure` no longer pre-filters people by `assetCount` from the `/api/people` response, which Immich v2.7.5 dropped. The `MIN_FACE_COUNT` check now runs after `fetch_all_assets` so the actual asset count is used instead of the missing field.
-
-- **Dockerfile supply-chain**: replaced `curl | sh` uv installer with `COPY --from=ghcr.io/astral-sh/uv:0.11.21` to eliminate the network-executed script.
-
-- **HEALTHCHECK**: replaced the static file-existence check with `kill -0 $(cat /tmp/winnow.pid)` so the container reports unhealthy when the scheduler process actually dies, not just when a script file is missing.
-
-- **`CONFIG_FILE` volume safety**: the config file path now resolves to `DATA_DIR/.immich_config.json` so it persists across container restarts. The legacy CWD location is still read as a fallback for existing setups.
-
-- **EmbeddingCache singleton isolation**: `get_cache()` now tracks the `cache_dir` argument and re-creates the cache when it changes, preventing test runs from sharing state across different `DATA_DIR` values.
-
-- **File descriptor leak in `_suppress_output()`**: `devnull_fd`, `saved_out`, and `saved_err` are now all closed in a nested `finally` chain, preventing fd exhaustion on long runs.
-
-- **Silent exception in `upload_tracker`**: `except Exception: pass` on SQLite connection close is now `except Exception as e: logger.debug(...)` so connection errors are visible in debug logs.
-
-- **Frigate API unknown-key logging**: `get_all_frigate_person_files` now logs unexpected non-list keys at DEBUG level instead of silently skipping them.
-
-- **Reconcile debug log**: added a debug log entry before the FIFO timestamp mapping step in `reconcile_frigate_mappings` to make the mapping assumption visible in logs.
-
-- **CI action SHA pinning**: all five GitHub Actions workflows now pin every third-party action to a full commit SHA. Updated `setup-uv` v7→v8.2.0, `upload-artifact` v4→v7.0.1, `download-artifact` v4→v8.0.1, `ruff-action` v3→v4.0.0.
-
-## [0.5.1] - 2026-06-14
+## [0.6.0] - 2026-06-15
 
 ### Changed
 
-- **`CACHE_DIR` renamed to `DATA_DIR`**: the environment variable that sets the path for the embedding cache and SQLite tracker database is now called `DATA_DIR` (default: `data`; Docker default: `/app/data`). The old `CACHE_DIR` still works with a startup deprecation warning — rename it to `DATA_DIR` in your `.env` or `compose.yml` to silence the warning. The container-side default path changes from `/app/.if_cache` to `/app/data`; update your volume mount accordingly.
+- **Upload tracker reverted to JSON storage**: the SQLite-based tracker introduced in v0.5.0 produced 17 bug-fix releases in two days due to data-loss risks in the migration layer, schema primary key conflicts, tracker isolation races, and disk-full retry storms. The JSON backend (`frigate_uploaded_ids.json` / `frigate_rejected_ids.json` in `DATA_DIR`) is restored. It is simpler, has no migration layer, and carries no external dependency. If you ran any v0.5.x version, delete `frigate_tracker.db` from your `DATA_DIR` once you confirm the JSON files look correct. JSON files from before v0.5.0 are read automatically with no changes required.
 
-## [0.5.0] - 2026-06-14
+- **`CACHE_DIR` env var accepted as `DATA_DIR` alias**: the rename introduced in v0.5.1 is preserved — `CACHE_DIR` still works with a deprecation warning. The default data path remains `data` (Docker: `/app/data`).
 
-### Changed
+- **Config file now lives in `DATA_DIR`**: `.immich_config.json` resolves to `DATA_DIR/.immich_config.json` so it persists across container restarts. The legacy CWD location is still checked as a fallback for existing setups.
 
-- **SQLite upload tracker**: `upload_tracker.py` is fully rewritten on top of SQLite (stdlib `sqlite3`). The JSON pair (`frigate_uploaded_ids.json` / `frigate_rejected_ids.json`) is replaced by a single `winnow_tracker.db` (WAL journal, `check_same_thread=False`). Existing JSON files are migrated atomically on first run and renamed to `.json.bak`. No user action required; the tracker API (`mark_uploaded`, `mark_rejected`, `filter_already_uploaded`, `get_person_summary`, etc.) is unchanged.
-
-- **Config lazy singleton**: `_Config` now uses `__getattr__` to defer all I/O until the first attribute access. `load_dotenv()` no longer runs at module import time — it runs on the first access to any `Config` attribute. Empty-string env vars (`IMMICH_URL=`, `OUTPUT_DIR=`) are now correctly distinguished from unset ones so a `.env` file value never silently overrides an explicit `""` set in the environment. `Config.reset()` clears the loaded state for clean test isolation.
-
-- **Reconcile module extracted**: `reconcile_frigate_mappings` and `enrich_asset_with_face_data` are extracted from `executor.py` into a new `winnow/reconcile.py` module. No behaviour change; reduces `executor.py` length and clarifies responsibility boundaries.
-
-- **Single lockfile**: `pyproject-gpu.toml`, `pyproject-cpu.toml`, `pyproject-rocm.toml`, `pyproject-intel.toml` and their separate lockfiles are removed. GPU/ROCm/Intel/CPU variant deps are now declared as `[project.optional-dependencies]` extras in `pyproject.toml` with `[tool.uv] conflicts` for mutual exclusion. A single `uv.lock` covers all variants. The Dockerfile selects the correct extra via `uv sync --extra $VARIANT`.
-
-- **Ubuntu base bumped**: amd64 GPU base updated from `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04` to `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04`. amd64 ROCm and CPU bases updated from Ubuntu 22.04 to Ubuntu 26.04. arm64 bases remain Ubuntu 24.04.
+- **Diversity selector receives capacity as its limit directly**: instead of selecting up to `MAX_AUTO_IMAGES` and then slicing to the remaining capacity, the selector now runs with the actual remaining slot count as its budget.
 
 ### Fixed
 
-- **Frigate API unreachable at upload start no longer crashes reconciliation**: when the Frigate `GET /api/faces` call fails at upload start, reconciliation is now skipped entirely for that batch (`_skip_reconcile = True`). Previously, falling back to the tracker's known filenames as the pre-upload baseline caused the `> target` guard to fire on unmapped manual files, silently dropping all mappings.
+- **Immich v2.7.5 compatibility**: `auto_configure` no longer pre-filters people by `assetCount` from `/api/people`, which Immich v2.7.5 dropped. The `MIN_FACE_COUNT` check now runs after `fetch_all_assets` using the actual fetched count.
 
-- **Polling `== target` guards against wrong-file mapping**: the reconcile poll loop now breaks on `len(new_files) == target` and sets an "external upload detected" flag when `> target`. The old `>= target` break would have proceeded with an incorrect file set when a concurrent external upload was present, causing wrong asset-ID mappings. The poll loop now also exits early on `> target` rather than exhausting all four retry intervals (up to 15 s wasted per person with a concurrent external uploader).
+- **`fetch_face_data` no longer falls back to a wrong person's bounding box**: when `person_id` is provided but not found in the Immich `/api/faces` response, the function now returns `None` instead of using `faces[0]`. Previously a group photo where the target person's face entry was missing would inject a different person's bounding box into the crop.
 
-- **`auto_cap` post-selection truncation removed**: the diversity selector now receives the correct upper bound (`capacity` or `min(limit, capacity)`) directly instead of selecting up to `MAX_AUTO_IMAGES` and then silently truncating the result list. The old approach produced a selection biased toward the first `capacity` items in embedding space rather than the globally optimal diverse subset.
+- **Corrupt thumbnail permanently rejected**: when `resp.ok=True` but `PIL.UnidentifiedImageError` is raised (Pillow cannot identify the image format), the asset is now marked rejected so it isn't re-downloaded on every future run. Transient `OSError`/truncation errors are intentionally not caught here — those are retried normally.
 
-- **Dockerfile unknown VARIANT now fails loudly**: added an explicit `elif [ "$VARIANT" = "gpu" ]` branch and an `else … exit 1` for unrecognised values. Previously, any unknown variant silently fell through to the `cpu` branch.
+- **`mark_uploaded` tracker failure no longer aborts the upload loop**: a tracker write failure after a successful Frigate POST is logged and the loop continues; the asset will be re-uploaded on the next run rather than the current run dying mid-job.
 
-- **JSON migration partial-rename data loss**: if the rename of one of the two JSON files failed (e.g. a `PermissionError`), the other file's data was committed to SQLite but the `COUNT(*) > 0` guard on the next run would skip re-migration of the remaining file, permanently losing its data. The guard is removed (idempotent `INSERT OR IGNORE` makes re-running safe). Each rename is now wrapped in its own `try/except OSError` so a failure on one file is logged and does not prevent the other from completing.
+- **`progress.remove_task` now in `finally` block**: the progress bar task is cleaned up even when a job exits via an exception, preventing orphaned progress rows in the terminal.
 
-- **SQL column allowlist in `_pick_mapped_file`**: the `score_col` f-string interpolation into SQL is now guarded by a `frozenset` allowlist at the function boundary, raising `ValueError` on any value outside `{"blur_score", "frigate_score"}`.
+- **`SKIP_PEOPLE`/`ONLY_PEOPLE` now strip whitespace**: `"Alice, Bob".split(",")` produces `[" Bob"]`; the leading space now stripped so comma-separated values with spaces work as expected.
 
-- **`load_dotenv` no longer runs at import time**: moving `load_dotenv()` to the first line of `_load()` prevents side-effects during module import (which could interfere with test environment setup) and makes the load order deterministic relative to `os.environ` overrides.
+- **`FRIGATE_URL` with trailing slash no longer produces double-slash paths**: all Frigate API calls now use `_get_frigate_url()` for URL normalization rather than reading `FRIGATE_URL` inline.
 
-- **Empty-string env var priority fix**: `if self.IMMICH_URL or …` treated `IMMICH_URL=""` as falsy and silently fell through to the config file. Changed to `if self.IMMICH_URL is None` so an empty-string explicit env var is respected.
+- **Frigate version `v`-prefix now stripped**: `v0.16.0`-style version strings are correctly parsed.
+
+- **Invalid numeric env var values warn and use defaults**: a typo such as `YEARS_FILTER=10 ` (trailing space) or `MIN_FACE_WIDTH=auto` now logs a `WARNING` and falls back to the documented default instead of raising `ValueError` at startup. Affects `YEARS_FILTER`, `MIN_FACE_WIDTH`, `MIN_FACE_COUNT`, `MAX_AUTO_IMAGES`, `BLUR_THRESHOLD`, `MIN_CONFIDENCE`, and `FACE_MARGIN`.
+
+- **`IMMICH_URL` blank placeholder falls back to config file**: `IMMICH_URL=` (empty or blank) in `.env` is now treated as unset and falls through to `DATA_DIR/.immich_config.json`, matching pre-v0.5.0 behaviour.
+
+- **Reconciliation checks Frigate immediately before first sleep**: the poll loop now performs an immediate check after upload, then backs off with `(1, 2, 4, 8)` s delays only if needed.
+
+- **Dockerfile unknown `VARIANT` now fails loudly**: an unrecognised value now exits with an error instead of silently falling through to the cpu branch.
+
+- **Embedding cache writes are now atomic**: `.npy` files are written to a `.tmp` sibling and renamed into place with `os.replace`, preventing truncated cache entries on process kill.
+
+- **`EmbeddingCache` singleton re-creates when `DATA_DIR` changes**: prevents test runs from sharing cache state across different `DATA_DIR` values.
 
 ### Added
 
-- **Diversity test suite expanded** (PR #11): 33 new tests covering k-medoids clustering, farthest-point sampling, adaptive threshold computation, near-duplicate deduplication, and time-spread selection. Total: 93 tests (was 60).
-
-- **Known-limitation annotations** (PR #12): `TODO(frigate-api)` comments placed at each FIFO-ordering assumption, manual-file-invisibility note, and async-rebuild limitation in `executor.py` and `reconcile.py`. These mark spots where a richer Frigate API would allow a deeper fix.
+- **Diversity test suite** (PR #11): 33 tests covering k-medoids clustering, farthest-point sampling, adaptive threshold computation, near-duplicate deduplication, and time-spread selection. Total: 93 tests.
 
 ## [0.4.11] - 2026-06-14
 

@@ -15,7 +15,16 @@ logger = logging.getLogger(__name__)
 def _save_jpeg(img: Image.Image, path: str) -> None:
     if img.mode != "RGB":
         img = img.convert("RGB")
-    img.save(path, format="JPEG")
+    tmp = path + ".tmp"
+    try:
+        img.save(tmp, format="JPEG")
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def align_face(img: Image.Image, landmarks: list[list[float]] | np.ndarray) -> Image.Image | None:

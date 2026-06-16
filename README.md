@@ -5,7 +5,7 @@
 > **Note:** winnow's approach to training Frigate face recognition is not an officially documented workflow — results may vary.
 
 > **Early Development — Use With Caution**
-> winnow is functional but still maturing. Features that modify your Frigate training data — quality replacement, stale mapping cleanup — can remove images from your dataset and are not yet battle-tested at scale. Review the logs after each run and keep backups of your Frigate face training directory until you are confident in the results.
+> winnow is in an unfinished state and maturing. Features that modify your Frigate training data — quality replacement, stale mapping cleanup — can remove images from your dataset and are not yet battle-tested at scale. Review the logs after each run and keep backups of your Frigate face training directory until you are confident in the results.
 
 **Docs:** [Setup](https://github.com/sudolulo/winnow/wiki/Setup) · [Troubleshooting](https://github.com/sudolulo/winnow/wiki/Troubleshooting) · [FAQ](https://github.com/sudolulo/winnow/wiki/FAQ)
 
@@ -74,7 +74,7 @@ Immich library
    ↳ at cap + QUALITY_REPLACEMENT=false — skip this person
 ```
 
-Uploaded and rejected asset IDs are persisted across runs in a SQLite database (`winnow_tracker.db` in `DATA_DIR`). The same image is never processed twice; rejected assets are permanently skipped unless `RETRY_REJECTED=true`.
+Uploaded and rejected asset IDs are persisted across runs in two JSON files (`frigate_uploaded_ids.json` and `frigate_rejected_ids.json` in `DATA_DIR`). The same image is never processed twice; rejected assets are permanently skipped unless `RETRY_REJECTED=true`.
 
 ---
 
@@ -212,7 +212,7 @@ These defaults are tuned for Frigate's ArcFace requirements. winnow will warn on
 | `FORCE_CPU` | `false` | Disable GPU — fall back to CPU for all inference |
 | `OPENVINO_DEVICE` | `CPU` | Intel variant only: set `GPU` to use Arc or iGPU; default runs on CPU |
 | `ENABLE_CACHE` | `true` | Cache computed embeddings to disk (speeds up re-runs on the same library) |
-| `DATA_DIR` | `data` | Path for embedding cache and upload tracker database (`winnow_tracker.db`) |
+| `DATA_DIR` | `data` | Path for embedding cache and upload tracker JSON files |
 | `INSIGHTFACE_HOME` | *(system)* | InsightFace model cache path (Buffalo_L) |
 
 ### Output
