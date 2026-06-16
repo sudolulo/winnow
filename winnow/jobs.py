@@ -71,8 +71,8 @@ def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, st
     custom_limit = _getenv_optional_int("LIMIT")
     if custom_limit is not None and custom_limit > 0:
         return custom_limit, "smart"
-    if custom_limit == 0:
-        logger.warning("LIMIT=0 is invalid — ignoring and using auto strategy")
+    if custom_limit is not None and custom_limit <= 0:
+        logger.warning("LIMIT=%s is invalid — ignoring and using auto strategy", custom_limit)
 
     strategy_map = {
         "adaptive": ("auto", "smart"),

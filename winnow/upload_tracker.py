@@ -105,7 +105,7 @@ def begin_batch(filename: str) -> None:
     """
     path = _tracker_path(filename)
     key = str(path)
-    if key in _deferred and key in _cache:
+    if key in _deferred and key in _dirty:
         try:
             _write_to_disk(path, _cache[key])
         except Exception:
