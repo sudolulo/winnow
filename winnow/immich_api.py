@@ -61,7 +61,7 @@ def get_people() -> list[dict]:
         if not isinstance(data, dict):
             logger.error("Unexpected response shape from Immich /people: %r", type(data))
             return []
-        return data.get("people", [])
+        return data.get("people") or []
     except (requests.RequestException, ValueError, AttributeError) as e:
         logger.error("Failed to fetch people from Immich: %s", e)
         return []

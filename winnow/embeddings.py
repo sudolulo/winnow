@@ -45,8 +45,8 @@ def _suppress_output():
         if saved_out is not None:
             try:
                 os.dup2(saved_out, 1)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.debug("_suppress_output: failed to restore stdout fd: %s", e)
             finally:
                 try:
                     os.close(saved_out)
@@ -55,8 +55,8 @@ def _suppress_output():
         if saved_err is not None:
             try:
                 os.dup2(saved_err, 2)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.debug("_suppress_output: failed to restore stderr fd: %s", e)
             finally:
                 try:
                     os.close(saved_err)
