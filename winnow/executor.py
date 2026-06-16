@@ -28,6 +28,7 @@ from .quality import blur_score_from_image
 from .reconcile import enrich_asset_with_face_data, reconcile_frigate_mappings
 from .upload_tracker import (
     UPLOAD_TRACKER_FILE,
+    REJECT_TRACKER_FILE,
     get_lowest_quality_mapped_file,
     get_most_redundant_mapped_file,
     get_tracked_frigate_file_count,
@@ -368,6 +369,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             person_has_fscores: bool = has_frigate_scores(name)
 
             begin_batch(UPLOAD_TRACKER_FILE)
+            begin_batch(REJECT_TRACKER_FILE)
             try:
                 for fname in person_files:
                     fpath = os.path.join(person_dir, fname)
@@ -602,6 +604,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             finally:
                 try:
                     flush_batch(UPLOAD_TRACKER_FILE)
+                except Exception as _flush_exc:
+                    logger.warning("flush_batch failed during cleanup — batch will be recovered on next begin_batch: %s", _flush_exc)
+                try:
+                    flush_batch(REJECT_TRACKER_FILE)
                 except Exception as _flush_exc:
                     logger.warning("flush_batch failed during cleanup — batch will be recovered on next begin_batch: %s", _flush_exc)
 

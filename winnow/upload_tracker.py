@@ -44,6 +44,7 @@ REJECT_TRACKER_FILE = "frigate_rejected_ids.json"
 # Keyed by full path so tests with isolated tmp dirs never share entries.
 _cache: dict[str, dict] = {}
 _deferred: set[str] = set()  # paths whose disk writes are batched until flush_batch()
+_dirty: set[str] = set()    # deferred paths that received at least one _save during the batch
 
 
 def _tracker_path(filename: str) -> Path:
@@ -87,6 +88,7 @@ def _save(filename: str, data: dict) -> None:
     key = str(path)
     if key in _deferred:
         _cache[key] = data  # accumulate in cache; disk write deferred until flush_batch()
+        _dirty.add(key)
         return
     _write_to_disk(path, data)
     _cache[key] = data  # update cache only after successful write
@@ -109,6 +111,7 @@ def begin_batch(filename: str) -> None:
         except Exception:
             logger.warning("begin_batch: could not flush leftover deferred state for %s — partial progress may be lost", path)
         _deferred.discard(key)
+        _dirty.discard(key)
     _deferred.add(key)
 
 
@@ -116,9 +119,10 @@ def flush_batch(filename: str) -> None:
     """Write the accumulated cache state for filename to disk."""
     path = _tracker_path(filename)
     key = str(path)
-    if key in _cache:
+    if key in _dirty and key in _cache:
         _write_to_disk(path, _cache[key])
     _deferred.discard(key)
+    _dirty.discard(key)
 
 
 def _flat_key(filename: str) -> str:
@@ -379,17 +383,19 @@ def reset_all_people() -> None:
     approach is O(P²) because each call rebuilds the flat list from all remaining entries.
     """
     upload_data = _load(UPLOAD_TRACKER_FILE)
+    frigate_url = _get_frigate_url()
+    if not frigate_url:
+        logger.info("FRIGATE_URL not set — skipping Frigate file deletion")
     for person_name, raw_entry in upload_data.get("by_person", {}).items():
         entry = _migrate_entry(raw_entry)
         frigate_filenames = list(entry.get("frigate_files", {}).keys())
         if not frigate_filenames:
             continue
-        if not _get_frigate_url():
-            logger.info(f"FRIGATE_URL not set — skipping Frigate file deletion for {person_name}")
-        elif delete_frigate_person_files(person_name, frigate_filenames):
-            logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
-        else:
-            logger.warning(f"Could not delete Frigate files for {person_name} — tracker reset proceeding anyway")
+        if frigate_url:
+            if delete_frigate_person_files(person_name, frigate_filenames):
+                logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
+            else:
+                logger.warning(f"Could not delete Frigate files for {person_name} — tracker reset proceeding anyway")
     _save(UPLOAD_TRACKER_FILE, {})
     _save(REJECT_TRACKER_FILE, {})
     logger.info("Reset all tracking data")
