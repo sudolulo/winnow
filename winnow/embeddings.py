@@ -43,16 +43,25 @@ def _suppress_output():
             except OSError:
                 pass
             finally:
-                os.close(saved_out)
+                try:
+                    os.close(saved_out)
+                except OSError:
+                    pass
         if saved_err is not None:
             try:
                 os.dup2(saved_err, 2)
             except OSError:
                 pass
             finally:
-                os.close(saved_err)
+                try:
+                    os.close(saved_err)
+                except OSError:
+                    pass
         if devnull_fd is not None:
-            os.close(devnull_fd)
+            try:
+                os.close(devnull_fd)
+            except OSError:
+                pass
 
 
 # Lazy-loaded singleton

@@ -195,9 +195,10 @@ def _scale_bbox_to_thumbnail(
             continue
         faces = person.get("faces", [])
         if faces:
-            meta_w = faces[0].get("imageWidth") or img_w
-            meta_h = faces[0].get("imageHeight") or img_h
-            scale_x, scale_y = img_w / meta_w, img_h / meta_h
+            meta_w = faces[0].get("imageWidth") or 0
+            meta_h = faces[0].get("imageHeight") or 0
+            scale_x = img_w / meta_w if meta_w else 1.0
+            scale_y = img_h / meta_h if meta_h else 1.0
             return (x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y)
     return bbox
 
@@ -587,7 +588,8 @@ def _cluster_aware_selection(
         1 for i in selected
         if confidence_scores
         and i < len(confidence_scores)
-        and (confidence_scores[i] is None or confidence_scores[i] < 0.85)
+        and confidence_scores[i] is not None
+        and confidence_scores[i] < 0.85
     )
     logger.info("Selection complete: %s images (%s hard examples with confidence < 0.85).", len(selected), hard_count)
 

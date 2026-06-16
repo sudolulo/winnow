@@ -534,9 +534,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                             " but asset may be re-selected next run: %s",
                                             fname, tracker_exc,
                                         )
-                                    else:
-                                        if pre_fscore is not None:
-                                            person_has_fscores = True
+                                    if pre_fscore is not None:
+                                        person_has_fscores = True
                                     # Always record for reconcile so the Frigate filename→asset_id
                                     # mapping is created even when the tracker write fails.
                                     # Trade-off: if mark_uploaded failed, asset_id is absent from
