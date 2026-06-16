@@ -368,237 +368,239 @@ def upload_to_frigate(jobs: list[dict]) -> None:
             person_has_fscores: bool = has_frigate_scores(name)
 
             begin_batch(UPLOAD_TRACKER_FILE)
-            for fname in person_files:
-                fpath = os.path.join(person_dir, fname)
+            try:
+                for fname in person_files:
+                    fpath = os.path.join(person_dir, fname)
 
-                # If a previous replacement delete succeeded but that upload failed,
-                # require the next candidate to beat the deleted file's score so the
-                # freed slot isn't filled with something worse than what we removed.
-                if min_quality_score_for_slot is not None:
-                    file_score = score_map.get(fname)
-                    if file_score is not None and file_score <= min_quality_score_for_slot:
-                        progress.console.print(
-                            f"    [dim]⏭  {fname}: score {file_score:.3f} ≤ freed slot floor"
-                            f" {min_quality_score_for_slot:.3f}, skipping[/dim]"
-                        )
-                        progress.advance(upload_task)
-                        continue
+                    # If a previous replacement delete succeeded but that upload failed,
+                    # require the next candidate to beat the deleted file's score so the
+                    # freed slot isn't filled with something worse than what we removed.
+                    if min_quality_score_for_slot is not None:
+                        file_score = score_map.get(fname)
+                        if file_score is not None and file_score <= min_quality_score_for_slot:
+                            progress.console.print(
+                                f"    [dim]⏭  {fname}: score {file_score:.3f} ≤ freed slot floor"
+                                f" {min_quality_score_for_slot:.3f}, skipping[/dim]"
+                            )
+                            progress.advance(upload_task)
+                            continue
 
-                at_cap = effective_count >= Config.MAX_AUTO_IMAGES
+                    at_cap = effective_count >= Config.MAX_AUTO_IMAGES
 
-                # Pre-upload Frigate score — clean measurement (image not yet in training set).
-                # Called for all below-cap uploads (seeds frigate_scores for future at-cap
-                # replacement) and for at-cap uploads when scores already exist. Skipped on
-                # the first run (pre_run_count == 0) since Frigate has no model yet.
-                # recognize_face returns (face_name, score); we only use the score when the
-                # best match is for the correct person. Mismatches (or "unknown") are treated
-                # as None so a wrong-person score never drives a ceiling skip or replacement.
-                # Frigate rebuilds its model asynchronously after any delete (clear + background
-                # thread), so the first recognize call after a deletion returns None — our code
-                # handles this conservatively by skipping that candidate until the next run.
-                # LIMITATION — async rebuild during multi-replacement runs: each deletion in a
-                # single run triggers a background model rebuild in Frigate. Subsequent recognize
-                # calls in the same run may get None (rebuild in progress), causing later
-                # candidates to fall back to blur-score replacement or be skipped entirely.
-                # The more replacements that happen in one run, the worse the scoring gets.
-                # TODO(frigate-api): if Frigate exposes a model generation counter or a
-                # rebuild-complete signal, poll it between recognize calls during replacement
-                # sequences rather than accepting stale/None scores.
-                pre_fscore: float | None = None
-                if Config.ENABLE_FRIGATE_SCORES and pre_run_count > 0:
-                    if not at_cap or person_has_fscores:
-                        _result = recognize_face(fpath)
-                        if _result is not None and (_result[0] or "").casefold() == name.casefold():
-                            pre_fscore = _result[1]
+                    # Pre-upload Frigate score — clean measurement (image not yet in training set).
+                    # Called for all below-cap uploads (seeds frigate_scores for future at-cap
+                    # replacement) and for at-cap uploads when scores already exist. Skipped on
+                    # the first run (pre_run_count == 0) since Frigate has no model yet.
+                    # recognize_face returns (face_name, score); we only use the score when the
+                    # best match is for the correct person. Mismatches (or "unknown") are treated
+                    # as None so a wrong-person score never drives a ceiling skip or replacement.
+                    # Frigate rebuilds its model asynchronously after any delete (clear + background
+                    # thread), so the first recognize call after a deletion returns None — our code
+                    # handles this conservatively by skipping that candidate until the next run.
+                    # LIMITATION — async rebuild during multi-replacement runs: each deletion in a
+                    # single run triggers a background model rebuild in Frigate. Subsequent recognize
+                    # calls in the same run may get None (rebuild in progress), causing later
+                    # candidates to fall back to blur-score replacement or be skipped entirely.
+                    # The more replacements that happen in one run, the worse the scoring gets.
+                    # TODO(frigate-api): if Frigate exposes a model generation counter or a
+                    # rebuild-complete signal, poll it between recognize calls during replacement
+                    # sequences rather than accepting stale/None scores.
+                    pre_fscore: float | None = None
+                    if Config.ENABLE_FRIGATE_SCORES and pre_run_count > 0:
+                        if not at_cap or person_has_fscores:
+                            _result = recognize_face(fpath)
+                            if _result is not None and (_result[0] or "").casefold() == name.casefold():
+                                pre_fscore = _result[1]
 
-                # Below-cap novelty gate: skip candidates already covered by the Frigate model,
-                # including conditions learned from manually-added images winnow can't track.
-                # pre_fscore is None on the first run (pre_run_count == 0 skips recognize_face
-                # above), so this block never fires on the first run without an extra guard.
-                if not at_cap and pre_fscore is not None:
-                    _ceiling = Config.FRIGATE_SCORE_CEILING
-                    if _ceiling is None:
-                        # Dynamic default: bar = most-redundant tracked file's Frigate score.
-                        # Falls back to uploading freely when no tracked scores exist yet.
-                        _bar = get_most_redundant_mapped_file(name)
-                        _skip = _bar is not None and pre_fscore > _bar[2]
-                        _bar_str = f"most redundant tracked {_bar[2]:.2f}" if _bar else ""
-                    elif _ceiling == 0.0:
-                        _skip = False  # explicitly disabled
-                        _bar_str = ""
-                    else:
-                        _skip = pre_fscore > _ceiling
-                        _bar_str = f"ceiling {_ceiling:.2f}"
-                    if _skip:
-                        progress.console.print(
-                            f"    [dim]⏭  {fname}: Frigate score {pre_fscore:.2f}"
-                            f" > {_bar_str}, already covered[/dim]"
-                        )
-                        progress.advance(upload_task)
-                        continue
+                    # Below-cap novelty gate: skip candidates already covered by the Frigate model,
+                    # including conditions learned from manually-added images winnow can't track.
+                    # pre_fscore is None on the first run (pre_run_count == 0 skips recognize_face
+                    # above), so this block never fires on the first run without an extra guard.
+                    if not at_cap and pre_fscore is not None:
+                        _ceiling = Config.FRIGATE_SCORE_CEILING
+                        if _ceiling is None:
+                            # Dynamic default: bar = most-redundant tracked file's Frigate score.
+                            # Falls back to uploading freely when no tracked scores exist yet.
+                            _bar = get_most_redundant_mapped_file(name)
+                            _skip = _bar is not None and pre_fscore > _bar[2]
+                            _bar_str = f"most redundant tracked {_bar[2]:.2f}" if _bar else ""
+                        elif _ceiling == 0.0:
+                            _skip = False  # explicitly disabled
+                            _bar_str = ""
+                        else:
+                            _skip = pre_fscore > _ceiling
+                            _bar_str = f"ceiling {_ceiling:.2f}"
+                        if _skip:
+                            progress.console.print(
+                                f"    [dim]⏭  {fname}: Frigate score {pre_fscore:.2f}"
+                                f" > {_bar_str}, already covered[/dim]"
+                            )
+                            progress.advance(upload_task)
+                            continue
 
-                if at_cap:
-                    if not quality_replacement:
-                        progress.console.print(f"    [dim]⏭  {fname}: at cap, quality replacement disabled[/dim]")
-                        progress.advance(upload_task)
-                        continue
+                    if at_cap:
+                        if not quality_replacement:
+                            progress.console.print(f"    [dim]⏭  {fname}: at cap, quality replacement disabled[/dim]")
+                            progress.advance(upload_task)
+                            continue
 
-                    using_fscore = person_has_fscores and Config.ENABLE_FRIGATE_SCORES
-                    if using_fscore:
-                        candidate_score = pre_fscore
-                        get_target = get_most_redundant_mapped_file
-                        score_label, better_note = "frigate", " (more novel)"
-                        no_score_msg = "Frigate recognize unavailable, skipping replacement"
-                        is_better_than = lambda c, t: c < t
-                    else:
-                        candidate_score = score_map.get(fname)
-                        get_target = get_lowest_quality_mapped_file
-                        score_label, better_note = "blur", ""
-                        no_score_msg = "no quality score, skipping replacement"
-                        is_better_than = lambda c, t: c > t
+                        using_fscore = person_has_fscores and Config.ENABLE_FRIGATE_SCORES
+                        if using_fscore:
+                            candidate_score = pre_fscore
+                            get_target = get_most_redundant_mapped_file
+                            score_label, better_note = "frigate", " (more novel)"
+                            no_score_msg = "Frigate recognize unavailable, skipping replacement"
+                            is_better_than = lambda c, t: c < t
+                        else:
+                            candidate_score = score_map.get(fname)
+                            get_target = get_lowest_quality_mapped_file
+                            score_label, better_note = "blur", ""
+                            no_score_msg = "no quality score, skipping replacement"
+                            is_better_than = lambda c, t: c > t
 
-                    if candidate_score is None:
-                        progress.console.print(f"    [dim]⏭  {fname}: {no_score_msg}[/dim]")
-                        progress.advance(upload_task)
-                        continue
+                        if candidate_score is None:
+                            progress.console.print(f"    [dim]⏭  {fname}: {no_score_msg}[/dim]")
+                            progress.advance(upload_task)
+                            continue
 
-                    target = get_target(name, exclude=failed_deletes)
-                    not_better = target is None or not is_better_than(candidate_score, target[2])
-                    if not_better:
-                        target_str = f"{target[2]:.3f}" if target is not None else "N/A"
+                        target = get_target(name, exclude=failed_deletes)
+                        not_better = target is None or not is_better_than(candidate_score, target[2])
+                        if not_better:
+                            target_str = f"{target[2]:.3f}" if target is not None else "N/A"
+                            cmp_op = "<" if using_fscore else ">"
+                            progress.console.print(
+                                f"    [dim]⏭  {fname}: {score_label} {candidate_score:.3f}"
+                                f" not {cmp_op} {target_str}, skipping[/dim]"
+                            )
+                            progress.advance(upload_task)
+                            continue
+
+                        target_frigate_file, _target_asset_id, target_score = target
                         cmp_op = "<" if using_fscore else ">"
                         progress.console.print(
-                            f"    [dim]⏭  {fname}: {score_label} {candidate_score:.3f}"
-                            f" not {cmp_op} {target_str}, skipping[/dim]"
+                            f"    🔄 {fname}: {score_label} {candidate_score:.3f} {cmp_op} {target_score:.3f},"
+                            f" replacing {target_frigate_file}{better_note}"
                         )
-                        progress.advance(upload_task)
-                        continue
-
-                    target_frigate_file, _target_asset_id, target_score = target
-                    cmp_op = "<" if using_fscore else ">"
-                    progress.console.print(
-                        f"    🔄 {fname}: {score_label} {candidate_score:.3f} {cmp_op} {target_score:.3f},"
-                        f" replacing {target_frigate_file}{better_note}"
-                    )
-                    if delete_frigate_person_files(name, [target_frigate_file]):
-                        remove_frigate_file(name, target_frigate_file)
-                        person_has_fscores = has_frigate_scores(name)
-                        effective_count -= 1
-                        min_quality_score_for_slot = None if using_fscore else target_score
-                    else:
-                        logger.warning("Failed to delete %s for %s, skipping replacement", target_frigate_file, name)
-                        failed_deletes.add(target_frigate_file)
-                        progress.advance(upload_task)
-                        continue
-
-                for attempt in range(1, max_retries + 1):
-                    try:
-                        with open(fpath, "rb") as f:
-                            resp = requests.post(
-                                f"{frigate_url}/api/faces/{encoded_name}/register",
-                                files={"file": (fname, f, "image/jpeg")},
-                                timeout=30,
-                            )
-                        if resp.status_code == 200:
-                            uploaded += 1
-                            person_uploaded += 1
-                            effective_count += 1
-                            min_quality_score_for_slot = None
-
-                            asset_id = asset_map.get(fname)
-                            if asset_id:
-                                tracker_ok = True
-                                try:
-                                    mark_uploaded(
-                                        asset_id,
-                                        person_name=name,
-                                        score=score_map.get(fname),
-                                        crop_dims=dims_map.get(fname),
-                                        frigate_score=pre_fscore,
-                                    )
-                                except Exception as tracker_exc:
-                                    tracker_ok = False
-                                    # Upload to Frigate succeeded — don't retry on tracker
-                                    # failure or we'd upload a duplicate to Frigate.
-                                    logger.error(
-                                        "Tracker write failed for %s — upload succeeded"
-                                        " but asset may be re-selected next run: %s",
-                                        fname, tracker_exc,
-                                    )
-                                if tracker_ok:
-                                    if pre_fscore is not None:
-                                        person_has_fscores = True
-                                    actually_uploaded.append((fname, asset_id))
-
-                            break
+                        if delete_frigate_person_files(name, [target_frigate_file]):
+                            remove_frigate_file(name, target_frigate_file)
+                            person_has_fscores = has_frigate_scores(name)
+                            effective_count -= 1
+                            min_quality_score_for_slot = None if using_fscore else target_score
                         else:
+                            logger.warning("Failed to delete %s for %s, skipping replacement", target_frigate_file, name)
+                            failed_deletes.add(target_frigate_file)
+                            progress.advance(upload_task)
+                            continue
+
+                    for attempt in range(1, max_retries + 1):
+                        try:
+                            with open(fpath, "rb") as f:
+                                resp = requests.post(
+                                    f"{frigate_url}/api/faces/{encoded_name}/register",
+                                    files={"file": (fname, f, "image/jpeg")},
+                                    timeout=30,
+                                )
+                            if resp.status_code == 200:
+                                uploaded += 1
+                                person_uploaded += 1
+                                effective_count += 1
+                                min_quality_score_for_slot = None
+
+                                asset_id = asset_map.get(fname)
+                                if asset_id:
+                                    tracker_ok = True
+                                    try:
+                                        mark_uploaded(
+                                            asset_id,
+                                            person_name=name,
+                                            score=score_map.get(fname),
+                                            crop_dims=dims_map.get(fname),
+                                            frigate_score=pre_fscore,
+                                        )
+                                    except Exception as tracker_exc:
+                                        tracker_ok = False
+                                        # Upload to Frigate succeeded — don't retry on tracker
+                                        # failure or we'd upload a duplicate to Frigate.
+                                        logger.error(
+                                            "Tracker write failed for %s — upload succeeded"
+                                            " but asset may be re-selected next run: %s",
+                                            fname, tracker_exc,
+                                        )
+                                    if tracker_ok:
+                                        if pre_fscore is not None:
+                                            person_has_fscores = True
+                                        actually_uploaded.append((fname, asset_id))
+
+                                break
+                            else:
+                                if attempt < max_retries:
+                                    logger.warning(
+                                        f"Upload attempt {attempt}/{max_retries} for {fname}:"
+                                        f" HTTP {resp.status_code}, retrying..."
+                                    )
+                                    continue
+                                failed += 1
+                                person_failed += 1
+                                progress.console.print(
+                                    f"    [red]✗ {fname}: HTTP {resp.status_code} (after {max_retries} attempts)[/red]"
+                                )
+                                full_body = resp.text
+                                try:
+                                    error_detail = resp.json().get("message", full_body[:100])
+                                except Exception:
+                                    error_detail = full_body[:100]
+                                if resp.status_code == 400:
+                                    progress.console.print(f"      [dim]{error_detail}[/dim]")
+                                else:
+                                    logger.debug("%s HTTP %s: %s", fname, resp.status_code, error_detail)
+                                _is_permanent = (
+                                    (resp.status_code == 400 and "face" in full_body.lower())
+                                    or resp.status_code == 422
+                                )
+                                if _is_permanent:
+                                    asset_id = asset_map.get(fname)
+                                    if asset_id:
+                                        mark_rejected(asset_id, person_name=name)
+                        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
                             if attempt < max_retries:
                                 logger.warning(
                                     f"Upload attempt {attempt}/{max_retries} for {fname}:"
-                                    f" HTTP {resp.status_code}, retrying..."
+                                    f" {type(exc).__name__}, retrying..."
+                                )
+                                continue
+                            failed += 1
+                            person_failed += 1
+                            label = (
+                                "Connection refused"
+                                if isinstance(exc, requests.exceptions.ConnectionError)
+                                else "Request timed out (30s)"
+                            )
+                            progress.console.print(
+                                f"    [red]✗ {fname}: {label} (after {max_retries} attempts)[/red]"
+                            )
+                        except Exception as e:
+                            if attempt < max_retries:
+                                logger.warning(
+                                    f"Upload attempt {attempt}/{max_retries} for {fname}:"
+                                    f" {type(e).__name__}, retrying..."
                                 )
                                 continue
                             failed += 1
                             person_failed += 1
                             progress.console.print(
-                                f"    [red]✗ {fname}: HTTP {resp.status_code} (after {max_retries} attempts)[/red]"
+                                f"    [red]✗ {fname}: {type(e).__name__} - {e} (after {max_retries} attempts)[/red]"
                             )
-                            full_body = resp.text
-                            try:
-                                error_detail = resp.json().get("message", full_body[:100])
-                            except Exception:
-                                error_detail = full_body[:100]
-                            if resp.status_code == 400:
-                                progress.console.print(f"      [dim]{error_detail}[/dim]")
-                            else:
-                                logger.debug("%s HTTP %s: %s", fname, resp.status_code, error_detail)
-                            _is_permanent = (
-                                (resp.status_code == 400 and "face" in full_body.lower())
-                                or resp.status_code == 422
-                            )
-                            if _is_permanent:
-                                asset_id = asset_map.get(fname)
-                                if asset_id:
-                                    mark_rejected(asset_id, person_name=name)
-                    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
-                        if attempt < max_retries:
-                            logger.warning(
-                                f"Upload attempt {attempt}/{max_retries} for {fname}:"
-                                f" {type(exc).__name__}, retrying..."
-                            )
-                            continue
-                        failed += 1
-                        person_failed += 1
-                        label = (
-                            "Connection refused"
-                            if isinstance(exc, requests.exceptions.ConnectionError)
-                            else "Request timed out (30s)"
-                        )
-                        progress.console.print(
-                            f"    [red]✗ {fname}: {label} (after {max_retries} attempts)[/red]"
-                        )
-                    except Exception as e:
-                        if attempt < max_retries:
-                            logger.warning(
-                                f"Upload attempt {attempt}/{max_retries} for {fname}:"
-                                f" {type(e).__name__}, retrying..."
-                            )
-                            continue
-                        failed += 1
-                        person_failed += 1
-                        progress.console.print(
-                            f"    [red]✗ {fname}: {type(e).__name__} - {e} (after {max_retries} attempts)[/red]"
-                        )
 
-                progress.advance(upload_task)
+                    progress.advance(upload_task)
 
-            if min_quality_score_for_slot is not None:
-                logger.warning(
-                    f"{name}: freed replacement slot (floor {min_quality_score_for_slot:.3f})"
-                    " was not filled this run — will be available next run"
-                )
+                if min_quality_score_for_slot is not None:
+                    logger.warning(
+                        f"{name}: freed replacement slot (floor {min_quality_score_for_slot:.3f})"
+                        " was not filled this run — will be available next run"
+                    )
 
-            flush_batch(UPLOAD_TRACKER_FILE)
+            finally:
+                flush_batch(UPLOAD_TRACKER_FILE)
 
             # Batch-map Frigate filenames to asset IDs now that all uploads are done.
             if actually_uploaded and not _skip_reconcile:

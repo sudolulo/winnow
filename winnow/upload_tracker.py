@@ -116,9 +116,9 @@ def flush_batch(filename: str) -> None:
     """Write the accumulated cache state for filename to disk."""
     path = _tracker_path(filename)
     key = str(path)
-    _deferred.discard(key)
     if key in _cache:
         _write_to_disk(path, _cache[key])
+    _deferred.discard(key)
 
 
 def _flat_key(filename: str) -> str:
@@ -239,9 +239,8 @@ def remove_frigate_file(person_name: str, frigate_filename: str) -> None:
 
 def remove_frigate_files_batch(person_name: str, frigate_filenames: list[str]) -> None:
     """Remove multiple Frigate filenames in a single load/save."""
-    data = _load(UPLOAD_TRACKER_FILE)
-    by_person = data.get("by_person", {})
-    raw = by_person.get(person_name)
+    src = _load(UPLOAD_TRACKER_FILE)
+    raw = src.get("by_person", {}).get(person_name)
     if raw is None:
         return
     entry = _migrate_entry(raw)
@@ -249,7 +248,10 @@ def remove_frigate_files_batch(person_name: str, frigate_filenames: list[str]) -
         asset_id = entry["frigate_files"].pop(fn, None)
         if asset_id is not None and asset_id not in entry["frigate_files"].values():
             entry["frigate_scores"].pop(asset_id, None)
+    by_person = dict(src.get("by_person", {}))  # copy so assignment does not mutate the cache
     by_person[person_name] = entry
+    data = dict(src)
+    data["by_person"] = by_person
     _save(UPLOAD_TRACKER_FILE, data)
     logger.debug(f"Removed {len(frigate_filenames)} Frigate file mapping(s) for {person_name}")
 
