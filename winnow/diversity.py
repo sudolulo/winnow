@@ -57,9 +57,9 @@ def select_diverse_assets(
     Returns:
         List of selected assets
     """
-    # Fast path: fewer assets than limit
+    # Fast path: fewer assets than limit — sort for consistent ordering with other paths
     if limit != "auto" and len(assets) <= limit:
-        return assets
+        return sorted(assets, key=lambda x: x.get("fileCreatedAt", ""))
 
     # Sort by creation time
     assets = sorted(assets, key=lambda x: x.get("fileCreatedAt", ""))
@@ -483,8 +483,10 @@ def _cluster_aware_selection(
     norms = np.linalg.norm(emb_matrix, axis=1, keepdims=True)
     emb_normed = emb_matrix / np.maximum(norms, 1e-8)
 
-    # Build confidence weight array for hard example boosting
-    conf_array = np.ones(n)
+    # Build confidence weight array for hard example boosting.
+    # Default to 0.5 for faces with no confidence score so they receive a
+    # moderate diversity boost rather than being treated as high-confidence.
+    conf_array = np.full(n, 0.5)
     if confidence_scores:
         for i, c in enumerate(confidence_scores):
             if c is not None:

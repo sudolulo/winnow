@@ -57,8 +57,12 @@ def get_people() -> list[dict]:
             logger.error("Immich API key is invalid or expired (401 Unauthorized). Update API_KEY.")
             return []
         resp.raise_for_status()
-        return resp.json().get("people", [])
-    except (requests.RequestException, ValueError) as e:
+        data = resp.json()
+        if not isinstance(data, dict):
+            logger.error("Unexpected response shape from Immich /people: %r", type(data))
+            return []
+        return data.get("people", [])
+    except (requests.RequestException, ValueError, AttributeError) as e:
         logger.error("Failed to fetch people from Immich: %s", e)
         return []
 
@@ -118,7 +122,11 @@ def fetch_all_assets(person: dict) -> tuple[list[dict], int]:
                 logger.error("Error fetching assets for %s (page %s): %s", name, page, resp.status_code)
                 break
 
-            page_assets = resp.json().get("assets", [])
+            body = resp.json()
+            if not isinstance(body, dict):
+                logger.error("Unexpected response shape fetching assets for %s (page %s): %r", name, page, type(body))
+                break
+            page_assets = body.get("assets", [])
             # Immich ≥2.x returns {"assets": {"items": [...]}};
             # earlier versions returned {"assets": [...]} directly.
             if isinstance(page_assets, dict):

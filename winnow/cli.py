@@ -131,6 +131,12 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
     if merged_any:
         rprint("  [dim]Re-fetching people after merge...[/dim]")
         fresh = get_people()
+        if not fresh:
+            logger.warning(
+                "Re-fetch after merge returned no people"
+                " — possible transient error; proceeding with pre-merge list"
+            )
+            return [p for p in people if p.get("id") not in skip_ids]
         # Filter out the smaller duplicate from any group whose merge failed — those
         # IDs still exist in Immich and would produce two jobs for the same folder.
         # IDs from groups that merged successfully are already gone from Immich, so
@@ -173,7 +179,8 @@ def main() -> None:
     [dim]Immich -> Frigate Training Data Curator[/dim]
         """)
 
-        set_unsupported = [v for v in _UNSUPPORTED_VARS if os.environ.get(v)]
+        _FALSY = {"", "false", "0", "no", "off"}
+        set_unsupported = [v for v in _UNSUPPORTED_VARS if os.environ.get(v, "").strip().lower() not in _FALSY]
         if set_unsupported:
             console.print(
                 f"[bold yellow]⚠  Advanced tuning vars set: "

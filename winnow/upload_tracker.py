@@ -360,6 +360,8 @@ def find_by_crop_dimension(size: int) -> list[dict]:
             asset_to_frigate.setdefault(aid, fn)  # first-seen wins; plain inversion silently drops duplicates
         frigate_scores = entry.get("frigate_scores", {})
         for asset_id, dims in entry.get("crop_dims", {}).items():
+            if not isinstance(dims, (list, tuple)) or len(dims) < 2:
+                continue
             w, h = dims[0], dims[1]
             if w == size or h == size:
                 results.append({
@@ -440,7 +442,7 @@ def reset_person(person_name: str) -> None:
             data["by_person"] = by_person
             flat_key = _flat_key(filename)
             person_ids = set(_get_ids(tracker_entry))
-            if person_ids and flat_key in data:
+            if person_ids and flat_key in data and isinstance(data[flat_key], list):
                 data[flat_key] = sorted(set(data[flat_key]) - person_ids)
             _save(filename, data)
             changed = True

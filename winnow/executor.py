@@ -533,7 +533,9 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                     else:
                                         if pre_fscore is not None:
                                             person_has_fscores = True
-                                        actually_uploaded.append((fname, asset_id))
+                                    # Always record for reconcile so the Frigate filename→asset_id
+                                    # mapping is created even when the tracker write fails.
+                                    actually_uploaded.append((fname, asset_id))
 
                                 break
                             else:
