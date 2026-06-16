@@ -104,7 +104,10 @@ def begin_batch(filename: str) -> None:
     path = _tracker_path(filename)
     key = str(path)
     if key in _deferred and key in _cache:
-        _write_to_disk(path, _cache[key])
+        try:
+            _write_to_disk(path, _cache[key])
+        except Exception:
+            logger.warning("begin_batch: could not flush leftover deferred state for %s — partial progress may be lost", path)
         _deferred.discard(key)
     _deferred.add(key)
 
@@ -168,6 +171,7 @@ def _mark(
         entry["frigate_scores"][asset_id] = round(frigate_score, 4)
     by_person[person_name] = entry
     _save(filename, data)
+    logger.debug("Marked %s in %s (%s)", asset_id, filename, person_name)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -198,12 +202,10 @@ def mark_uploaded(
     frigate_score: float | None = None,
 ) -> None:
     _mark(UPLOAD_TRACKER_FILE, asset_id, person_name, score=score, crop_dims=crop_dims, frigate_score=frigate_score)
-    logger.debug(f"Marked {asset_id} as uploaded ({person_name})")
 
 
 def mark_rejected(asset_id: str, person_name: str | None = None) -> None:
     _mark(REJECT_TRACKER_FILE, asset_id, person_name)
-    logger.debug(f"Marked {asset_id} as rejected ({person_name})")
 
 
 
@@ -245,7 +247,7 @@ def remove_frigate_files_batch(person_name: str, frigate_filenames: list[str]) -
     entry = _migrate_entry(raw)
     for fn in frigate_filenames:
         asset_id = entry["frigate_files"].pop(fn, None)
-        if asset_id is not None:
+        if asset_id is not None and asset_id not in entry["frigate_files"].values():
             entry["frigate_scores"].pop(asset_id, None)
     by_person[person_name] = entry
     _save(UPLOAD_TRACKER_FILE, data)
