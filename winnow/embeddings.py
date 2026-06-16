@@ -38,10 +38,16 @@ def _suppress_output():
         yield
     finally:
         if saved_out is not None:
-            os.dup2(saved_out, 1)
+            try:
+                os.dup2(saved_out, 1)
+            except OSError:
+                pass
             os.close(saved_out)
         if saved_err is not None:
-            os.dup2(saved_err, 2)
+            try:
+                os.dup2(saved_err, 2)
+            except OSError:
+                pass
             os.close(saved_err)
         if devnull_fd is not None:
             os.close(devnull_fd)

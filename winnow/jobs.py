@@ -65,6 +65,8 @@ def _get_strategy_choice(has_embedding: bool) -> tuple[int | str, str]:
 
 def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, str]:
     """Resolve env var strategy to (limit, selection_mode) without prompts."""
+    if strategy == "skip":
+        return 0, "skip"
     if not has_embedding:
         limit = _getenv_int("LIMIT", 30)
         if limit <= 0:

@@ -199,7 +199,6 @@ def _scale_bbox_to_thumbnail(
             meta_h = faces[0].get("imageHeight") or img_h
             scale_x, scale_y = img_w / meta_w, img_h / meta_h
             return (x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y)
-        break
     return bbox
 
 
@@ -304,6 +303,7 @@ def _select_by_embedding(
                     "Face too small to crop for %s — skipping to avoid embedding wrong person",
                     asset["id"],
                 )
+                quality_filtered += 1
                 continue
             embed_img = face_crop if face_crop is not None else img
 
@@ -581,8 +581,13 @@ def _cluster_aware_selection(
         min_dists = np.minimum(min_dists, dists_to_new)
         min_dists[best_idx] = -np.inf
 
-    selected_conf = [conf_array[i] for i in selected if conf_array[i] < 1.0]
-    hard_count = sum(1 for c in selected_conf if c < 0.85)
+    hard_count = sum(
+        1 for i in selected
+        if confidence_scores
+        and i < len(confidence_scores)
+        and confidence_scores[i] is not None
+        and confidence_scores[i] < 0.85
+    )
     logger.info("Selection complete: %s images (%s hard examples with confidence < 0.85).", len(selected), hard_count)
 
     # Slice to target: the while loop enforces this for non-auto mode, but
