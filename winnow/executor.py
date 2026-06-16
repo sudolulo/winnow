@@ -363,6 +363,11 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 progress.console.print(
                     f"  [dim]{name}: first run — Frigate diversity scoring will apply from the next run[/dim]"
                 )
+            # Snapshot whether Frigate has a model before the upload loop starts.
+            # effective_count is incremented inside the loop on each successful upload,
+            # so using the live value would incorrectly trigger recognize_face calls
+            # mid-batch on the first run (after the first upload sets it to 1).
+            has_frigate_model = effective_count > 0
             actually_uploaded: list[tuple[str, str | None]] = []
             failed_deletes: set[str] = set()
             min_quality_score_for_slot: float | None = None
@@ -392,7 +397,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     # Pre-upload Frigate score — clean measurement (image not yet in training set).
                     # Called for all below-cap uploads (seeds frigate_scores for future at-cap
                     # replacement) and for at-cap uploads when scores already exist. Skipped on
-                    # skipped when effective_count == 0 since Frigate has no model yet.
+                    # skipped when has_frigate_model is False (effective_count was 0 before the loop).
                     # recognize_face returns (face_name, score); we only use the score when the
                     # best match is for the correct person. Mismatches (or "unknown") are treated
                     # as None so a wrong-person score never drives a ceiling skip or replacement.
@@ -408,7 +413,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     # rebuild-complete signal, poll it between recognize calls during replacement
                     # sequences rather than accepting stale/None scores.
                     pre_fscore: float | None = None
-                    if Config.ENABLE_FRIGATE_SCORES and effective_count > 0:
+                    if Config.ENABLE_FRIGATE_SCORES and has_frigate_model:
                         if not at_cap or person_has_fscores:
                             _result = recognize_face(fpath)
                             if _result is not None and (_result[0] or "").casefold() == name.casefold():

@@ -556,10 +556,11 @@ def _cluster_aware_selection(
     for idx in selected:
         min_dists[idx] = -np.inf
 
+    # Hard example weighting: boost distance for low-confidence candidates.
+    # conf_array is constant after this point, so compute once outside the loop.
+    hard_weight = np.where(conf_array < 0.85, 1.0 + (0.85 - conf_array) * 2.0, 1.0)
+
     while len(selected) < target:
-        # Hard example weighting: boost distance for low-confidence candidates
-        # Confidence < 0.85 gets up to 1.5× distance boost
-        hard_weight = np.where(conf_array < 0.85, 1.0 + (0.85 - conf_array) * 2.0, 1.0)
         weighted_dists = min_dists * hard_weight
 
         best_idx = int(np.argmax(weighted_dists))

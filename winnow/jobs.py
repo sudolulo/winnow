@@ -301,10 +301,12 @@ def auto_configure(people: list[dict]) -> list[dict]:
         # decides per-image whether to swap; any candidate could be an improvement).
         if not quality_replacement_only:
             if limit == "auto":
-                # Switch from open-ended auto to a fixed budget at remaining capacity
-                # so the diversity selector itself stops at the right count instead of
-                # selecting more than MAX_AUTO_IMAGES and overflowing the cap.
-                limit = capacity
+                if already_uploaded > 0:
+                    # Switch from open-ended auto to a fixed budget at remaining capacity
+                    # so the diversity selector stops at the right count instead of
+                    # selecting more than MAX_AUTO_IMAGES and overflowing the cap.
+                    # First runs keep limit="auto" so FPS adaptive early-stop can fire.
+                    limit = capacity
             else:
                 limit = min(limit, capacity)
 

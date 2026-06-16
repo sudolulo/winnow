@@ -132,9 +132,14 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
         rprint("  [dim]Re-fetching people after merge...[/dim]")
         fresh = get_people()
         if not fresh:
+            # Retry once: get_people() returns [] for both transient failures and
+            # auth errors (401); a second empty result strongly suggests a real failure.
+            fresh = get_people()
+        if not fresh:
             logger.warning(
-                "Re-fetch after merge returned no people"
-                " — possible transient error; proceeding with pre-merge list"
+                "Re-fetch after merge returned no people (tried twice)"
+                " — possible transient error or expired API key;"
+                " proceeding with pre-merge list. Check IMMICH_API_KEY if this recurs."
             )
             return [p for p in people if p["id"] not in skip_ids]
         # Filter out the smaller duplicate from any group whose merge failed — those
