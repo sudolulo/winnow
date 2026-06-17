@@ -7,6 +7,7 @@ import sys
 from rich import print as rprint
 from rich.prompt import Confirm
 
+from . import __version__
 from .config import Config, _getenv_bool
 from .executor import execute_jobs, upload_to_frigate
 from .immich_api import get_immich_version, get_people, merge_people
@@ -180,8 +181,8 @@ def main() -> None:
         if trace_size:
             _handle_trace_crop(trace_size)
 
-        console.print(r"""
-    [bold blue]winnow[/bold blue]
+        console.print(f"""
+    [bold blue]winnow[/bold blue] [dim]v{__version__}[/dim]
     [dim]Immich -> Frigate Training Data Curator[/dim]
         """)
 
