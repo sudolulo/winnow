@@ -119,12 +119,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
         ordered = sorted(ps, key=lambda x: x.get("assetCount", 0), reverse=True)
         survivor = ordered[0]
         survivor_id = survivor.get("id")
-        if not survivor_id:
-            logger.warning("%r: survivor has no id — skipping merge", name)
-            continue
         merge_ids = [pid for p in ordered[1:] if (pid := p.get("id")) is not None]
-        if not merge_ids:
-            continue
         rprint(
             f"  [cyan]Merging {name!r} inside Immich:[/cyan] keeping "
             f"[dim]{survivor_id[:8]}…[/dim] ({survivor.get('assetCount', 0)} assets), "

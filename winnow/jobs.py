@@ -198,7 +198,7 @@ def interactive_configure(people: list[dict]) -> list[dict]:
     Supports multi-person batch mode — after configuring one person,
     prompts to add another.
     """
-    valid_people = sorted([p for p in people if p.get("name")], key=lambda x: x["name"])
+    valid_people = sorted([p for p in people if p.get("name") and p.get("id")], key=lambda x: x["name"])
 
     if not valid_people:
         rprint("[red]No people found with names in Immich.[/red]")
@@ -211,7 +211,7 @@ def interactive_configure(people: list[dict]) -> list[dict]:
         console.print("\n[bold cyan]Select Person to Train:[/bold cyan]")
         for idx, p in enumerate(valid_people, 1):
             # Mark already-queued people
-            marker = " [dim](queued)[/dim]" if any(j["person"]["id"] == p["id"] for j in jobs) else ""
+            marker = " [dim](queued)[/dim]" if any(j["person"]["id"] == p.get("id") for j in jobs) else ""
             console.print(f"  [bold]{idx}.[/bold] {p['name']}{marker}")
 
         p_choice = IntPrompt.ask("Enter Number", choices=[str(i) for i in range(1, len(valid_people) + 1)])
@@ -230,7 +230,7 @@ def interactive_configure(people: list[dict]) -> list[dict]:
 
 def auto_configure(people: list[dict]) -> list[dict]:
     """Non-interactive: configure jobs for all named people automatically."""
-    valid_people = sorted([p for p in people if p.get("name")], key=lambda x: x["name"])
+    valid_people = sorted([p for p in people if p.get("name") and p.get("id")], key=lambda x: x["name"])
 
     if not valid_people:
         rprint("[red]No people found with names in Immich.[/red]")
