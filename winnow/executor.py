@@ -566,13 +566,14 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                     error_detail = resp.json().get("message", full_body[:100])
                                 except Exception:
                                     error_detail = full_body[:100]
-                                if resp.status_code == 400:
+                                if resp.status_code in (400, 500):
                                     progress.console.print(f"      [dim]{error_detail}[/dim]")
                                 else:
                                     logger.debug("%s HTTP %s: %s", fname, resp.status_code, error_detail)
                                 _is_permanent = (
                                     (resp.status_code == 400 and "face" in full_body.lower())
                                     or resp.status_code == 422
+                                    or (resp.status_code == 500 and "could not process" in full_body.lower())
                                 )
                                 if _is_permanent:
                                     asset_id = asset_map.get(fname)
