@@ -173,7 +173,7 @@ class _Config:
                 data = json.loads(config_file.read_text())
                 if not self.IMMICH_URL:
                     self.IMMICH_URL = data.get("IMMICH_URL")
-                if os.getenv("OUTPUT_DIR") is None:
+                if not os.getenv("OUTPUT_DIR"):
                     self.OUTPUT_DIR = data.get("OUTPUT_DIR", self.OUTPUT_DIR)
             except (json.JSONDecodeError, OSError) as e:
                 logging.warning("Failed to load config file: %s", e)

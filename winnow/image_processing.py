@@ -92,11 +92,14 @@ def process_face_mode(
         return None
 
     img_w, img_h = img.size
-    meta_w = face_info.get("imageWidth") or img_w
-    meta_h = face_info.get("imageHeight") or img_h
+    meta_w = face_info.get("imageWidth") or 0
+    meta_h = face_info.get("imageHeight") or 0
 
-    # Scale bounding box to actual image dimensions
-    scale_x, scale_y = img_w / meta_w, img_h / meta_h
+    # Scale bounding box from detection-image space to actual image dimensions.
+    # Fall back to 1.0 if Immich omits the field — bbox is assumed to already
+    # be in image space (correct for thumbnails, wrong for full-res).
+    scale_x = img_w / meta_w if meta_w else 1.0
+    scale_y = img_h / meta_h if meta_h else 1.0
     x1 = face_info["boundingBoxX1"] * scale_x
     y1 = face_info["boundingBoxY1"] * scale_y
     x2 = face_info["boundingBoxX2"] * scale_x

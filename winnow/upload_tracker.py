@@ -109,7 +109,11 @@ def begin_batch(filename: str) -> None:
         try:
             _write_to_disk(path, _cache[key])
         except Exception:
-            logger.warning("begin_batch: could not flush leftover deferred state for %s — partial progress may be lost", path)
+            logger.warning(
+                "begin_batch: could not flush leftover deferred state for %s"
+                " — partial progress may be lost",
+                path,
+            )
         _deferred.discard(key)
         _dirty.discard(key)
     _deferred.add(key)
@@ -162,7 +166,7 @@ def _mark(
         logger.warning("_mark called with empty person_name for asset %s — asset not recorded", asset_id)
         return
     data = _load(filename)
-    by_person = data.setdefault("by_person", {})
+    by_person = dict(data.get("by_person", {}))
     entry = _migrate_entry(by_person.get(person_name, {}))
     ids = set(entry["asset_ids"])
     ids.add(asset_id)
@@ -174,7 +178,9 @@ def _mark(
     if frigate_score is not None:
         entry["frigate_scores"][asset_id] = round(frigate_score, 4)
     by_person[person_name] = entry
-    _save(filename, data)
+    new_data = dict(data)
+    new_data["by_person"] = by_person
+    _save(filename, new_data)
     logger.debug("Marked %s in %s (%s)", asset_id, filename, person_name)
 
 
@@ -354,6 +360,8 @@ def find_by_crop_dimension(size: int) -> list[dict]:
             asset_to_frigate.setdefault(aid, fn)  # first-seen wins; plain inversion silently drops duplicates
         frigate_scores = entry.get("frigate_scores", {})
         for asset_id, dims in entry.get("crop_dims", {}).items():
+            if not isinstance(dims, (list, tuple)) or len(dims) < 2:
+                continue
             w, h = dims[0], dims[1]
             if w == size or h == size:
                 results.append({
@@ -371,11 +379,13 @@ def find_by_crop_dimension(size: int) -> list[dict]:
 def update_frigate_count(person_name: str, count: int) -> None:
     """Record Frigate's authoritative training image count for a person."""
     data = _load(UPLOAD_TRACKER_FILE)
-    by_person = data.setdefault("by_person", {})
+    by_person = dict(data.get("by_person", {}))
     entry = _migrate_entry(by_person.get(person_name, {}))
     entry["frigate_count"] = count
     by_person[person_name] = entry
-    _save(UPLOAD_TRACKER_FILE, data)
+    new_data = dict(data)
+    new_data["by_person"] = by_person
+    _save(UPLOAD_TRACKER_FILE, new_data)
 
 
 def reset_all_people() -> None:
@@ -432,7 +442,13 @@ def reset_person(person_name: str) -> None:
             data["by_person"] = by_person
             flat_key = _flat_key(filename)
             person_ids = set(_get_ids(tracker_entry))
-            if person_ids and flat_key in data:
+            if person_ids and flat_key in data and not isinstance(data[flat_key], list):
+                logger.warning(
+                    "reset_person: %s has unexpected type for %s (%s) — skipping flat-list cleanup;"
+                    " all persons' legacy IDs in this field are unaffected but unreadable",
+                    filename, flat_key, type(data[flat_key]).__name__,
+                )
+            elif person_ids and flat_key in data:
                 data[flat_key] = sorted(set(data[flat_key]) - person_ids)
             _save(filename, data)
             changed = True

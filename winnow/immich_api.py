@@ -57,8 +57,12 @@ def get_people() -> list[dict]:
             logger.error("Immich API key is invalid or expired (401 Unauthorized). Update API_KEY.")
             return []
         resp.raise_for_status()
-        return resp.json().get("people", [])
-    except (requests.RequestException, ValueError) as e:
+        data = resp.json()
+        if not isinstance(data, dict):
+            logger.error("Unexpected response shape from Immich /people: %r", type(data))
+            return []
+        return data.get("people") or []
+    except (requests.RequestException, ValueError, AttributeError) as e:
         logger.error("Failed to fetch people from Immich: %s", e)
         return []
 
@@ -118,7 +122,11 @@ def fetch_all_assets(person: dict) -> tuple[list[dict], int]:
                 logger.error("Error fetching assets for %s (page %s): %s", name, page, resp.status_code)
                 break
 
-            page_assets = resp.json().get("assets", [])
+            body = resp.json()
+            if not isinstance(body, dict):
+                logger.error("Unexpected response shape fetching assets for %s (page %s): %r", name, page, type(body))
+                break
+            page_assets = body.get("assets", [])
             # Immich ≥2.x returns {"assets": {"items": [...]}};
             # earlier versions returned {"assets": [...]} directly.
             if isinstance(page_assets, dict):
@@ -277,10 +285,11 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
 
     logger.debug("Filtering assets older than %s years (%s)", years, cutoff)
 
-    recent, skipped = [], 0
+    recent, skipped, bad_timestamp = [], 0, 0
     for asset in assets:
         created_at_str = asset.get("fileCreatedAt")
         if not isinstance(created_at_str, str) or not created_at_str:
+            bad_timestamp += 1
             continue
 
         try:
@@ -291,8 +300,14 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
             else:
                 skipped += 1
         except ValueError:
+            bad_timestamp += 1
             continue
 
+    if bad_timestamp:
+        logger.warning(
+            "filter_recent_assets: %s asset(s) had missing or unparseable fileCreatedAt"
+            " and were excluded from the pool.", bad_timestamp
+        )
     logger.debug("Retained %s assets (filtered %s old assets).", len(recent), skipped)
     return recent
 

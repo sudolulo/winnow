@@ -1,6 +1,7 @@
 """Execution phase: image processing and Frigate upload."""
 
 import logging
+import operator
 import os
 import shutil
 from io import BytesIO
@@ -27,8 +28,10 @@ from .log_config import console
 from .quality import blur_score_from_image
 from .reconcile import enrich_asset_with_face_data, reconcile_frigate_mappings
 from .upload_tracker import (
-    UPLOAD_TRACKER_FILE,
     REJECT_TRACKER_FILE,
+    UPLOAD_TRACKER_FILE,
+    begin_batch,
+    flush_batch,
     get_lowest_quality_mapped_file,
     get_most_redundant_mapped_file,
     get_tracked_frigate_file_count,
@@ -36,8 +39,6 @@ from .upload_tracker import (
     has_frigate_scores,
     mark_rejected,
     mark_uploaded,
-    begin_batch,
-    flush_batch,
     remove_frigate_file,
     remove_frigate_files_batch,
 )
@@ -357,12 +358,16 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         " (file(s) no longer in Frigate)[/dim]"
                     )
             effective_count = get_tracked_frigate_file_count(name)
-            pre_run_count = effective_count
             quality_replacement = job.get("config", {}).get("quality_replacement", False)
-            if Config.ENABLE_FRIGATE_SCORES and pre_run_count == 0:
+            if Config.ENABLE_FRIGATE_SCORES and effective_count == 0:
                 progress.console.print(
                     f"  [dim]{name}: first run — Frigate diversity scoring will apply from the next run[/dim]"
                 )
+            # Snapshot whether Frigate has a model before the upload loop starts.
+            # effective_count is incremented inside the loop on each successful upload,
+            # so using the live value would incorrectly trigger recognize_face calls
+            # mid-batch on the first run (after the first upload sets it to 1).
+            has_frigate_model = effective_count > 0
             actually_uploaded: list[tuple[str, str | None]] = []
             failed_deletes: set[str] = set()
             min_quality_score_for_slot: float | None = None
@@ -391,8 +396,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
                     # Pre-upload Frigate score — clean measurement (image not yet in training set).
                     # Called for all below-cap uploads (seeds frigate_scores for future at-cap
-                    # replacement) and for at-cap uploads when scores already exist. Skipped on
-                    # the first run (pre_run_count == 0) since Frigate has no model yet.
+                    # replacement) and for at-cap uploads when scores already exist.
+                    # Skipped when has_frigate_model is False (effective_count was 0 before the loop).
                     # recognize_face returns (face_name, score); we only use the score when the
                     # best match is for the correct person. Mismatches (or "unknown") are treated
                     # as None so a wrong-person score never drives a ceiling skip or replacement.
@@ -408,7 +413,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     # rebuild-complete signal, poll it between recognize calls during replacement
                     # sequences rather than accepting stale/None scores.
                     pre_fscore: float | None = None
-                    if Config.ENABLE_FRIGATE_SCORES and pre_run_count > 0:
+                    if Config.ENABLE_FRIGATE_SCORES and has_frigate_model:
                         if not at_cap or person_has_fscores:
                             _result = recognize_face(fpath)
                             if _result is not None and (_result[0] or "").casefold() == name.casefold():
@@ -416,8 +421,8 @@ def upload_to_frigate(jobs: list[dict]) -> None:
 
                     # Below-cap novelty gate: skip candidates already covered by the Frigate model,
                     # including conditions learned from manually-added images winnow can't track.
-                    # pre_fscore is None on the first run (pre_run_count == 0 skips recognize_face
-                    # above), so this block never fires on the first run without an extra guard.
+                    # pre_fscore is None when effective_count == 0 (no Frigate model yet),
+                    # so this block never fires on the first run without an extra guard.
                     if not at_cap and pre_fscore is not None:
                         _ceiling = Config.FRIGATE_SCORE_CEILING
                         if _ceiling is None:
@@ -452,13 +457,13 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             get_target = get_most_redundant_mapped_file
                             score_label, better_note = "frigate", " (more novel)"
                             no_score_msg = "Frigate recognize unavailable, skipping replacement"
-                            is_better_than = lambda c, t: c < t
+                            is_better_than = operator.lt
                         else:
                             candidate_score = score_map.get(fname)
                             get_target = get_lowest_quality_mapped_file
                             score_label, better_note = "blur", ""
                             no_score_msg = "no quality score, skipping replacement"
-                            is_better_than = lambda c, t: c > t
+                            is_better_than = operator.gt
 
                         if candidate_score is None:
                             progress.console.print(f"    [dim]⏭  {fname}: {no_score_msg}[/dim]")
@@ -489,7 +494,10 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             effective_count -= 1
                             min_quality_score_for_slot = None if using_fscore else target_score
                         else:
-                            logger.warning("Failed to delete %s for %s, skipping replacement", target_frigate_file, name)
+                            logger.warning(
+                                "Failed to delete %s for %s, skipping replacement",
+                                target_frigate_file, name,
+                            )
                             failed_deletes.add(target_frigate_file)
                             progress.advance(upload_task)
                             continue
@@ -529,7 +537,17 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                     else:
                                         if pre_fscore is not None:
                                             person_has_fscores = True
-                                        actually_uploaded.append((fname, asset_id))
+                                    # Always record for reconcile so the Frigate filename→asset_id
+                                    # mapping is created even when the tracker write fails.
+                                    # Trade-off: if mark_uploaded failed, asset_id is absent from
+                                    # asset_ids and scores. Consequences: (1) re-selected next run
+                                    # → Frigate duplicate; (2) excluded from quality-replacement
+                                    # candidates (_pick_mapped_file requires a scores entry);
+                                    # (3) counted toward MAX_AUTO_IMAGES cap (via frigate_files).
+                                    # The alternative — not appending — leaves the file permanently
+                                    # unmapped (reconcile never creates the frigate_files entry),
+                                    # making (2) and (3) permanent. Frigate duplicate is lesser.
+                                    actually_uploaded.append((fname, asset_id))
 
                                 break
                             else:
@@ -603,11 +621,19 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                 try:
                     flush_batch(UPLOAD_TRACKER_FILE)
                 except Exception as _flush_exc:
-                    logger.warning("flush_batch failed during cleanup — batch will be recovered on next begin_batch: %s", _flush_exc)
+                    logger.warning(
+                        "flush_batch failed during cleanup"
+                        " — batch will be recovered on next begin_batch: %s",
+                        _flush_exc,
+                    )
                 try:
                     flush_batch(REJECT_TRACKER_FILE)
                 except Exception as _flush_exc:
-                    logger.warning("flush_batch failed during cleanup — batch will be recovered on next begin_batch: %s", _flush_exc)
+                    logger.warning(
+                        "flush_batch failed during cleanup"
+                        " — batch will be recovered on next begin_batch: %s",
+                        _flush_exc,
+                    )
 
             # Batch-map Frigate filenames to asset IDs now that all uploads are done.
             if actually_uploaded and not _skip_reconcile:

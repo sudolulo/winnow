@@ -103,8 +103,11 @@ class EmbeddingCache:
         count = 0
         for f in os.listdir(self.cache_dir):
             if f.endswith(".npy"):
-                os.remove(os.path.join(self.cache_dir, f))
-                count += 1
+                try:
+                    os.remove(os.path.join(self.cache_dir, f))
+                    count += 1
+                except OSError:
+                    pass
         logger.info("Cleared %s cached embeddings.", count)
 
 

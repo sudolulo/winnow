@@ -65,8 +65,14 @@ def _get_strategy_choice(has_embedding: bool) -> tuple[int | str, str]:
 
 def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, str]:
     """Resolve env var strategy to (limit, selection_mode) without prompts."""
+    if strategy == "skip":
+        return 0, "skip"
     if not has_embedding:
-        return _getenv_int("LIMIT", 30), "time"
+        limit = _getenv_int("LIMIT", 30)
+        if limit <= 0:
+            logger.warning("LIMIT=%s is invalid — ignoring and using default 30", limit)
+            limit = 30
+        return limit, "time"
 
     custom_limit = _getenv_optional_int("LIMIT")
     if custom_limit is not None:
@@ -295,10 +301,11 @@ def auto_configure(people: list[dict]) -> list[dict]:
         # decides per-image whether to swap; any candidate could be an improvement).
         if not quality_replacement_only:
             if limit == "auto":
-                # Switch from open-ended auto to a fixed budget at remaining capacity
-                # so the diversity selector itself stops at the right count instead of
-                # selecting MAX_AUTO_IMAGES and then discarding the excess by position.
                 if already_uploaded > 0:
+                    # Switch from open-ended auto to a fixed budget at remaining capacity
+                    # so the diversity selector stops at the right count instead of
+                    # selecting more than MAX_AUTO_IMAGES and overflowing the cap.
+                    # First runs keep limit="auto" so FPS adaptive early-stop can fire.
                     limit = capacity
             else:
                 limit = min(limit, capacity)

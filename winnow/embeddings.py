@@ -26,22 +26,47 @@ logger = logging.getLogger(__name__)
 @contextmanager
 def _suppress_output():
     """Suppress stdout/stderr at the file-descriptor level, silencing C extension noise."""
-    devnull_fd = os.open(os.devnull, os.O_WRONLY)
-    saved_out, saved_err = os.dup(1), os.dup(2)
+    devnull_fd = None
+    saved_out = None
+    saved_err = None
     try:
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        saved_out = os.dup(1)
+        saved_err = os.dup(2)
         os.dup2(devnull_fd, 1)
         os.dup2(devnull_fd, 2)
         yield
     finally:
-        try:
-            os.dup2(saved_out, 1)
-        finally:
+        # Each block is a separate sequential statement. A BaseException (e.g.
+        # KeyboardInterrupt) raised inside block N would propagate past blocks N+1
+        # and N+2, leaving saved_err or devnull_fd unclosed. In CPython, KI is
+        # delivered between bytecodes, not mid-syscall; os.dup2 is a single C call
+        # and completes atomically, so this race is not realistically triggerable.
+        if saved_out is not None:
+            try:
+                os.dup2(saved_out, 1)
+            except OSError as e:
+                logger.debug("_suppress_output: failed to restore stdout fd: %s", e)
+            finally:
+                try:
+                    os.close(saved_out)
+                except OSError:
+                    pass
+        if saved_err is not None:
             try:
                 os.dup2(saved_err, 2)
+            except OSError as e:
+                logger.debug("_suppress_output: failed to restore stderr fd: %s", e)
             finally:
+                try:
+                    os.close(saved_err)
+                except OSError:
+                    pass
+        if devnull_fd is not None:
+            try:
                 os.close(devnull_fd)
-                os.close(saved_out)
-                os.close(saved_err)
+            except OSError:
+                pass
 
 
 # Lazy-loaded singleton
@@ -181,8 +206,9 @@ def get_face_embedding(img_pil: Image.Image) -> np.ndarray | None:
         return None
 
     try:
-        # InsightFace expects BGR cv2 image
-        img_bgr = cv2.cvtColor(np.asarray(img_pil), cv2.COLOR_RGB2BGR)
+        # InsightFace expects BGR cv2 image; normalise mode first so RGBA/grayscale don't
+        # raise a channel-count error inside cvtColor.
+        img_bgr = cv2.cvtColor(np.asarray(img_pil.convert("RGB")), cv2.COLOR_RGB2BGR)
 
         # Suppress scikit-image FutureWarning from InsightFace's face_align.py
         with warnings.catch_warnings():
