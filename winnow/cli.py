@@ -82,13 +82,16 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
     def _smaller_duplicate_ids(groups: dict) -> set[str]:
         """IDs of all but the largest person in each duplicate group."""
         return {
-            p.get("id")
+            pid
             for ps in groups.values()
             for p in sorted(ps, key=lambda x: x.get("assetCount", 0), reverse=True)[1:]
-            if p.get("id") is not None
+            if (pid := p.get("id"))
         }
 
     skip_ids = _smaller_duplicate_ids(duplicates)
+
+    def _excl(lst: list[dict]) -> list[dict]:
+        return [p for p in lst if p.get("id") not in skip_ids]
 
     if not Config.MERGE_DUPLICATE_PEOPLE:
         rprint("\n[bold yellow]⚠  Duplicate person names detected in Immich:[/bold yellow]")
@@ -111,7 +114,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
         )
         # Return deduplicated list — keep only the largest per name so that
         # downstream job creation never runs two jobs for the same Frigate folder.
-        return [p for p in people if p.get("id") not in skip_ids]
+        return _excl(people)
 
     # Auto-merge: survivor = largest asset count, rest merge into it inside Immich
     merged_any = False
@@ -144,12 +147,12 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
                 " — possible transient error or expired API key;"
                 " proceeding with pre-merge list. Check IMMICH_API_KEY if this recurs."
             )
-            return [p for p in people if p.get("id") not in skip_ids]
+            return _excl(people)
         # Filter out the smaller duplicate from any group whose merge failed — those
         # IDs still exist in Immich and would produce two jobs for the same folder.
         # IDs from groups that merged successfully are already gone from Immich, so
         # this filter is a no-op for them.
-        return [p for p in fresh if p.get("id") not in skip_ids]
+        return _excl(fresh)
 
     # All merges failed — fall back to local deduplication (keep largest per name) so
     # downstream job creation never runs two jobs for the same Frigate folder.
@@ -157,7 +160,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
         "  [yellow]All merges failed — applying local deduplication"
         " to avoid overwriting output.[/yellow]"
     )
-    return [p for p in people if p.get("id") not in skip_ids]
+    return _excl(people)
 
 
 _UNSUPPORTED_VARS = [
