@@ -612,8 +612,12 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                         # All retries exhausted without a successful upload.
                         # Restore the slot freed by the preceding delete so the next
                         # candidate still sees at_cap=True and must beat the replacement gate.
+                        # Also clear the quality floor — the deleted file's score no longer
+                        # represents any live Frigate file, and leaving it blocks the next
+                        # candidate from filling the restored slot.
                         if at_cap:
                             effective_count += 1
+                            min_quality_score_for_slot = None
 
                     progress.advance(upload_task)
 

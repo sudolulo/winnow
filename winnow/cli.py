@@ -118,7 +118,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
     for name, ps in sorted(duplicates.items()):
         ordered = sorted(ps, key=lambda x: x.get("assetCount", 0), reverse=True)
         survivor = ordered[0]
-        merge_ids = [p["id"] for p in ordered[1:]]
+        merge_ids = [p.get("id") for p in ordered[1:] if p.get("id") is not None]
         rprint(
             f"  [cyan]Merging {name!r} inside Immich:[/cyan] keeping "
             f"[dim]{survivor['id'][:8]}…[/dim] ({survivor.get('assetCount', 0)} assets), "
