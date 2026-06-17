@@ -84,6 +84,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
             p.get("id")
             for ps in groups.values()
             for p in sorted(ps, key=lambda x: x.get("assetCount", 0), reverse=True)[1:]
+            if p.get("id") is not None
         }
 
     skip_ids = _smaller_duplicate_ids(duplicates)

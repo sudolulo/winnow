@@ -608,6 +608,12 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                             progress.console.print(
                                 f"    [red]✗ {fname}: {type(e).__name__} - {e} (after {max_retries} attempts)[/red]"
                             )
+                    else:
+                        # All retries exhausted without a successful upload.
+                        # Restore the slot freed by the preceding delete so the next
+                        # candidate still sees at_cap=True and must beat the replacement gate.
+                        if at_cap:
+                            effective_count += 1
 
                     progress.advance(upload_task)
 
