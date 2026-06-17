@@ -186,12 +186,11 @@ def execute_jobs(jobs: list[dict]) -> None:
                             saved = process_face_mode(
                                 img, asset, person, person_dir, count, insightface_app=insightface_app
                             )
-                            if saved:
+                            if isinstance(saved, tuple):
                                 filename = f"{count}.jpg"
                                 asset_map[filename] = asset["id"]
                                 score_map[filename] = asset.get("quality_score")
-                                if isinstance(saved, tuple):
-                                    dims_map[filename] = saved
+                                dims_map[filename] = saved
                                 # Time-spread path: compute blur score from the downloaded
                                 # image. Capped at 1440px via blur_score_from_image() so the
                                 # scale matches the preview thumbnails the embedding path uses
@@ -574,7 +573,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                 _is_permanent = (
                                     (resp.status_code == 400 and "face" in full_body.lower())
                                     or resp.status_code == 422
-                                    or (resp.status_code == 500 and "could not process" in full_body.lower())
+                                    or (resp.status_code == 500 and "could not process" in error_detail.lower())
                                 )
                                 if _is_permanent:
                                     asset_id = asset_map.get(fname)
