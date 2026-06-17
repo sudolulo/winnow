@@ -81,7 +81,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
     def _smaller_duplicate_ids(groups: dict) -> set[str]:
         """IDs of all but the largest person in each duplicate group."""
         return {
-            p["id"]
+            p.get("id")
             for ps in groups.values()
             for p in sorted(ps, key=lambda x: x.get("assetCount", 0), reverse=True)[1:]
         }
@@ -154,7 +154,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
         "  [yellow]All merges failed — applying local deduplication"
         " to avoid overwriting output.[/yellow]"
     )
-    return [p for p in people if p["id"] not in skip_ids]
+    return [p for p in people if p.get("id") not in skip_ids]
 
 
 _UNSUPPORTED_VARS = [
