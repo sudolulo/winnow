@@ -7,6 +7,7 @@ import sys
 from rich import print as rprint
 from rich.prompt import Confirm
 
+from . import __version__
 from .config import Config, _getenv_bool
 from .executor import execute_jobs, upload_to_frigate
 from .immich_api import get_immich_version, get_people, merge_people
@@ -84,6 +85,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
             p.get("id")
             for ps in groups.values()
             for p in sorted(ps, key=lambda x: x.get("assetCount", 0), reverse=True)[1:]
+            if p.get("id") is not None
         }
 
     skip_ids = _smaller_duplicate_ids(duplicates)
@@ -179,8 +181,8 @@ def main() -> None:
         if trace_size:
             _handle_trace_crop(trace_size)
 
-        console.print(r"""
-    [bold blue]winnow[/bold blue]
+        console.print(f"""
+    [bold blue]winnow[/bold blue] [dim]v{__version__}[/dim]
     [dim]Immich -> Frigate Training Data Curator[/dim]
         """)
 
