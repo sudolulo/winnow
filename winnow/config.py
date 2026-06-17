@@ -132,7 +132,7 @@ class _Config:
         self.MERGE_DUPLICATE_PEOPLE = _getenv_bool("MERGE_DUPLICATE_PEOPLE", False)
         self.BLUR_THRESHOLD = _getenv_float("BLUR_THRESHOLD", 120.0)
         self.MIN_CONFIDENCE = _getenv_float("MIN_CONFIDENCE", 0.7)
-        self.MAX_AUTO_IMAGES = _getenv_int("MAX_AUTO_IMAGES", 20)
+        self.MAX_AUTO_IMAGES = _getenv_int("MAX_AUTO_IMAGES", 5)
         self.QUALITY_REPLACEMENT = _getenv_bool("QUALITY_REPLACEMENT", True)
         self.FRIGATE_SCORE_CEILING = _getenv_optional_float("FRIGATE_SCORE_CEILING")
         self.ENABLE_FRIGATE_SCORES = _getenv_bool("ENABLE_FRIGATE_SCORES", True)
