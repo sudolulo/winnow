@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-06-17
+
+### Added
+
+- **Version displayed in startup banner**: winnow now prints its installed version at launch.
+
+### Fixed
+
+- **GPU image: `CUDAExecutionProvider` missing due to parallel install race**: `insightface` declares `onnxruntime` (CPU) as a dependency, causing `uv sync` to install both `onnxruntime` and `onnxruntime-gpu` in parallel — both packages claim the same `pybind11_state.so` binary. On GitHub Actions the CPU binary consistently won the race, leaving the GPU build without CUDA support at runtime despite all CUDA libraries being present. Fixed by reinstalling `onnxruntime-gpu` sequentially after `uv sync` to guarantee its GPU binary is on disk.
+
+- **GPU extra was missing three required nvidia pip packages**: `onnxruntime-gpu` 1.26.0 gates CUDA EP loading on the Python-importability of `nvidia-cuda-runtime-cu12`, `nvidia-cufft-cu12`, and `nvidia-curand-cu12`. These packages were not declared in the `gpu` extra and were absent on fresh installs, silently disabling GPU inference.
+
+- **`_handle_duplicate_people` raises `KeyError` on id-less person records**: bare `p["id"]` subscripts in the auto-merge loop and `_smaller_duplicate_ids` raised `KeyError` when Immich returned a person dict without an `id` field (e.g. unconfirmed face clusters). Fixed by using `p.get("id")` and filtering `None` from `skip_ids`.
+
+- **`_smaller_duplicate_ids` could include `None` in the skip set**: `p.get("id")` without a `None` guard populated `skip_ids` with `None`, causing `p.get("id") not in skip_ids` to pass for every id-less person, so unnamed face clusters were silently re-included in all return paths.
+
+- **`_handle_duplicate_people` dead code removed**: guards `if not survivor_id` and `if not merge_ids` became unreachable after the id-gate fix; their presence suggested they still ran.
+
+- **`_valid_people` in `jobs.py` used wrong name filter**: whitespace-only names (e.g. `"  "`) passed the `p.get("name")` truthiness check and were included in the person list. Fixed using `(p.get("name") or "").strip()` consistent with the cli.py gate.
+
+- **`interactive_configure` queued-marker check was O(N²)**: `[j for j in jobs if j["person"]["id"] == p.get("id")]` ran a full scan over jobs for every person in the display loop. Replaced with a `queued_ids` set hoisted before the loop.
+
+- **`executor.py` slot restore did not clear `min_quality_score_for_slot`**: when a replacement upload failed all retries after a deletion, `effective_count` was restored but the stale quality-score floor from the deleted file remained, blocking the next candidate from filling the slot.
+
+- **`get_immich_version` swallowed `KeyError` on unexpected schema**: bare `data["major"]` / `data["minor"]` / `data["patch"]` subscripts were silently caught by the surrounding `except Exception`, returning `None` without logging. Replaced with `.get()` calls that log a debug warning on unexpected schemas.
+
+- **Face embedding selects nearest face to crop centre, not largest by area**: a 25 % margin on the crop window can pull a larger neighbouring face into the bounding box; selecting the biggest face by area then embeds the wrong person. Centre-proximity is now used instead.
+
+- **Zero-norm face embeddings skipped before diversity selection**: InsightFace occasionally returns a zero vector for low-quality detections; zero embeddings pass deduplication with similarity 0 and score distance 1.0, causing them to be selected first as maximally diverse.
+
+- **`executor.py` slot restore did not clear `min_quality_score_for_slot`**: stale quality floor from the deleted file blocked the next candidate from filling the restored slot in quality-replacement mode.
+
 ## [0.6.4] - 2026-06-17
 
 ### Fixed
