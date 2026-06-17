@@ -146,8 +146,10 @@ def delete_frigate_person_files(person_name: str, filenames: list[str]) -> bool:
     Returns True on success, False if unreachable or the request fails.
     """
     frigate_url = _get_frigate_url()
-    if not frigate_url or not filenames:
+    if not frigate_url:
         return False
+    if not filenames:
+        return True
     from urllib.parse import quote
     encoded_name = quote(person_name, safe="")
     try:

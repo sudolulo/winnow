@@ -186,12 +186,11 @@ def execute_jobs(jobs: list[dict]) -> None:
                             saved = process_face_mode(
                                 img, asset, person, person_dir, count, insightface_app=insightface_app
                             )
-                            if saved:
+                            if isinstance(saved, tuple):
                                 filename = f"{count}.jpg"
                                 asset_map[filename] = asset["id"]
                                 score_map[filename] = asset.get("quality_score")
-                                if isinstance(saved, tuple):
-                                    dims_map[filename] = saved
+                                dims_map[filename] = saved
                                 # Time-spread path: compute blur score from the downloaded
                                 # image. Capped at 1440px via blur_score_from_image() so the
                                 # scale matches the preview thumbnails the embedding path uses
@@ -202,8 +201,9 @@ def execute_jobs(jobs: list[dict]) -> None:
 
                                 count += 1
                             else:
+                                reason = saved if isinstance(saved, str) else "no usable face data"
                                 progress.console.print(
-                                    f"[yellow]Skipped {asset['id']} (no usable face data)[/yellow]"
+                                    f"[yellow]Skipped {asset['id']} ({reason})[/yellow]"
                                 )
                     except Exception as e:
                         logger.error("Failed to process asset %s: %s", asset.get("id", "<unknown>"), e)
@@ -384,9 +384,9 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     # freed slot isn't filled with something worse than what we removed.
                     if min_quality_score_for_slot is not None:
                         file_score = score_map.get(fname)
-                        if file_score is not None and file_score <= min_quality_score_for_slot:
+                        if file_score is not None and file_score < min_quality_score_for_slot:
                             progress.console.print(
-                                f"    [dim]⏭  {fname}: score {file_score:.3f} ≤ freed slot floor"
+                                f"    [dim]⏭  {fname}: score {file_score:.3f} < freed slot floor"
                                 f" {min_quality_score_for_slot:.3f}, skipping[/dim]"
                             )
                             progress.advance(upload_task)
@@ -566,13 +566,14 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                     error_detail = resp.json().get("message", full_body[:100])
                                 except Exception:
                                     error_detail = full_body[:100]
-                                if resp.status_code == 400:
+                                if resp.status_code in (400, 500):
                                     progress.console.print(f"      [dim]{error_detail}[/dim]")
                                 else:
                                     logger.debug("%s HTTP %s: %s", fname, resp.status_code, error_detail)
                                 _is_permanent = (
                                     (resp.status_code == 400 and "face" in full_body.lower())
                                     or resp.status_code == 422
+                                    or (resp.status_code == 500 and "could not process" in full_body.lower())
                                 )
                                 if _is_permanent:
                                     asset_id = asset_map.get(fname)
