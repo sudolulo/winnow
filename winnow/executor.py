@@ -573,7 +573,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                 _is_permanent = (
                                     (resp.status_code == 400 and "face" in full_body.lower())
                                     or resp.status_code == 422
-                                    or (resp.status_code == 500 and "could not process" in error_detail.lower())
+                                    or (resp.status_code == 500 and "could not process" in full_body.lower())
                                 )
                                 if _is_permanent:
                                     asset_id = asset_map.get(fname)

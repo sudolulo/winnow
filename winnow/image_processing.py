@@ -68,11 +68,11 @@ def process_face_mode(
     count: int,
     min_width: int | None = None,
     insightface_app=None,
-) -> tuple[int, int] | str | None:
+) -> tuple[int, int] | str:
     """Crop face based on Immich metadata and save to output directory.
 
-    Returns (width, height) of the saved crop, a skip-reason string if the
-    face was filtered out, or None if no crop was saved for other reasons.
+    Returns (width, height) of the saved crop, or a skip-reason string if the
+    face was filtered out.
     When insightface_app is provided and ENABLE_FACE_ALIGNMENT is True,
     re-detects the face in the Immich bbox region using InsightFace to get
     precise landmarks for a proper 112x112 aligned crop. Falls back to
