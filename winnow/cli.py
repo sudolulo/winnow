@@ -109,7 +109,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
         )
         # Return deduplicated list — keep only the largest per name so that
         # downstream job creation never runs two jobs for the same Frigate folder.
-        return [p for p in people if p["id"] not in skip_ids]
+        return [p for p in people if p.get("id") not in skip_ids]
 
     # Auto-merge: survivor = largest asset count, rest merge into it inside Immich
     merged_any = False
@@ -141,7 +141,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
                 " — possible transient error or expired API key;"
                 " proceeding with pre-merge list. Check IMMICH_API_KEY if this recurs."
             )
-            return [p for p in people if p["id"] not in skip_ids]
+            return [p for p in people if p.get("id") not in skip_ids]
         # Filter out the smaller duplicate from any group whose merge failed — those
         # IDs still exist in Immich and would produce two jobs for the same folder.
         # IDs from groups that merged successfully are already gone from Immich, so

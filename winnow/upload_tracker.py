@@ -444,10 +444,10 @@ def reset_person(person_name: str) -> None:
             person_ids = set(_get_ids(tracker_entry))
             if person_ids and flat_key in data and not isinstance(data[flat_key], list):
                 logger.warning(
-                    "reset_person: %s has unexpected type for %s (%s) — clearing corrupt flat-list",
+                    "reset_person: %s has unexpected type for %s (%s) — skipping flat-list cleanup;"
+                    " all persons' legacy IDs in this field are unaffected but unreadable",
                     filename, flat_key, type(data[flat_key]).__name__,
                 )
-                data[flat_key] = []
             elif person_ids and flat_key in data:
                 data[flat_key] = sorted(set(data[flat_key]) - person_ids)
             _save(filename, data)
