@@ -514,8 +514,7 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                                 uploaded += 1
                                 person_uploaded += 1
                                 effective_count += 1
-                                min_quality_score_for_slot = None
-
+                                min_quality_score_for_slot = None  # for/else rollback mirrors this pair
                                 asset_id = asset_map.get(fname)
                                 if asset_id:
                                     try:

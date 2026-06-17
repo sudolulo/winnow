@@ -72,7 +72,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
     by_name: dict[str, list[dict]] = defaultdict(list)
     for p in people:
         name = (p.get("name") or "").strip()
-        if name:
+        if name and p.get("id"):
             by_name[name].append(p)
 
     duplicates = {name: ps for name, ps in by_name.items() if len(ps) > 1}
@@ -95,7 +95,7 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
         for name, ps in sorted(duplicates.items()):
             ordered = sorted(ps, key=lambda x: x.get("assetCount", 0), reverse=True)
             entries = ", ".join(
-                f"[dim]{p['id'][:8]}…[/dim] ({p.get('assetCount', 0)} assets)"
+                f"[dim]{(p.get('id') or '?')[:8]}…[/dim] ({p.get('assetCount', 0)} assets)"
                 for p in ordered
             )
             rprint(f"  [yellow]{name}[/yellow] → {len(ps)} people: {entries}")
@@ -118,13 +118,19 @@ def _handle_duplicate_people(people: list[dict]) -> list[dict]:
     for name, ps in sorted(duplicates.items()):
         ordered = sorted(ps, key=lambda x: x.get("assetCount", 0), reverse=True)
         survivor = ordered[0]
-        merge_ids = [p.get("id") for p in ordered[1:] if p.get("id") is not None]
+        survivor_id = survivor.get("id")
+        if not survivor_id:
+            logger.warning("%r: survivor has no id — skipping merge", name)
+            continue
+        merge_ids = [pid for p in ordered[1:] if (pid := p.get("id")) is not None]
+        if not merge_ids:
+            continue
         rprint(
             f"  [cyan]Merging {name!r} inside Immich:[/cyan] keeping "
-            f"[dim]{survivor['id'][:8]}…[/dim] ({survivor.get('assetCount', 0)} assets), "
+            f"[dim]{survivor_id[:8]}…[/dim] ({survivor.get('assetCount', 0)} assets), "
             f"absorbing {len(merge_ids)} smaller duplicate(s)..."
         )
-        if merge_people(survivor["id"], merge_ids):
+        if merge_people(survivor_id, merge_ids):
             rprint(f"  [green]✓ Merged {name!r}[/green]")
             merged_any = True
         else:
