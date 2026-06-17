@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -39,9 +40,24 @@ jobs:
 
       - name: Commit and push updated lockfile
         if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add uv.lock
           git commit -m "chore: update lockfile"
-          git push
+
+          if [ "$GITHUB_REF_NAME" = "dev" ]; then
+            # dev is protected — open a PR rather than pushing directly
+            BRANCH="chore/lockfile-$(git rev-parse --short HEAD)"
+            git checkout -b "$BRANCH"
+            git push origin "$BRANCH"
+            gh pr create \
+              --base dev \
+              --head "$BRANCH" \
+              --title "chore: update lockfile" \
+              --body "Automated lockfile update triggered by a \`pyproject.toml\` change on \`dev\`."
+          else
+            git push
+          fi
