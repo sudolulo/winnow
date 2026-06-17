@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-06-17
+
+### Fixed
+
+- **Face bbox scaled to thumbnail space before quality filtering**: `assess_quality` now receives coordinates in thumbnail-pixel space rather than detection-image space. Previously, a face detected on a full-resolution image (e.g. 4000 px wide) was compared against `MIN_FACE_WIDTH` using its original pixel dimensions, causing faces that appear small on the thumbnail to pass the quality filter — and faces that appear large to be incorrectly rejected.
+
+- **`conf_array` default restored to 1.0 for faces with missing confidence**: the default was incorrectly set to 0.5, causing images with no `score` field in the Immich faces API response to receive a 1.7× FPS diversity boost and be selected ahead of genuinely high-confidence detections. The default is now 1.0 (no boost), treating missing confidence as neutral.
+
+- **`hard_weight` computed once outside FPS loop**: `conf_array` is constant after initialisation; moving the `np.where` call outside the `while` loop eliminates one O(n) numpy pass per selected image.
+
+- **`has_frigate_model` snapshot prevents mid-batch `recognize_face` calls on first run**: `effective_count` is incremented inside the upload loop, so using it as the `recognize_face` gate would incorrectly trigger scoring after the first upload on a first run. A boolean snapshot is now taken before the loop.
+
+- **`person_has_fscores` only set when tracker write succeeds**: the flag was moved outside the `try/except else` block, causing at-cap replacement to switch into Frigate-score mode even when the score was never written to the tracker — `get_most_redundant_mapped_file` then returned `None` and all replacement candidates were silently skipped. The flag is now set only in the `else` branch.
+
+- **`STRATEGY=skip` honoured before embedding and limit checks**: the strategy was silently converted to `auto` when InsightFace was available, because two early-returns in `_resolve_strategy` ran before the `strategy_map` lookup.
+
+- **`limit="auto"` preserved on first run**: switching to `limit = capacity` unconditionally caused the FPS adaptive early-stop to never fire on a person's first upload run. `limit="auto"` is now kept when `already_uploaded == 0`.
+
+- **`EmbeddingCache.get` falls back gracefully on all load errors**: a `MemoryError` during `np.load` of a cached embedding was re-raised, crashing the entire diversity-selection batch for that person. Cache-read failures of any kind now return `None` so the embedding is recomputed fresh.
+
+- **`get_people` returns `[]` when Immich sends `{"people": null}`**: `.get("people", [])` only uses the default when the key is absent, not when its value is `null`. Changed to `data.get("people") or []` so null-valued responses are handled the same as missing keys.
+
+- **`get_people` and `fetch_all_assets` guard against non-dict responses**: a proxy or CDN returning a JSON array (or other non-dict body) previously caused an `AttributeError` from `.get()`. Both functions now check `isinstance(data, dict)` and return an empty result with an error log.
+
+- **`filter_recent_assets` counts and logs assets with missing or unparseable timestamps** instead of silently dropping them.
+
+- **`_suppress_output` fd cleanup restructured**: the context manager now initialises `devnull_fd`, `saved_out`, and `saved_err` to `None` before the `try` block, so the `finally` can close only the descriptors that were successfully opened. Each `os.close` is wrapped in its own `try/except OSError` so a failed close cannot prevent subsequent descriptors from being released. `OSError` from `os.dup2` restore is logged at DEBUG rather than silently swallowed.
+
+- **`blur_score_from_image` copies the image before thumbnail resize**: `Image.thumbnail` modifies the image in-place. When the caller's image was already in RGB mode (no convert copy), the resize would have mutated the caller's object. A copy is now made when `score_img is img`.
+
+- **`imageWidth`/`imageHeight` zero-value treated as missing** in `image_processing.py`: the old `or img_w` fallback silently set `scale = 1.0` for a zero-valued dimension (correct) but also for `None` (also correct) with no distinction. The explicit `scale = img_w / meta_w if meta_w else 1.0` form matches the pattern used in the new `_scale_bbox_to_thumbnail` helper and makes the fallback intent clear.
+
+- **`_mark` and `update_frigate_count` copy before mutate**: both functions now create a shallow copy of the top-level tracker dict before assigning into `by_person`, so a failed `_save` cannot leave the in-memory cache ahead of the on-disk file.
+
+- **`reset_person` flat-list guard only warns when cleanup would have run**: the `isinstance(data[flat_key], list)` check previously emitted a warning even when `person_ids` was empty (a no-op call). The warning is now gated behind `person_ids and`, matching the guard on the cleanup branch.
+
+- **`_handle_duplicate_people` uses `p.get("id")` consistently**: all four return-path filter comprehensions and the `_smaller_duplicate_ids` set comprehension now use `.get("id")` instead of bare `p["id"]`, preventing a `KeyError` if the Immich API returns a person record without an `id` field.
+
+- **`K-Medoids` non-medoid membership test is O(1)**: `non_medoids` now filters against `set(medoids)` instead of the list, eliminating an O(k) scan per candidate on each outer iteration.
+
 ## [0.6.3] - 2026-06-16
 
 ### Fixed
