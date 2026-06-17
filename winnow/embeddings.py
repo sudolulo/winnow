@@ -218,9 +218,14 @@ def get_face_embedding(img_pil: Image.Image) -> np.ndarray | None:
         if not faces:
             return None
 
-        # Return embedding of largest face
-        largest = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-        return largest.embedding
+        # Return embedding of the face nearest the crop centre; a large margin can pull
+        # a bigger neighbouring face into frame, and max-by-area would pick the wrong person.
+        cx, cy = img_pil.width / 2, img_pil.height / 2
+        nearest = min(
+            faces,
+            key=lambda f: ((f.bbox[0] + f.bbox[2]) / 2 - cx) ** 2 + ((f.bbox[1] + f.bbox[3]) / 2 - cy) ** 2,
+        )
+        return nearest.embedding
     except Exception as e:
         logger.error("Error getting face embedding: %s", e)
         return None

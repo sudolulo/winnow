@@ -303,6 +303,9 @@ def _select_by_embedding(
 
             emb = get_embedding(embed_img, asset_id=asset["id"])
             if emb is not None:
+                if np.linalg.norm(emb) < 1e-6:
+                    logger.debug("Zero-norm embedding for asset %s, skipping", asset["id"])
+                    continue
                 embeddings.append(emb)
                 valid_candidates.append(asset)
                 confidence_scores.append(confidence)

@@ -39,7 +39,11 @@ def get_immich_version() -> tuple[int, int, int] | None:
         )
         if resp.ok:
             data = resp.json()
-            return (int(data["major"]), int(data["minor"]), int(data["patch"]))
+            major, minor, patch = data.get("major"), data.get("minor"), data.get("patch")
+            if major is None or minor is None or patch is None:
+                logger.debug("Unexpected Immich version schema: %s", data)
+                return None
+            return (int(major), int(minor), int(patch))
         return None
     except Exception:
         return None
