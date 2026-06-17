@@ -202,8 +202,9 @@ def execute_jobs(jobs: list[dict]) -> None:
 
                                 count += 1
                             else:
+                                reason = saved if isinstance(saved, str) else "no usable face data"
                                 progress.console.print(
-                                    f"[yellow]Skipped {asset['id']} (no usable face data)[/yellow]"
+                                    f"[yellow]Skipped {asset['id']} ({reason})[/yellow]"
                                 )
                     except Exception as e:
                         logger.error("Failed to process asset %s: %s", asset.get("id", "<unknown>"), e)

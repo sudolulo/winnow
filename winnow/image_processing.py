@@ -48,7 +48,9 @@ def align_face(img: Image.Image, landmarks: list[list[float]] | np.ndarray) -> I
         if lm.shape != (5, 2):
             logger.debug("Invalid landmark shape: %s, expected (5, 2)", lm.shape)
             return None
-        aligned = norm_crop(img_np, lm)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*estimate.*is deprecated", category=FutureWarning)
+            aligned = norm_crop(img_np, lm)
         return Image.fromarray(aligned)
     except ImportError:
         logger.debug("InsightFace not available for face alignment")
@@ -66,10 +68,11 @@ def process_face_mode(
     count: int,
     min_width: int | None = None,
     insightface_app=None,
-) -> tuple[int, int] | None:
+) -> tuple[int, int] | str | None:
     """Crop face based on Immich metadata and save to output directory.
 
-    Returns (width, height) of the saved crop, or None if no crop was saved.
+    Returns (width, height) of the saved crop, a skip-reason string if the
+    face was filtered out, or None if no crop was saved for other reasons.
     When insightface_app is provided and ENABLE_FACE_ALIGNMENT is True,
     re-detects the face in the Immich bbox region using InsightFace to get
     precise landmarks for a proper 112x112 aligned crop. Falls back to
@@ -89,7 +92,7 @@ def process_face_mode(
 
     if not face_info:
         logger.debug("No face info for %s in asset %s", person.get("name"), asset.get("id"))
-        return None
+        return "no face metadata"
 
     img_w, img_h = img.size
     meta_w = face_info.get("imageWidth") or 0
@@ -108,7 +111,7 @@ def process_face_mode(
     face_w, face_h = x2 - x1, y2 - y1
     if face_w < min_width or face_h < min_width:
         logger.debug("Face too small (%.1fx%.1f)", face_w, face_h)
-        return None
+        return f"face too small ({face_w:.0f}x{face_h:.0f}px, min {min_width}px)"
 
     # Re-detect face with InsightFace for landmark-based alignment.
     # Immich's /api/faces endpoint does not include landmarks, so the
