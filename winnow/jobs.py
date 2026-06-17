@@ -86,7 +86,11 @@ def _resolve_strategy(strategy: str, has_embedding: bool) -> tuple[int | str, st
         "standard": (30, "smart"),
         "broad": (100, "smart"),
     }
-    return strategy_map.get(strategy, ("auto", "smart"))
+    result = strategy_map.get(strategy)
+    if result is None:
+        logger.warning("Unrecognised STRATEGY=%r — falling back to auto", strategy)
+        return ("auto", "smart")
+    return result
 
 
 def _perform_selection(
@@ -244,13 +248,13 @@ def auto_configure(people: list[dict]) -> list[dict]:
         return []
 
     strategy = os.environ.get("STRATEGY", "auto")
-    skip = [s.strip() for s in os.environ.get("SKIP_PEOPLE", "").split(",") if s.strip()]
-    only = [s.strip() for s in os.environ.get("ONLY_PEOPLE", "").split(",") if s.strip()]
+    skip = {s.strip().casefold() for s in os.environ.get("SKIP_PEOPLE", "").split(",") if s.strip()}
+    only = {s.strip().casefold() for s in os.environ.get("ONLY_PEOPLE", "").split(",") if s.strip()}
 
     if only:
-        valid_people = [p for p in valid_people if p["name"] in only]
+        valid_people = [p for p in valid_people if p["name"].casefold() in only]
     if skip:
-        valid_people = [p for p in valid_people if p["name"] not in skip]
+        valid_people = [p for p in valid_people if p["name"].casefold() not in skip]
 
     min_face_count = Config.MIN_FACE_COUNT
 

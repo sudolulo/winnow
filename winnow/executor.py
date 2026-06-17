@@ -384,9 +384,9 @@ def upload_to_frigate(jobs: list[dict]) -> None:
                     # freed slot isn't filled with something worse than what we removed.
                     if min_quality_score_for_slot is not None:
                         file_score = score_map.get(fname)
-                        if file_score is not None and file_score <= min_quality_score_for_slot:
+                        if file_score is not None and file_score < min_quality_score_for_slot:
                             progress.console.print(
-                                f"    [dim]⏭  {fname}: score {file_score:.3f} ≤ freed slot floor"
+                                f"    [dim]⏭  {fname}: score {file_score:.3f} < freed slot floor"
                                 f" {min_quality_score_for_slot:.3f}, skipping[/dim]"
                             )
                             progress.advance(upload_task)

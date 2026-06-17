@@ -49,11 +49,12 @@ def _run_scheduler() -> None:
             try:
                 main()
                 print("winnow run complete", flush=True)
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, SystemExit):
                 raise
             except Exception as e:
                 logger.error("winnow run failed: %s", e, exc_info=True)
                 print(f"winnow run failed: {e}", flush=True)
+            cron = croniter(schedule, time.time())
             next_run = cron.get_next(float)
             print(f"Next run: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_run))}", flush=True)
         time.sleep(min(60, max(1, next_run - time.time())))

@@ -134,7 +134,7 @@ def fetch_all_assets(person: dict) -> tuple[list[dict], int]:
             # Immich ≥2.x returns {"assets": {"items": [...]}};
             # earlier versions returned {"assets": [...]} directly.
             if isinstance(page_assets, dict):
-                page_assets = page_assets.get("items", [])
+                page_assets = page_assets.get("items") or []
 
             page_count = len(page_assets)  # raw count for termination check before filtering
 
@@ -303,7 +303,7 @@ def filter_recent_assets(assets: list[dict], years: int | None = None) -> list[d
                 recent.append(asset)
             else:
                 skipped += 1
-        except ValueError:
+        except (ValueError, TypeError):
             bad_timestamp += 1
             continue
 
