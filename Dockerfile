@@ -8,7 +8,7 @@
 
 ARG VARIANT=gpu
 
-FROM --platform=$BUILDPLATFORM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04 AS base-amd64-gpu
+FROM --platform=$BUILDPLATFORM nvidia/cuda:13.3.0-cudnn-runtime-ubuntu24.04 AS base-amd64-gpu
 FROM ubuntu:26.04 AS base-amd64-rocm
 FROM ubuntu:22.04 AS base-amd64-intel
 FROM ubuntu:26.04 AS base-amd64-cpu
