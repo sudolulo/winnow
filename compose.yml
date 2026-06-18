@@ -31,7 +31,7 @@ services:
       # - USE_FULL_RESOLUTION=true    # Use full-res images vs thumbnails (default: true)
       # - MIN_CONFIDENCE=0.7          # Minimum face detection confidence (default: 0.7)
       # - BLUR_THRESHOLD=100.0        # Laplacian blur threshold; lower = accept more blur (default: 100.0)
-      # - MAX_AUTO_IMAGES=80          # Hard cap on auto-diversity selection (default: 20)
+      # - MAX_AUTO_IMAGES=80          # Hard cap on auto-diversity selection (default: 5)
 
       # ── Caching & Models ──────────────────────────────────────────────────
       # - FORCE_CPU=true              # Disable GPU, fall back to CPU

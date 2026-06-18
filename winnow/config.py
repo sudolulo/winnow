@@ -127,12 +127,15 @@ class _Config:
         self.API_KEY = os.getenv("API_KEY")
         self.OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./frigate_train")
         self.YEARS_FILTER = _getenv_int("YEARS_FILTER", 10)
+        if self.YEARS_FILTER < 0:
+            logging.warning("YEARS_FILTER=%s is negative — using default 10", self.YEARS_FILTER)
+            self.YEARS_FILTER = 10
         self.MIN_FACE_WIDTH = _getenv_int("MIN_FACE_WIDTH", 90)
         self.MIN_FACE_COUNT = _getenv_int("MIN_FACE_COUNT", 3)
         self.MERGE_DUPLICATE_PEOPLE = _getenv_bool("MERGE_DUPLICATE_PEOPLE", False)
         self.BLUR_THRESHOLD = _getenv_float("BLUR_THRESHOLD", 120.0)
         self.MIN_CONFIDENCE = _getenv_float("MIN_CONFIDENCE", 0.7)
-        self.MAX_AUTO_IMAGES = _getenv_int("MAX_AUTO_IMAGES", 20)
+        self.MAX_AUTO_IMAGES = _getenv_int("MAX_AUTO_IMAGES", 5)
         self.QUALITY_REPLACEMENT = _getenv_bool("QUALITY_REPLACEMENT", True)
         self.FRIGATE_SCORE_CEILING = _getenv_optional_float("FRIGATE_SCORE_CEILING")
         self.ENABLE_FRIGATE_SCORES = _getenv_bool("ENABLE_FRIGATE_SCORES", True)

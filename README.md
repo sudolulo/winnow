@@ -187,7 +187,7 @@ In scheduled mode the process (and loaded models) stays resident between runs. T
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `MAX_AUTO_IMAGES` | `20` | Maximum training images per person in Frigate |
+| `MAX_AUTO_IMAGES` | `5` | Maximum training images per person in Frigate |
 | `QUALITY_REPLACEMENT` | `true` | When at cap, swap a weaker tracked image for a better candidate. With Frigate scoring active, targets the most redundant image (highest pre-upload recognize score); otherwise uses blur score. Never touches manually added Frigate files. Set `false` to skip people at cap |
 
 #### Advanced Tuning *(calibrated — do not adjust)*

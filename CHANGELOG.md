@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-06-18
+
+### Changed
+
+- **`MAX_AUTO_IMAGES` default lowered from 20 to 5** — existing users who have not set this variable and already have more than 5 winnow-managed images in Frigate will find themselves at cap on the next run. With `QUALITY_REPLACEMENT=true` (the default), winnow will attempt to swap weaker images rather than uploading new ones. Set `MAX_AUTO_IMAGES=20` to restore the previous behaviour.
+
 ## [0.6.5] - 2026-06-17
 
 ### Added

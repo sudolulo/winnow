@@ -107,7 +107,6 @@ def get_insightface_app():
     global _insightface_app, _insightface_loaded
     if _insightface_loaded:
         return _insightface_app
-    _insightface_loaded = True
 
     ctx_id = -1
     insightface_home = os.environ.get("INSIGHTFACE_HOME", os.path.expanduser("~/.insightface"))
@@ -172,10 +171,12 @@ def get_insightface_app():
             _insightface_app.prepare(ctx_id=ctx_id, det_size=(640, 640))
 
         logger.info("InsightFace Buffalo_L: ready on %s (%.1fs)", device_str, time.time() - t0)
+        _insightface_loaded = True
         return _insightface_app
 
     except ImportError:
         logger.error("InsightFace not installed!")
+        _insightface_loaded = True
         return None
     except Exception as e:
         logger.error("Failed to load InsightFace: %s", e)
@@ -193,9 +194,11 @@ def get_insightface_app():
                     )
                     _insightface_app.prepare(ctx_id=-1, det_size=(640, 640))
                 logger.info("InsightFace Buffalo_L: ready on CPU (fallback, %.1fs)", time.time() - t0)
+                _insightface_loaded = True
                 return _insightface_app
             except Exception as ex:
                 logger.error("InsightFace CPU fallback failed: %s", ex)
+        _insightface_loaded = True
         return None
 
 
