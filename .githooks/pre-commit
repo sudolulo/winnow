@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if git diff --cached --name-only | grep -q "^pyproject\.toml$"; then
+    uv lock
+    git add uv.lock
+fi

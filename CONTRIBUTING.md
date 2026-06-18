@@ -17,7 +17,10 @@ git clone https://github.com/sudolulo/winnow.git
 cd winnow
 git checkout dev
 uv sync
+git config core.hooksPath .githooks
 ```
+
+The last line activates the project's git hooks. The pre-commit hook automatically runs `uv lock` and stages the result whenever `pyproject.toml` is part of a commit, keeping the lockfile in sync without any extra steps.
 
 ## Running Tests and Lint
 
