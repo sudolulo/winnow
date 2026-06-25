@@ -17,7 +17,7 @@ classifiers = [
 dependencies = [
     "croniter>=5.0.2",
     "insightface>=0.7.3",
-    "numpy>=2.2.6",
+    "numpy>=2.5.0",
     "opencv-python-headless>=4.12.0.88",
     "pillow>=12.1.0",
     "python-dotenv>=1.2.1",
@@ -63,8 +63,8 @@ required-environments = [
 
 [dependency-groups]
 dev = [
-    "pytest>=9.1.0",
-    "ruff>=0.15.18",
+    "pytest>=9.1.1",
+    "ruff>=0.15.20",
 ]
 
 [tool.hatch.build.targets.wheel]
