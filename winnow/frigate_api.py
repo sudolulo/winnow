@@ -32,14 +32,18 @@ def get_frigate_version() -> str | None:
 
 
 def _get_faces_data() -> dict | None:
-    """Fetch raw GET /api/faces response. Returns None if unavailable."""
+    """Fetch raw GET /api/faces response. Returns None if unavailable or malformed."""
     frigate_url = _get_frigate_url()
     if not frigate_url:
         return None
     try:
         resp = requests.get(f"{frigate_url}/api/faces", timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if not isinstance(data, dict):
+            logger.warning("Unexpected response shape from Frigate /api/faces: %s", type(data).__name__)
+            return None
+        return data
     except Exception as e:
         logger.warning("Could not query Frigate faces API: %s", e)
         return None

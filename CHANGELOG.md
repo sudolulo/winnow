@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`get_all_frigate_person_files` crashed on a non-dict `/api/faces` response**: `data.items()` assumed the JSON body was always an object; a malformed response from Frigate crashed the call instead of degrading gracefully like the rest of the API layer. `_get_faces_data` now validates the response shape and returns `None` on a non-dict body, protecting both `get_all_frigate_person_files` and `get_frigate_person_files`.
+
+- **Tracker JSON files had no cross-process locking**: two winnow invocations against the same `DATA_DIR` (e.g. a scheduled run overlapping a manual `docker exec`, which the docs explicitly instruct) could race a read-modify-write on `frigate_uploaded_ids.json`/`frigate_rejected_ids.json` and silently lose the loser's marks. Tracker load-mutate-save cycles now hold an exclusive `flock` on a `DATA_DIR` lock file for the duration of the operation.
+
+- **`begin_batch`/`flush_batch` could lose an entire person's upload marks on a crash**: tracker writes were deferred for the whole per-person upload loop, so a SIGKILL/OOM/host crash mid-batch lost every successful Frigate upload from the tracker even though the files were already live in Frigate, causing duplicate re-uploads on the next run. Batches now flush to disk every 10 marks, bounding the loss to a small, fixed window.
+
 ## [0.6.6] - 2026-06-18
 
 ### Changed

@@ -27,9 +27,11 @@ frigate_files only contains files winnow uploaded — files added manually throu
 Frigate's UI are never mapped here and are never touched by quality replacement.
 """
 
+import fcntl
 import json
 import logging
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 from .frigate_api import _get_frigate_url, delete_frigate_person_files
@@ -38,6 +40,14 @@ logger = logging.getLogger(__name__)
 
 UPLOAD_TRACKER_FILE = "frigate_uploaded_ids.json"
 REJECT_TRACKER_FILE = "frigate_rejected_ids.json"
+LOCK_FILE = ".tracker.lock"
+
+# Number of deferred _save calls a batch accumulates before it is flushed to disk
+# early. Bounds how many marks a crash mid-batch (SIGKILL/OOM/host crash) can lose —
+# without this, begin_batch()/flush_batch() defer every write for an entire
+# per-person upload loop, so a crash could lose every mark from that person's batch
+# even though the files are already live in Frigate.
+_BATCH_FLUSH_EVERY = 10
 
 # Write-through in-memory cache keyed by the resolved file path.
 # Reduces per-call JSON reads from O(calls) to O(1) after the first load.
@@ -45,6 +55,16 @@ REJECT_TRACKER_FILE = "frigate_rejected_ids.json"
 _cache: dict[str, dict] = {}
 _deferred: set[str] = set()  # paths whose disk writes are batched until flush_batch()
 _dirty: set[str] = set()    # deferred paths that received at least one _save during the batch
+_batch_writes: dict[str, int] = {}  # deferred _save calls since the last disk write, per path
+
+# Cross-process lock guarding the load-mutate-save cycle below. Two winnow
+# invocations against the same DATA_DIR (e.g. a scheduled run overlapping a
+# manual `docker exec`, which the docs explicitly instruct) can otherwise race
+# a read-modify-write and silently lose whichever one saves first. Reentrant
+# within a single process (depth-counted) so begin_batch()/flush_batch() pairs
+# and nested tracker calls made while a batch is open don't self-deadlock.
+_lock_fd: int | None = None
+_lock_depth = 0
 
 
 def _tracker_path(filename: str) -> Path:
@@ -53,6 +73,49 @@ def _tracker_path(filename: str) -> Path:
         return Path(Config.DATA_DIR) / filename
     except (ImportError, AttributeError):
         return Path(filename)
+
+
+def _lock_path() -> Path:
+    return _tracker_path(LOCK_FILE)
+
+
+def _acquire_lock() -> None:
+    """Acquire the cross-process tracker lock. Reentrant within this process."""
+    global _lock_fd, _lock_depth
+    if _lock_depth == 0:
+        path = _lock_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_CREAT | os.O_RDWR)
+        fcntl.flock(fd, fcntl.LOCK_EX)  # blocks until any other process's lock is released
+        _lock_fd = fd
+        # Cache entries not part of an in-progress deferred batch may be stale —
+        # another process could have written to disk since we last read them.
+        # Drop them so the critical section that follows re-reads from disk.
+        for key in list(_cache):
+            if key not in _deferred:
+                del _cache[key]
+    _lock_depth += 1
+
+
+def _release_lock() -> None:
+    global _lock_fd, _lock_depth
+    if _lock_depth <= 0:
+        return
+    _lock_depth -= 1
+    if _lock_depth == 0 and _lock_fd is not None:
+        fcntl.flock(_lock_fd, fcntl.LOCK_UN)
+        os.close(_lock_fd)
+        _lock_fd = None
+
+
+@contextmanager
+def _locked():
+    """Context manager wrapping a single load-mutate-save cycle in the tracker lock."""
+    _acquire_lock()
+    try:
+        yield
+    finally:
+        _release_lock()
 
 
 def _load(filename: str) -> dict:
@@ -89,6 +152,15 @@ def _save(filename: str, data: dict) -> None:
     if key in _deferred:
         _cache[key] = data  # accumulate in cache; disk write deferred until flush_batch()
         _dirty.add(key)
+        # Flush early every _BATCH_FLUSH_EVERY marks so a crash mid-batch (SIGKILL/OOM/
+        # host crash) loses at most a bounded number of marks instead of the whole batch.
+        # Safe without re-acquiring the lock: begin_batch() already holds it for the
+        # duration of the batch.
+        _batch_writes[key] = _batch_writes.get(key, 0) + 1
+        if _batch_writes[key] >= _BATCH_FLUSH_EVERY:
+            _write_to_disk(path, data)
+            _dirty.discard(key)
+            _batch_writes[key] = 0
         return
     _write_to_disk(path, data)
     _cache[key] = data  # update cache only after successful write
@@ -96,13 +168,19 @@ def _save(filename: str, data: dict) -> None:
 
 def begin_batch(filename: str) -> None:
     """Defer tracker disk writes for filename. All _save calls accumulate in the
-    in-memory cache until flush_batch() is called. Use around per-person upload loops
-    to reduce N writes to 1.
+    in-memory cache until flush_batch() is called (with periodic early flushes —
+    see _BATCH_FLUSH_EVERY). Use around per-person upload loops to reduce N writes
+    towards 1.
+
+    Acquires the cross-process tracker lock, held until the matching flush_batch()
+    releases it, so a concurrent winnow invocation against the same DATA_DIR can't
+    interleave a read-modify-write with this batch.
 
     If a previous batch for this file was interrupted before flush_batch() was called
     (e.g. an exception escaped the upload loop), the leftover cache state is flushed
     to disk here before starting fresh so that partial progress is not silently lost.
     """
+    _acquire_lock()
     path = _tracker_path(filename)
     key = str(path)
     if key in _deferred and key in _dirty:
@@ -117,16 +195,26 @@ def begin_batch(filename: str) -> None:
         _deferred.discard(key)
         _dirty.discard(key)
     _deferred.add(key)
+    _batch_writes[key] = 0
 
 
 def flush_batch(filename: str) -> None:
-    """Write the accumulated cache state for filename to disk."""
+    """Write the accumulated cache state for filename to disk and release the tracker lock
+    acquired by the matching begin_batch().
+
+    The lock release always runs, even if the disk write raises, so a write failure
+    (e.g. a full disk) can't leave the tracker lock held for the rest of the process.
+    """
     path = _tracker_path(filename)
     key = str(path)
-    if key in _dirty and key in _cache:
-        _write_to_disk(path, _cache[key])
-    _deferred.discard(key)
-    _dirty.discard(key)
+    try:
+        if key in _dirty and key in _cache:
+            _write_to_disk(path, _cache[key])
+    finally:
+        _deferred.discard(key)
+        _dirty.discard(key)
+        _batch_writes.pop(key, None)
+        _release_lock()
 
 
 def _flat_key(filename: str) -> str:
@@ -165,22 +253,23 @@ def _mark(
     if not person_name:
         logger.warning("_mark called with empty person_name for asset %s — asset not recorded", asset_id)
         return
-    data = _load(filename)
-    by_person = dict(data.get("by_person", {}))
-    entry = _migrate_entry(by_person.get(person_name, {}))
-    ids = set(entry["asset_ids"])
-    ids.add(asset_id)
-    entry["asset_ids"] = sorted(ids)
-    if score is not None:
-        entry["scores"][asset_id] = round(score, 4)
-    if crop_dims is not None:
-        entry["crop_dims"][asset_id] = [crop_dims[0], crop_dims[1]]
-    if frigate_score is not None:
-        entry["frigate_scores"][asset_id] = round(frigate_score, 4)
-    by_person[person_name] = entry
-    new_data = dict(data)
-    new_data["by_person"] = by_person
-    _save(filename, new_data)
+    with _locked():
+        data = _load(filename)
+        by_person = dict(data.get("by_person", {}))
+        entry = _migrate_entry(by_person.get(person_name, {}))
+        ids = set(entry["asset_ids"])
+        ids.add(asset_id)
+        entry["asset_ids"] = sorted(ids)
+        if score is not None:
+            entry["scores"][asset_id] = round(score, 4)
+        if crop_dims is not None:
+            entry["crop_dims"][asset_id] = [crop_dims[0], crop_dims[1]]
+        if frigate_score is not None:
+            entry["frigate_scores"][asset_id] = round(frigate_score, 4)
+        by_person[person_name] = entry
+        new_data = dict(data)
+        new_data["by_person"] = by_person
+        _save(filename, new_data)
     logger.debug("Marked %s in %s (%s)", asset_id, filename, person_name)
 
 
@@ -229,14 +318,15 @@ def record_frigate_files_batch(person_name: str, mappings: dict[str, str]) -> No
     """Record multiple Frigate filename → asset_id mappings in a single load/save."""
     if not mappings:
         return
-    src = _load(UPLOAD_TRACKER_FILE)
-    by_person = dict(src.get("by_person", {}))
-    entry = _migrate_entry(by_person.get(person_name, {}))
-    entry["frigate_files"].update(mappings)
-    by_person[person_name] = entry
-    data = dict(src)
-    data["by_person"] = by_person
-    _save(UPLOAD_TRACKER_FILE, data)
+    with _locked():
+        src = _load(UPLOAD_TRACKER_FILE)
+        by_person = dict(src.get("by_person", {}))
+        entry = _migrate_entry(by_person.get(person_name, {}))
+        entry["frigate_files"].update(mappings)
+        by_person[person_name] = entry
+        data = dict(src)
+        data["by_person"] = by_person
+        _save(UPLOAD_TRACKER_FILE, data)
     logger.debug(f"Batch-mapped {len(mappings)} Frigate file(s) for {person_name}")
 
 
@@ -251,20 +341,21 @@ def remove_frigate_file(person_name: str, frigate_filename: str) -> None:
 
 def remove_frigate_files_batch(person_name: str, frigate_filenames: list[str]) -> None:
     """Remove multiple Frigate filenames in a single load/save."""
-    src = _load(UPLOAD_TRACKER_FILE)
-    raw = src.get("by_person", {}).get(person_name)
-    if raw is None:
-        return
-    entry = _migrate_entry(raw)
-    for fn in frigate_filenames:
-        asset_id = entry["frigate_files"].pop(fn, None)
-        if asset_id is not None and asset_id not in entry["frigate_files"].values():
-            entry["frigate_scores"].pop(asset_id, None)
-    by_person = dict(src.get("by_person", {}))  # copy so assignment does not mutate the cache
-    by_person[person_name] = entry
-    data = dict(src)
-    data["by_person"] = by_person
-    _save(UPLOAD_TRACKER_FILE, data)
+    with _locked():
+        src = _load(UPLOAD_TRACKER_FILE)
+        raw = src.get("by_person", {}).get(person_name)
+        if raw is None:
+            return
+        entry = _migrate_entry(raw)
+        for fn in frigate_filenames:
+            asset_id = entry["frigate_files"].pop(fn, None)
+            if asset_id is not None and asset_id not in entry["frigate_files"].values():
+                entry["frigate_scores"].pop(asset_id, None)
+        by_person = dict(src.get("by_person", {}))  # copy so assignment does not mutate the cache
+        by_person[person_name] = entry
+        data = dict(src)
+        data["by_person"] = by_person
+        _save(UPLOAD_TRACKER_FILE, data)
     logger.debug(f"Removed {len(frigate_filenames)} Frigate file mapping(s) for {person_name}")
 
 
@@ -378,14 +469,15 @@ def find_by_crop_dimension(size: int) -> list[dict]:
 
 def update_frigate_count(person_name: str, count: int) -> None:
     """Record Frigate's authoritative training image count for a person."""
-    data = _load(UPLOAD_TRACKER_FILE)
-    by_person = dict(data.get("by_person", {}))
-    entry = _migrate_entry(by_person.get(person_name, {}))
-    entry["frigate_count"] = count
-    by_person[person_name] = entry
-    new_data = dict(data)
-    new_data["by_person"] = by_person
-    _save(UPLOAD_TRACKER_FILE, new_data)
+    with _locked():
+        data = _load(UPLOAD_TRACKER_FILE)
+        by_person = dict(data.get("by_person", {}))
+        entry = _migrate_entry(by_person.get(person_name, {}))
+        entry["frigate_count"] = count
+        by_person[person_name] = entry
+        new_data = dict(data)
+        new_data["by_person"] = by_person
+        _save(UPLOAD_TRACKER_FILE, new_data)
 
 
 def reset_all_people() -> None:
@@ -394,22 +486,25 @@ def reset_all_people() -> None:
     Preferred over calling reset_person() in a loop when RESET_PERSON=* — that
     approach is O(P²) because each call rebuilds the flat list from all remaining entries.
     """
-    upload_data = _load(UPLOAD_TRACKER_FILE)
-    frigate_url = _get_frigate_url()
-    if not frigate_url:
-        logger.info("FRIGATE_URL not set — skipping Frigate file deletion")
-    for person_name, raw_entry in upload_data.get("by_person", {}).items():
-        entry = _migrate_entry(raw_entry)
-        frigate_filenames = list(entry.get("frigate_files", {}).keys())
-        if not frigate_filenames:
-            continue
-        if frigate_url:
-            if delete_frigate_person_files(person_name, frigate_filenames):
-                logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
-            else:
-                logger.warning(f"Could not delete Frigate files for {person_name} — tracker reset proceeding anyway")
-    _save(UPLOAD_TRACKER_FILE, {})
-    _save(REJECT_TRACKER_FILE, {})
+    with _locked():
+        upload_data = _load(UPLOAD_TRACKER_FILE)
+        frigate_url = _get_frigate_url()
+        if not frigate_url:
+            logger.info("FRIGATE_URL not set — skipping Frigate file deletion")
+        for person_name, raw_entry in upload_data.get("by_person", {}).items():
+            entry = _migrate_entry(raw_entry)
+            frigate_filenames = list(entry.get("frigate_files", {}).keys())
+            if not frigate_filenames:
+                continue
+            if frigate_url:
+                if delete_frigate_person_files(person_name, frigate_filenames):
+                    logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
+                else:
+                    logger.warning(
+                        f"Could not delete Frigate files for {person_name} — tracker reset proceeding anyway"
+                    )
+        _save(UPLOAD_TRACKER_FILE, {})
+        _save(REJECT_TRACKER_FILE, {})
     logger.info("Reset all tracking data")
 
 
@@ -421,37 +516,38 @@ def reset_person(person_name: str) -> None:
     files (not in frigate_files) are never touched. Proceeds with tracker reset
     even if Frigate is unreachable.
     """
-    upload_data = _load(UPLOAD_TRACKER_FILE)
-    entry = _migrate_entry(upload_data.get("by_person", {}).get(person_name, {}))
-    frigate_filenames = list(entry.get("frigate_files", {}).keys())
-    if frigate_filenames:
-        if not _get_frigate_url():
-            logger.info(f"FRIGATE_URL not set — skipping Frigate file deletion for {person_name}")
-        elif delete_frigate_person_files(person_name, frigate_filenames):
-            logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
-        else:
-            logger.warning(f"Could not delete Frigate files for {person_name} — tracker reset proceeding anyway")
+    with _locked():
+        upload_data = _load(UPLOAD_TRACKER_FILE)
+        entry = _migrate_entry(upload_data.get("by_person", {}).get(person_name, {}))
+        frigate_filenames = list(entry.get("frigate_files", {}).keys())
+        if frigate_filenames:
+            if not _get_frigate_url():
+                logger.info(f"FRIGATE_URL not set — skipping Frigate file deletion for {person_name}")
+            elif delete_frigate_person_files(person_name, frigate_filenames):
+                logger.info(f"Deleted {len(frigate_filenames)} Frigate file(s) for {person_name}")
+            else:
+                logger.warning(f"Could not delete Frigate files for {person_name} — tracker reset proceeding anyway")
 
-    changed = False
-    for filename in (UPLOAD_TRACKER_FILE, REJECT_TRACKER_FILE):
-        src = upload_data if filename == UPLOAD_TRACKER_FILE else _load(REJECT_TRACKER_FILE)
-        by_person = dict(src.get("by_person", {}))  # copy so pop() does not mutate the cache
-        tracker_entry = by_person.pop(person_name, None)
-        if tracker_entry is not None:
-            data = dict(src)
-            data["by_person"] = by_person
-            flat_key = _flat_key(filename)
-            person_ids = set(_get_ids(tracker_entry))
-            if person_ids and flat_key in data and not isinstance(data[flat_key], list):
-                logger.warning(
-                    "reset_person: %s has unexpected type for %s (%s) — skipping flat-list cleanup;"
-                    " all persons' legacy IDs in this field are unaffected but unreadable",
-                    filename, flat_key, type(data[flat_key]).__name__,
-                )
-            elif person_ids and flat_key in data:
-                data[flat_key] = sorted(set(data[flat_key]) - person_ids)
-            _save(filename, data)
-            changed = True
+        changed = False
+        for filename in (UPLOAD_TRACKER_FILE, REJECT_TRACKER_FILE):
+            src = upload_data if filename == UPLOAD_TRACKER_FILE else _load(REJECT_TRACKER_FILE)
+            by_person = dict(src.get("by_person", {}))  # copy so pop() does not mutate the cache
+            tracker_entry = by_person.pop(person_name, None)
+            if tracker_entry is not None:
+                data = dict(src)
+                data["by_person"] = by_person
+                flat_key = _flat_key(filename)
+                person_ids = set(_get_ids(tracker_entry))
+                if person_ids and flat_key in data and not isinstance(data[flat_key], list):
+                    logger.warning(
+                        "reset_person: %s has unexpected type for %s (%s) — skipping flat-list cleanup;"
+                        " all persons' legacy IDs in this field are unaffected but unreadable",
+                        filename, flat_key, type(data[flat_key]).__name__,
+                    )
+                elif person_ids and flat_key in data:
+                    data[flat_key] = sorted(set(data[flat_key]) - person_ids)
+                _save(filename, data)
+                changed = True
     if changed:
         logger.info(f"Reset tracking data for {person_name}")
     else:
