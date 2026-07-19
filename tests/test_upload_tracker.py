@@ -1,5 +1,8 @@
 """Tests for upload tracker — mark, filter, reset, and summary logic."""
 
+import fcntl
+import json
+import os
 
 import pytest
 
@@ -260,3 +263,121 @@ def test_get_most_redundant_exclude_all_returns_none():
     mark_uploaded("asset-a", person_name="Alice", score=0.5, frigate_score=0.70)
     record_frigate_file("Alice", "Alice-a.webp", "asset-a")
     assert get_most_redundant_mapped_file("Alice", exclude={"Alice-a.webp"}) is None
+
+
+# ── cross-process locking ──────────────────────────────────────────────────────
+
+def test_tracker_lock_blocks_concurrent_exclusive_access():
+    """While upload_tracker holds the tracker lock, a second (non-blocking) attempt
+    to exclusively lock the same file must fail — proving the lock is real and
+    guards a second winnow process from racing a read-modify-write."""
+    from winnow import upload_tracker as ut
+
+    ut._acquire_lock()
+    try:
+        lock_path = ut._lock_path()
+        assert lock_path.exists()
+        fd = os.open(lock_path, os.O_RDWR)
+        try:
+            with pytest.raises(OSError):
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+    finally:
+        ut._release_lock()
+
+    # Released — a second exclusive, non-blocking lock now succeeds immediately.
+    fd = os.open(ut._lock_path(), os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def test_tracker_lock_reentrant_within_process():
+    """Nested acquisitions (e.g. begin_batch() for both tracker files, or a tracker
+    call made while a batch is open) must not deadlock the process that holds them."""
+    from winnow import upload_tracker as ut
+
+    assert ut._lock_depth == 0
+    ut._acquire_lock()
+    ut._acquire_lock()
+    assert ut._lock_depth == 2
+    ut._release_lock()
+    assert ut._lock_depth == 1
+    ut._release_lock()
+    assert ut._lock_depth == 0
+
+
+def test_begin_flush_batch_releases_lock_for_next_caller():
+    """begin_batch()/flush_batch() (including a nested mark_uploaded call inside the
+    batch) must fully release the lock so it doesn't stay held for the rest of the run."""
+    from winnow import upload_tracker as ut
+    from winnow.upload_tracker import (
+        REJECT_TRACKER_FILE,
+        UPLOAD_TRACKER_FILE,
+        begin_batch,
+        flush_batch,
+        mark_uploaded,
+    )
+
+    begin_batch(UPLOAD_TRACKER_FILE)
+    begin_batch(REJECT_TRACKER_FILE)
+    mark_uploaded("a1", person_name="Alice")
+    flush_batch(UPLOAD_TRACKER_FILE)
+    flush_batch(REJECT_TRACKER_FILE)
+
+    assert ut._lock_depth == 0
+    fd = os.open(ut._lock_path(), os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+# ── batched writes: incremental flush bounds crash loss ───────────────────────
+
+def test_batch_defers_writes_below_flush_threshold(isolated_cache):
+    """Below the flush threshold, writes stay in memory — batching still avoids
+    a disk write per mark."""
+    from winnow.upload_tracker import UPLOAD_TRACKER_FILE, begin_batch, flush_batch, mark_uploaded
+
+    tracker_path = isolated_cache / UPLOAD_TRACKER_FILE
+    begin_batch(UPLOAD_TRACKER_FILE)
+    try:
+        mark_uploaded("asset-0", person_name="Alice")
+        assert not tracker_path.exists()
+    finally:
+        flush_batch(UPLOAD_TRACKER_FILE)
+    assert tracker_path.exists()
+
+
+def test_batch_flushes_incrementally_bounding_crash_loss(isolated_cache):
+    """A crash mid-batch (SIGKILL/OOM/host crash) must lose at most a bounded number
+    of marks, not the whole per-person batch — verified by reading the file straight
+    off disk before flush_batch() is ever called."""
+    from winnow.upload_tracker import _BATCH_FLUSH_EVERY, UPLOAD_TRACKER_FILE, begin_batch, flush_batch, mark_uploaded
+
+    tracker_path = isolated_cache / UPLOAD_TRACKER_FILE
+    begin_batch(UPLOAD_TRACKER_FILE)
+    try:
+        for i in range(_BATCH_FLUSH_EVERY):
+            mark_uploaded(f"asset-{i}", person_name="Alice")
+        # Threshold reached: disk already reflects all marks so far, even though
+        # flush_batch() has not run yet — simulates surviving a crash here.
+        on_disk = json.loads(tracker_path.read_text())
+        ids = on_disk["by_person"]["Alice"]["asset_ids"]
+        assert len(ids) == _BATCH_FLUSH_EVERY
+
+        # One more mark past the threshold stays deferred again until the next
+        # periodic flush or flush_batch().
+        mark_uploaded("asset-extra", person_name="Alice")
+        on_disk = json.loads(tracker_path.read_text())
+        assert len(on_disk["by_person"]["Alice"]["asset_ids"]) == _BATCH_FLUSH_EVERY
+    finally:
+        flush_batch(UPLOAD_TRACKER_FILE)
+
+    on_disk = json.loads(tracker_path.read_text())
+    assert len(on_disk["by_person"]["Alice"]["asset_ids"]) == _BATCH_FLUSH_EVERY + 1
