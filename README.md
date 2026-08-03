@@ -273,3 +273,8 @@ When run with a terminal attached, winnow starts an interactive session: select 
 ## Attribution
 
 Based on [if_curator](https://github.com/ds-sebastian/if_curator) by Sebastian, licensed MIT.
+
+## Support
+
+If winnow is useful to you, consider supporting development via
+[GitHub Sponsors](https://github.com/sponsors/sudolulo) or [Ko-fi](https://ko-fi.com/sudolulo).
