@@ -1,5 +1,7 @@
 # winnow
 
+[![Tests](https://github.com/sudolulo/winnow/actions/workflows/test.yml/badge.svg)](https://github.com/sudolulo/winnow/actions)
+
 > **Note:** winnow's approach to training Frigate face recognition is not an officially documented workflow — results may vary.
 
 > **Early Development — Use With Caution**
