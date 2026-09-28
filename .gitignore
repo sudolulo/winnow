@@ -38,3 +38,4 @@ wheels/
 # Runtime data: face embeddings + upload trackers keyed by real person names.
 # Never commit — this is the DATA_DIR the README tells you to mount.
 data/
+.aider*
