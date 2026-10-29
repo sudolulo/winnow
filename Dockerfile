@@ -10,12 +10,12 @@ ARG VARIANT=gpu
 
 FROM --platform=$BUILDPLATFORM nvidia/cuda:12.9.2-cudnn-runtime-ubuntu24.04 AS base-amd64-gpu
 FROM ubuntu:26.04 AS base-amd64-rocm
-FROM ubuntu:22.04 AS base-amd64-intel
+FROM ubuntu:25.10 AS base-amd64-intel
 FROM ubuntu:26.04 AS base-amd64-cpu
-FROM ubuntu:24.04 AS base-arm64-gpu
-FROM ubuntu:24.04 AS base-arm64-rocm
-FROM ubuntu:24.04 AS base-arm64-intel
-FROM ubuntu:24.04 AS base-arm64-cpu
+FROM ubuntu:25.10 AS base-arm64-gpu
+FROM ubuntu:25.10 AS base-arm64-rocm
+FROM ubuntu:25.10 AS base-arm64-intel
+FROM ubuntu:25.10 AS base-arm64-cpu
 
 # ── Build stage ───────────────────────────────────────────────────────────────
 ARG TARGETARCH
