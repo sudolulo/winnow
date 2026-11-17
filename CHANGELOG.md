@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Locked dependencies with known vulnerabilities upgraded**: `certifi` 2026.5.20 -> 2026.10.23, `pillow` 12.2.0 -> 13.0.0 and `urllib3` 2.7.0 -> 2.8.0 in `uv.lock`, clearing one critical certifi advisory, five critical and several high pillow advisories, and a high urllib3 advisory reported by Trivy. The test suite passes on the new lock.
+
 ### Fixed
 
 - **`get_all_frigate_person_files` crashed on a non-dict `/api/faces` response**: `data.items()` assumed the JSON body was always an object; a malformed response from Frigate crashed the call instead of degrading gracefully like the rest of the API layer. `_get_faces_data` now validates the response shape and returns `None` on a non-dict body, protecting both `get_all_frigate_person_files` and `get_frigate_person_files`.
