@@ -7,11 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Release and image publishing run only from protected refs**: `release.yml` now triggers on pushed protected `v*` tags and builds the release images itself, replacing the reusable `workflow_call` entry into `docker-publish.yml`, which now runs only on the protected `dev` branch. The release ordering is retained: every release image job needs the `release` job, and the manifest merge needs both `release` and the amd64 build, so no `:latest` or versioned image is pushed unless the GitHub Release step succeeds. The duplicated image jobs are kept identical apart from `needs:`, checked by `tests/test_workflows.py`.
+- **Release tags are validated and step outputs no longer reach shell source**: the release job rejects any tag that is not `vMAJOR.MINOR.PATCH[-PRERELEASE]`; tag, version, digest and image-tag values now pass through `env:` and are expanded as quoted shell words or array arguments instead of being substituted into `run:` scripts, and the changelog lookup matches the version literally rather than as a regex.
+- **Secret scan pins its scanner and scans full history**: the Gitea secret-scan workflow runs Gitleaks 8.30.1 from a digest-pinned container image over the full git history (`fetch-depth: 0`, redacted output) instead of downloading the release archive in the job.
+
 ### Security
 
 - **Locked dependencies with known vulnerabilities upgraded**: `certifi` 2026.5.20 -> 2026.10.23, `pillow` 12.2.0 -> 13.0.0 and `urllib3` 2.7.0 -> 2.8.0 in `uv.lock`, clearing one critical certifi advisory, five critical and several high pillow advisories, and a high urllib3 advisory reported by Trivy. The test suite passes on the new lock.
 
 ### Fixed
+
+- **Gitea runs the GitHub-style workflows again**: `secret-scan.yml` moved from `.gitea/workflows/` to `.github/workflows/`. Gitea reads only the first workflow directory that exists, so the lone `.gitea/workflows/` file had stopped every `.github/workflows/` workflow (tests, lint, release, image publishing) on Gitea; `tests/test_workflows.py` now asserts the layout.
 
 - **`get_all_frigate_person_files` crashed on a non-dict `/api/faces` response**: `data.items()` assumed the JSON body was always an object; a malformed response from Frigate crashed the call instead of degrading gracefully like the rest of the API layer. `_get_faces_data` now validates the response shape and returns `None` on a non-dict body, protecting both `get_all_frigate_person_files` and `get_frigate_person_files`.
 

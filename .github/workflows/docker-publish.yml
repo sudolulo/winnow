@@ -1,6 +1,11 @@
 name: Publish Docker Image
 
 on:
+  # Direct trigger is the protected dev branch only (:dev images). Release
+  # images (:latest plus versioned tags) are built by the duplicated image
+  # jobs in release.yml so they stay gated on the release job succeeding; see
+  # the note at the top of release.yml. Tag and version derive from GITHUB_REF
+  # in both copies, so the job bodies stay identical.
   push:
     branches: ["dev"]
     paths-ignore:
@@ -12,16 +17,6 @@ on:
       - ".github/workflows/lint.yml"
       - ".github/dependabot.yml"
       - "uv.lock"
-  workflow_call:
-    inputs:
-      tag:
-        type: string
-        required: false
-        description: "Release tag, e.g. v0.4.1 — triggers :latest + versioned image tags"
-      version:
-        type: string
-        required: false
-        description: "Version string without v prefix, e.g. 0.4.1"
 
 concurrency:
   group: docker-${{ github.ref }}
@@ -55,8 +50,6 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -71,11 +64,10 @@ jobs:
       - name: Compute build version
         id: version
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=dev" >> "$GITHUB_OUTPUT"
-          fi
+          case "$GITHUB_REF" in
+            refs/tags/v*) echo "value=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT" ;;
+            *) echo "value=dev" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Build and push by digest
         id: build
@@ -91,10 +83,11 @@ jobs:
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -134,25 +127,51 @@ jobs:
         id: tags
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          INPUT_TAG="${{ inputs.tag }}"
+          case "$GITHUB_REF" in
+            refs/tags/v*) INPUT_TAG="${GITHUB_REF#refs/tags/}" ;;
+            *) INPUT_TAG="" ;;
+          esac
           if [ -n "$INPUT_TAG" ]; then
-            echo "tag_args=-t ${IMAGE}:latest -t ${IMAGE}:${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+            {
+              echo "tags<<EOF"
+              printf '%s\n' "${IMAGE}:latest" "${IMAGE}:${INPUT_TAG}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
             echo "inspect_tag=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
           else
-            echo "tag_args=-t ${IMAGE}:dev" >> "$GITHUB_OUTPUT"
+            echo "tags=${IMAGE}:dev" >> "$GITHUB_OUTPUT"
             echo "inspect_tag=${IMAGE}:dev" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create and push multi-arch manifest
         working-directory: /tmp/digests
+        env:
+          IMAGE_TAGS: ${{ steps.tags.outputs.tags }}
         run: |
-          docker buildx imagetools create \
-            ${{ steps.tags.outputs.tag_args }} \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+          # Step outputs arrive through env and become one argv entry each,
+          # so no tag or digest value is ever parsed as shell source.
+          tag_args=()
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              tag_args+=(-t "$tag")
+            fi
+          done <<< "$IMAGE_TAGS"
+          shopt -s nullglob
+          sources=()
+          for digest in *; do
+            sources+=("${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:${digest}")
+          done
+          if [ "${#tag_args[@]}" -eq 0 ] || [ "${#sources[@]}" -eq 0 ]; then
+            echo "No image tags or digests to merge." >&2
+            exit 1
+          fi
+          docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
 
       - name: Inspect image
+        env:
+          INSPECT_TAG: ${{ steps.tags.outputs.inspect_tag }}
         run: |
-          docker buildx imagetools inspect ${{ steps.tags.outputs.inspect_tag }}
+          docker buildx imagetools inspect "$INSPECT_TAG"
 
       - name: Ensure package is public
         run: |
@@ -179,8 +198,6 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
@@ -199,7 +216,10 @@ jobs:
         id: cpu-tags
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          INPUT_TAG="${{ inputs.tag }}"
+          case "$GITHUB_REF" in
+            refs/tags/v*) INPUT_TAG="${GITHUB_REF#refs/tags/}" ;;
+            *) INPUT_TAG="" ;;
+          esac
           if [ -n "$INPUT_TAG" ]; then
             {
               echo "tags<<EOF"
@@ -215,11 +235,10 @@ jobs:
       - name: Compute build version
         id: version
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=dev" >> "$GITHUB_OUTPUT"
-          fi
+          case "$GITHUB_REF" in
+            refs/tags/v*) echo "value=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT" ;;
+            *) echo "value=dev" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Build and push CPU image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
@@ -237,8 +256,10 @@ jobs:
           tags: ${{ steps.cpu-tags.outputs.tags }}
 
       - name: Inspect CPU image
+        env:
+          INSPECT_TAG: ${{ steps.cpu-tags.outputs.inspect_tag }}
         run: |
-          docker buildx imagetools inspect ${{ steps.cpu-tags.outputs.inspect_tag }}
+          docker buildx imagetools inspect "$INSPECT_TAG"
 
       - name: Ensure package is public
         run: |
@@ -265,8 +286,6 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -282,7 +301,10 @@ jobs:
         id: rocm-tags
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          INPUT_TAG="${{ inputs.tag }}"
+          case "$GITHUB_REF" in
+            refs/tags/v*) INPUT_TAG="${GITHUB_REF#refs/tags/}" ;;
+            *) INPUT_TAG="" ;;
+          esac
           if [ -n "$INPUT_TAG" ]; then
             {
               echo "tags<<EOF"
@@ -298,11 +320,10 @@ jobs:
       - name: Compute build version
         id: version
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=dev" >> "$GITHUB_OUTPUT"
-          fi
+          case "$GITHUB_REF" in
+            refs/tags/v*) echo "value=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT" ;;
+            *) echo "value=dev" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Build and push ROCm image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
@@ -320,8 +341,10 @@ jobs:
           tags: ${{ steps.rocm-tags.outputs.tags }}
 
       - name: Inspect ROCm image
+        env:
+          INSPECT_TAG: ${{ steps.rocm-tags.outputs.inspect_tag }}
         run: |
-          docker buildx imagetools inspect ${{ steps.rocm-tags.outputs.inspect_tag }}
+          docker buildx imagetools inspect "$INSPECT_TAG"
 
       - name: Ensure package is public
         run: |
@@ -348,8 +371,6 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -365,7 +386,10 @@ jobs:
         id: intel-tags
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          INPUT_TAG="${{ inputs.tag }}"
+          case "$GITHUB_REF" in
+            refs/tags/v*) INPUT_TAG="${GITHUB_REF#refs/tags/}" ;;
+            *) INPUT_TAG="" ;;
+          esac
           if [ -n "$INPUT_TAG" ]; then
             {
               echo "tags<<EOF"
@@ -381,11 +405,10 @@ jobs:
       - name: Compute build version
         id: version
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=dev" >> "$GITHUB_OUTPUT"
-          fi
+          case "$GITHUB_REF" in
+            refs/tags/v*) echo "value=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT" ;;
+            *) echo "value=dev" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Build and push Intel image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
@@ -403,8 +426,10 @@ jobs:
           tags: ${{ steps.intel-tags.outputs.tags }}
 
       - name: Inspect Intel image
+        env:
+          INSPECT_TAG: ${{ steps.intel-tags.outputs.inspect_tag }}
         run: |
-          docker buildx imagetools inspect ${{ steps.intel-tags.outputs.inspect_tag }}
+          docker buildx imagetools inspect "$INSPECT_TAG"
 
       - name: Ensure package is public
         run: |
