@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **ONNX security update**: upgrade transitive `onnx` from 1.21.0 to 1.22.0 in `uv.lock` to address six Trivy-reported vulnerabilities.
+
 - **Locked dependencies with known vulnerabilities upgraded**: `certifi` 2026.5.20 -> 2026.10.23, `pillow` 12.2.0 -> 13.0.0 and `urllib3` 2.7.0 -> 2.8.0 in `uv.lock`, clearing one critical certifi advisory, five critical and several high pillow advisories, and a high urllib3 advisory reported by Trivy. The test suite passes on the new lock.
 
 ### Fixed
